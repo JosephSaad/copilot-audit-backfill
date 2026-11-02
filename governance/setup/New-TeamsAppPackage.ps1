@@ -82,8 +82,8 @@ try {
         staticTabs          = @([ordered]@{
                 entityId   = 'launch'
                 name       = 'Workbench'
-                contentUrl = "$httpsBase/Teams/Launch?item={subEntityId}"
-                websiteUrl = "$httpsBase/Start"
+                contentUrl = "$httpsBase/workbench/Teams/Launch?item={subEntityId}"
+                websiteUrl = "$httpsBase/workbench/Start"
                 scopes     = @('personal')
             })
         permissions         = @('identity')

@@ -151,7 +151,7 @@ public sealed class FindingWriter(OutboxWriter outbox, IClock clock)
             """,
             new { now = clock.UtcNow, resolution, findingType, keys = System.Text.Json.JsonSerializer.Serialize(stillOpenKeys) });
 
-    public Task NotifyAsync(Uow uow, string code, long findingId, string subject, string text, IEnumerable<int> personIds, IEnumerable<RoleTarget> roles, IEnumerable<string>? queues = null, int? fundingOwnerId = null, string linkPath = "/Operations/Drift")
+    public Task NotifyAsync(Uow uow, string code, long findingId, string subject, string text, IEnumerable<int> personIds, IEnumerable<RoleTarget> roles, IEnumerable<string>? queues = null, int? fundingOwnerId = null, string linkPath = "/workbench/Operations/Findings")
         => outbox.EnqueueAsync(uow, new OutboxMessage
         {
             EventType = code, FindingId = findingId, FundingOwnerId = fundingOwnerId, PersonIds = personIds.Distinct().ToList(), Roles = roles.ToList(),

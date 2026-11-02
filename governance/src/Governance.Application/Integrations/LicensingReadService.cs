@@ -123,7 +123,7 @@ public sealed class DriftEvaluator(FindingWriter findings)
                      SELECT ProductOwnerPersonId FROM core.Workload WHERE WorkloadId = @WorkloadId AND ProductOwnerPersonId IS NOT NULL
                      UNION SELECT ra.PersonId FROM sec.RoleAssignment ra WHERE ra.RoleCode = 'PLATFORM_OWNER' AND ra.ScopeType = 'TENANT' AND (ra.EffectiveTo IS NULL OR ra.EffectiveTo >= CAST(SYSUTCDATETIME() AS date))
                      """, new { p.WorkloadId }))
-            await uow.ExecuteAsync("INSERT ntf.DigestEntry (PersonId, RuleCode, Text, Link) VALUES (@person, 'N10', @text, '/Operations/Drift')",
+            await uow.ExecuteAsync("INSERT ntf.DigestEntry (PersonId, RuleCode, Text, Link) VALUES (@person, 'N10', @text, '/workbench/Operations/Findings')",
                 new { person, text = $"Drift on {p.WorkloadName}: {title} (expected {expected}, found {actual})." });
         return 1;
     }

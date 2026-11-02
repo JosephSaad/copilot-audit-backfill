@@ -1,0 +1,59 @@
+@page "/workbench/Queues/{queue}/{discipline?}"
+@model Governance.Web.Pages.Queues.IndexModel
+@{
+    ViewData["Title"] = Model.Text.Title;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Queues</div>
+        <h1>@Model.Text.Title</h1>
+        <p class="lead">@Model.Text.Lead Claim a task to work on it; release it if you cannot finish.</p>
+    </div>
+    @if (Model.Queue.Equals("Reviews", StringComparison.OrdinalIgnoreCase))
+    {
+        <div class="page-actions">
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews">All</a>
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews/ARCHITECTURE">Architecture</a>
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews/SECURITY_RISK">Security and Risk</a>
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews/FINANCE">FinOps</a>
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews/OPERATIONS">Operations</a>
+            <a class="btn btn-small btn-ghost" href="/workbench/Queues/Reviews/PLATFORM">Preview adoption</a>
+        </div>
+    }
+</div>
+<partial name="_Search" model="Model.Search" />
+@if (Model.Tasks.Items.Count == 0)
+{
+    <div class="card empty">The queue is empty.</div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead>
+            <tr>
+                <partial name="_Th" model='("title", "Task", "What needs doing.")' />
+                <partial name="_Th" model='("request", "Request", "Open the request to act.")' />
+                <partial name="_Th" model='("owner", "Funding owner", "Whose workload it is.")' />
+                <partial name="_Th" model='("", "Taken by", "Who claimed it. Unclaimed tasks can be taken by any eligible holder of the role.")' />
+                <partial name="_Th" model='("due", "Due", "Escalates one level at the due time.")' />
+                <th scope="col"><span class="sr-only">Claim</span></th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var t in Model.Tasks.Items)
+            {
+                <tr>
+                    <td><strong>@t.Title</strong><div class="small muted">@t.StageCode @(t.Discipline is null ? "" : "· " + Governance.Application.Workflow.WorkflowEngine.DisciplineLabel(t.Discipline)) · @t.RoleName</div></td>
+                    <td>@if (t.RequestPublicId is Guid g) { <a href="/workbench/Requests/@g">@t.RequestNumber</a> }</td>
+                    <td>@t.FundingOwnerName</td>
+                    <td>@(t.AssignedName ?? "Free")</td>
+                    <td class="nowrap">@if (t.DueUtc is not null) { @Ui.Pill(t.DueUtc < DateTime.UtcNow ? "OVERDUE" : "ON_TIME", t.DueUtc < DateTime.UtcNow ? "bad" : "ok") <div class="small">@Ui.Local(t.DueUtc)</div> }</td>
+                    <td>@if (t.AssignedPersonId is null && t.RequestPublicId is Guid rq) { <form method="post" asp-page-handler="Claim" asp-route-task="@t.TaskPublicId" asp-route-request="@rq"><idem /><button class="btn btn-small" type="submit">Claim</button></form> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Tasks.Query.Page, Model.Tasks.Pages, Model.Tasks.Total)" />
+}

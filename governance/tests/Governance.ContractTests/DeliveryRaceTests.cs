@@ -112,7 +112,7 @@ public sealed class DeliveryRaceTests(DeliveryDatabase fx) : IClassFixture<Deliv
             people.Add(await admin.ExecuteScalarAsync<int>(
                 "INSERT sec.Person (DisplayName, Mail, AccountEnabled, IsSynthetic) OUTPUT inserted.PersonId VALUES (@n, @m, 1, 1)",
                 new { n = $"Recipient {i}", m = $"r{i}@contoso.example" }));
-        var message = new OutboxMessage { EventType = "N04", PersonIds = people, Subject = "CCG-2026-000099: Routine approval", Text = "Please decide.", LinkPath = "/Requests/x" };
+        var message = new OutboxMessage { EventType = "N04", PersonIds = people, Subject = "CCG-2026-000099: Routine approval", Text = "Please decide.", LinkPath = "/workbench/Requests/x" };
         var outboxId = await admin.ExecuteScalarAsync<long>(
             "INSERT ntf.Outbox (EventType, Payload, DedupeKey) OUTPUT inserted.OutboxId VALUES ('N04', @p, 'race-test')", new { p = message.ToJson() });
 

@@ -173,7 +173,7 @@ public sealed class EntitlementSyncService(Db db, IEntitlementApi entitlements, 
                     Roles = { new RoleTarget(Roles.DelegatedApprover, ScopeTypes.FundingOwner, pkg.FundingOwnerId), new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
                     Subject = $"Access without funding: {pkg.DisplayName}",
                     Text = "An Entra access package assignment has no active funding envelope behind it. Approve an envelope or remove the assignment.",
-                    LinkPath = "/Operations/Drift",
+                    LinkPath = "/workbench/Operations/Findings",
                 }, $"N15:{pkg.FundingOwnerId}:{pkg.AccessPackageId}:{clock.UtcNow:yyyyMMdd}");
             }
         }

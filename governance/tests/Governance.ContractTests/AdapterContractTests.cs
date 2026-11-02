@@ -109,7 +109,7 @@ public class GraphContractTests
     public void Activity_topic_is_a_Teams_deep_link_and_bulk_carries_recipients()
     {
         var graph = Clients.Graph(new ReplayHandler());
-        var body = graph.ActivityBody("taskAssigned", "Approve CCG-2026-000001", "/Requests/abc", new Dictionary<string, string> { ["actor"] = "Workbench", ["taskTitle"] = "x" },
+        var body = graph.ActivityBody("taskAssigned", "Approve CCG-2026-000001", "/workbench/Requests/abc", new Dictionary<string, string> { ["actor"] = "Workbench", ["taskTitle"] = "x" },
             new[] { Guid.NewGuid() });
         var json = JsonSerializer.Serialize(body);
         using var doc = JsonDocument.Parse(json);

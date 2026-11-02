@@ -224,7 +224,7 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
                             EventType = "N08", RequestId = r.RequestId, FundingOwnerId = r.FundingOwnerId,
                             PersonIds = r.ConfigurerPersonId is int cp ? new List<int> { cp } : new List<int>(),
                             Roles = { new Outbox.RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
-                            Subject = $"{r.RequestNumber}: verification failed", Text = CommandRunner.Trim(why, 1000), LinkPath = $"/Requests/{r.PublicId}", ActivityType = "verificationFailed",
+                            Subject = $"{r.RequestNumber}: verification failed", Text = CommandRunner.Trim(why, 1000), LinkPath = $"/workbench/Requests/{r.PublicId}", ActivityType = "verificationFailed",
                         }.ToJson(),
                     });
             return pass ? "PASS" : "FAIL";

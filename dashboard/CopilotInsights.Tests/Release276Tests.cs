@@ -123,14 +123,16 @@ public class Release276Tests
         Assert.Equal("Not changed: it failed. Reference A1B2C3: an administrator finds the details under it in the web server's log.", s);
         Assert.Matches("^[0-9A-F]{6}$", CopilotInsights.Infrastructure.Incident.NewReference());
         /* No page writes an exception's own text where a person reads it: only the dashboard's own refusals (an
-           ArgumentException, which says what to correct) are shown as they are. */
+           ArgumentException, which says what to correct) are shown as they are, and the Workbench's (DomainException,
+           ConcurrencyException and IntegrationPermissionException, whose wording is all its own). */
+        string[] refusals = ["ArgumentException", "DomainException", "ConcurrencyException", "IntegrationPermissionException"];
         var pages = Directory.GetFiles(Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages"), "*.cs", SearchOption.AllDirectories);
         foreach (var f in pages)
         {
             var lines = File.ReadAllLines(f);
             for (var i = 0; i < lines.Length; i++)
                 if (lines[i].Contains("ex.Message", StringComparison.Ordinal)
-                    && !lines[Math.Max(0, i - 3)..(i + 1)].Any(l => l.Contains("ArgumentException", StringComparison.Ordinal)))
+                    && !lines[Math.Max(0, i - 3)..(i + 1)].Any(l => refusals.Any(r => l.Contains(r, StringComparison.Ordinal))))
                     Assert.Fail($"{Path.GetFileName(f)}:{i + 1}: {lines[i].Trim()}");
         }
     }

@@ -59,7 +59,7 @@ public sealed class SlaTimer(IServiceProvider s)
                     Roles = t.AssignedPersonId is null && t.AssignedRoleCode is not null ? new() { new RoleTarget(t.AssignedRoleCode, t.ScopeType ?? ScopeTypes.Tenant, t.ScopeId) } : new(),
                     Subject = $"Reminder{(number is null ? "" : $" {number}")}: {t.Title}",
                     Text = $"This task is {(second ? "80" : "50")} percent through its time. It escalates when the time runs out.",
-                    LinkPath = publicId is Guid g ? $"/Requests/{g}" : "/MyWork", ActivityType = "taskAssigned",
+                    LinkPath = publicId is Guid g ? $"/workbench/Requests/{g}" : "/workbench/MyWork", ActivityType = "taskAssigned",
                     Facts = new() { ["due"] = t.DueUtc?.ToString("o") ?? "", ["stage"] = t.StageCode ?? "" },
                 }, $"REM{(second ? 2 : 1)}:{t.TaskId}:{t.EscalationLevel}");
                 await u.ExecuteAsync(second
@@ -109,7 +109,7 @@ public sealed class SlaTimer(IServiceProvider s)
                     Roles = { new RoleTarget(role, scopeType, scopeId) },
                     Subject = $"Escalated{(number is null ? "" : $" {number}")}: {t.Title}",
                     Text = "This task ran past its time and is now yours to act on or reassign.",
-                    LinkPath = publicId is Guid g ? $"/Requests/{g}" : "/MyWork", ActivityType = "taskAssigned",
+                    LinkPath = publicId is Guid g ? $"/workbench/Requests/{g}" : "/workbench/MyWork", ActivityType = "taskAssigned",
                     Facts = new() { ["due"] = times.DueUtc?.ToString("o") ?? "", ["stage"] = t.StageCode ?? "", ["escalation level"] = (t.EscalationLevel + 1).ToString() },
                 }, $"ESC:{t.TaskId}:{t.EscalationLevel + 1}");
             }, ct);
@@ -154,7 +154,7 @@ public sealed class SlaTimer(IServiceProvider s)
                     EventType = "N12", EventId = e.EventId, FundingOwnerId = e.FundingOwnerId, Queues = { "OPERATIONS" },
                     Roles = { new RoleTarget(Roles.PlatformOwner, ScopeTypes.Tenant, null), new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
                     Subject = $"Not acknowledged in time: {e.Title}", Text = $"A {e.Severity.ToLowerInvariant()} consumption event passed its acknowledgement target.",
-                    LinkPath = $"/Operations/Events/{e.PublicId}",
+                    LinkPath = $"/workbench/Operations/Events/{e.PublicId}",
                 }, $"N12:overdue:{e.EventId}"), ct)) count++;
 
         var needIncident = (await _db.InTransactionAsync(u => u.QueryAsync<(int EventId, int FundingOwnerId, string Title, string Severity, string Description)>(
@@ -188,7 +188,7 @@ public sealed class SlaTimer(IServiceProvider s)
                 {
                     EventType = "N11", FindingId = f.FindingId, Roles = { new RoleTarget(Roles.PlatformOwner, ScopeTypes.Tenant, null) },
                     Subject = $"Not claimed in time: {f.Title}", Text = "Nobody claimed this item within 10 business days. Assign an owner or record why it is out of scope.",
-                    LinkPath = "/Registry/Discovery",
+                    LinkPath = "/workbench/Registry/Discovery",
                 }, $"N11:overdue:{f.FindingId}"), ct)) n++;
         return n;
     }

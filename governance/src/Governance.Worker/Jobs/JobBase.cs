@@ -91,7 +91,7 @@ public abstract class JobBase(IServiceScopeFactory scopes, IOptions<DbOptions> d
                     {
                         EventType = "N19", Queues = { "OPERATIONS" },
                         Roles = { new RoleTarget(Roles.WorkbenchAdmin, ScopeTypes.Tenant, null), new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
-                        Subject = $"Integration failing: {Name}", Text = $"The {Name} job failed {_consecutiveFailures} times in a row. {note}", LinkPath = "/Admin/Integrations",
+                        Subject = $"Integration failing: {Name}", Text = $"The {Name} job failed {_consecutiveFailures} times in a row. {note}", LinkPath = "/workbench/Admin/Integrations",
                     }, $"N19:job:{Name}:{DateTime.UtcNow:yyyyMMdd}"), CancellationToken.None);
                 }
             }

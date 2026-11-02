@@ -17,10 +17,17 @@
     <PackageReference Include="MailKit" Version="4.18.0" />
     <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="3.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageReference Include="Microsoft.Identity.Web" Version="4.16.1" />
     <PackageReference Include="System.DirectoryServices.AccountManagement" Version="10.0.12" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Governance Workbench: its rules, data access, Microsoft and ITSM adapters and notices. Its pages are in
+         Pages/Workbench and its web helpers in Workbench/. -->
+    <ProjectReference Include="..\..\governance\src\Governance.Infrastructure\Governance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\governance\src\Governance.Notifications\Governance.Notifications.csproj" />
   </ItemGroup>
 
   <ItemGroup>

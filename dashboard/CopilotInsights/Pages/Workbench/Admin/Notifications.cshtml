@@ -1,0 +1,33 @@
+@page "/workbench/Admin/Notifications"
+@model Governance.Web.Pages.Admin.NotificationsModel
+@{
+    ViewData["Title"] = "Notifications";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Notifications</h1>
+        <p class="lead">Who hears about what, and how. People who must act get a notice at once; people who are informed get the daily digest. Email is the notice of record; Teams is a convenience. The Workbench does not repeat what Entra, PPAC and the Microsoft 365 admin center already send, and nobody approves by email or chat.</p>
+    </div>
+</div>
+<div class="grid grid-3">
+    <div class="stat"><div class="stat-label">Waiting to send <help>Notifications and integration commands in the outbox, not yet delivered by the worker.</help></div><div class="stat-value">@Model.Outbox.Pending</div><div class="stat-note">@(Model.Outbox.OldestPendingUtc is null ? "Nothing waiting" : "oldest " + Ui.Ago(Model.Outbox.OldestPendingUtc))</div></div>
+    <div class="stat"><div class="stat-label">Dead letters <help>Messages that failed after every retry. The administrators are alerted (N19).</help></div><div class="stat-value">@Model.Outbox.DeadLettered</div></div>
+</div>
+<div class="table-wrap mt">
+    <table class="stack">
+        <thead><tr><th scope="col">Rule <help>A notice the Workbench can send (N01 to N22 in the architecture).</help></th><th scope="col">Recipients <help>Who gets it. People who must act get it at once; people who are informed get the daily digest.</help></th><th scope="col">Channels <help>Email is the notice of record; Teams activity feed and channel cards are conveniences.</help></th><th scope="col">Timing <help>When it is sent and how it escalates.</help></th><th scope="col">Status <help>Turned off rules send nothing; the event is still recorded.</help></th></tr></thead>
+        <tbody>
+        @foreach (var r in Model.Rules)
+        {
+            <tr>
+                <td><strong>@r.EventName</strong> <span class="small muted">@r.Code</span><div class="small muted">@(r.IsAction ? "Action notice" : "Information digest")</div></td>
+                <td class="small">@r.Recipients</td>
+                <td class="small">@string.Join(", ", r.Channels.Split(',').Select(c => c switch { "EMAIL" => "Email", "ACTIVITY" => "Teams activity", "CHANNEL" => "Teams channel", "ITSM" => "ITSM", _ => c }))</td>
+                <td class="small">@r.Timing</td>
+                <td><form method="post" asp-route-code="@r.Code" asp-route-enabled="@(!r.IsEnabled)"><idem />@(r.IsEnabled ? Ui.Pill("On", "ok") : Ui.Pill("Off", "warn")) <button class="btn btn-small btn-ghost" type="submit">@(r.IsEnabled ? "Turn off" : "Turn on")</button></form></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

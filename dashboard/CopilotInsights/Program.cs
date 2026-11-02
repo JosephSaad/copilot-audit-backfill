@@ -63,6 +63,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<Notifier>());
 builder.Services.AddSingleton<PageWarmer>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PageWarmer>());
 builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute()));
+/* The Governance Workbench, under /workbench, when ConnectionStrings:Governance names its database (WorkbenchSetup). */
+Governance.Web.Infrastructure.WorkbenchSetup.AddWorkbench(builder);
 
 var app = builder.Build();
 if (keyRing is not null) app.Logger.LogInformation("Form keys shared by the web servers: {KeyRing}.", keyRing);
@@ -90,10 +92,13 @@ if (!app.Environment.IsDevelopment())
 app.Use(async (context, next) =>
 {
     var h = context.Response.Headers;
-    h.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    /* The Workbench's Teams tab is the one page another site may frame, and only Teams. */
+    var teams = context.Request.Path.StartsWithSegments("/workbench/Teams/Launch", StringComparison.OrdinalIgnoreCase);
+    var frame = teams ? "frame-ancestors https://teams.microsoft.com https://*.teams.microsoft.com https://*.cloud.microsoft https://*.skype.com https://*.office.com" : "frame-ancestors 'none'";
+    h.ContentSecurityPolicy = $"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; {frame}; base-uri 'self'; form-action 'self'";
     h.XContentTypeOptions = "nosniff";
     h["Referrer-Policy"] = "no-referrer";
-    h["X-Frame-Options"] = "DENY";
+    if (!teams) h["X-Frame-Options"] = "DENY";
     h.CacheControl = "no-store";
     await next();
 });
@@ -117,6 +122,9 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+/* A Workbench page refused shows why (WorkbenchStatusPages), as a missing address does above. */
+Governance.Web.Infrastructure.WorkbenchStatusPages.UseWorkbenchStatusPages(app);
+
 /* Not the load balancer's probe: one that asks over HTTP, with TLS ended at the balancer, would be sent to HTTPS and
    count every server down. */
 app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments(HealthProbe.Path), b => b.UseHttpsRedirection());
@@ -135,6 +143,7 @@ app.Use(async (ctx, next) =>
 });
 app.UseRouting();
 app.UseAuthentication();
+Governance.Web.Infrastructure.WorkbenchSetup.UseWorkbench(app);
 app.UseAuthorization();
 app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
 /* The dashboard's level limit, behind every endpoint that is not a page: pages refuse with

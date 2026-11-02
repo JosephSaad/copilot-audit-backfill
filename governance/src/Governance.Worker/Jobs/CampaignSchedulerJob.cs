@@ -74,7 +74,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                         EventType = "N13", FindingId = fid, FundingOwnerId = x.FundingOwnerId, PersonIds = people.Distinct().ToList(),
                         Subject = $"Exception expired: {x.Title}",
                         Text = suspended ? "The exception expired and it was the workload's only approved route, so the workload is suspended." : "The exception expired.",
-                        LinkPath = "/Exceptions",
+                        LinkPath = "/workbench/Exceptions",
                     }, $"N13:{x.ExceptionId}:expired");
                     count++;
                     return;
@@ -92,7 +92,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                         EventType = "N13", FundingOwnerId = x.FundingOwnerId, PersonIds = people.Distinct().ToList(),
                         Subject = $"Exception expires in {days} day{(days == 1 ? "" : "s")}: {x.Title}",
                         Text = "Renew it through the exception journey (J3) with fresh evidence, or plan the change that ends it.",
-                        LinkPath = "/Exceptions", Facts = new() { ["expires"] = x.ExpiresOn.ToString("d MMM yyyy", CultureInfo.InvariantCulture) },
+                        LinkPath = "/workbench/Exceptions", Facts = new() { ["expires"] = x.ExpiresOn.ToString("d MMM yyyy", CultureInfo.InvariantCulture) },
                     }, $"N13:{x.ExceptionId}:{threshold}");
                     count++;
                 }
@@ -121,7 +121,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                     Roles = { new RoleTarget(Roles.CommercialApprover, ScopeTypes.Tenant, null), new RoleTarget(Roles.FinOpsLead, ScopeTypes.Tenant, null), new RoleTarget(Roles.SourcingAgent, ScopeTypes.Tenant, null) },
                     Subject = $"{i.Name}: {(i.AutoRenew ? "auto-renews" : "ends")} in {days} days",
                     Text = "Prepare the commercial decision (J8): FinOps recommends, the commercial authority decides, Sourcing executes.",
-                    LinkPath = "/Registry/Commercial", Facts = new() { ["date"] = i.When.ToString("d MMM yyyy", CultureInfo.InvariantCulture), ["type"] = i.ItemType },
+                    LinkPath = "/workbench/Registry/Commercial", Facts = new() { ["date"] = i.When.ToString("d MMM yyyy", CultureInfo.InvariantCulture), ["type"] = i.ItemType },
                 }, $"N18:{i.CommercialItemId}:{i.When:yyyyMMdd}:{threshold}"), ct)) n++;
         }
         return n;
@@ -140,7 +140,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
             EventType = "N21", Queues = { "OPERATIONS" }, Roles = { new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
             Subject = last is null ? "Inventory has never been synced" : $"Inventory sync is {(int)(_clock.UtcNow - last.Value).TotalDays} days old",
             Text = "Run the Power Platform inventory sync from Operations > Sync. It runs under your sign-in because the API accepts delegated tokens only.",
-            LinkPath = "/Operations/Sync",
+            LinkPath = "/workbench/Operations/Sync",
         }, $"N21:{week}"), ct) ? 1 : 0;
     }
 
@@ -182,7 +182,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                     EventType = "N22", TaskId = taskId, FundingOwnerId = b.FundingOwnerId, Queues = { "OPERATIONS" },
                     Roles = { new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
                     Subject = $"Attestation due: {label} {b.DisplayName ?? b.ExternalId}", Text = "Monthly re-attestation, because new services can join a policy while Auto-apply is on (C16).",
-                    LinkPath = "/Operations/Attestations", Facts = new() { ["due"] = due.ToString("o") },
+                    LinkPath = "/workbench/Operations/Attestations", Facts = new() { ["due"] = due.ToString("o") },
                 }, $"N22:{b.BindingId}:{now:yyyyMM}");
                 count++;
             }, ct);
@@ -194,7 +194,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                 {
                     EventType = "N22", TaskId = t.TaskId, Roles = { new RoleTarget(Roles.PlatformOwner, ScopeTypes.Tenant, null) },
                     Subject = $"Attestation overdue: {t.Title}", Text = "A monthly attestation is past due. Unattested settings are not verified.",
-                    LinkPath = "/Operations/Attestations",
+                    LinkPath = "/workbench/Operations/Attestations",
                 }, $"N22:overdue:{t.TaskId}"), ct)) count++;
         return count;
     }
@@ -217,7 +217,7 @@ public sealed class CampaignScheduler(IServiceProvider s)
                     EventType = "N14", FundingOwnerId = i.FundingOwnerId, PersonIds = i.OwnerPersonId is int p ? new() { p } : new(),
                     Roles = { new RoleTarget(Roles.PlatformOwner, ScopeTypes.Tenant, null), new RoleTarget(Roles.LobBusinessOwner, ScopeTypes.FundingOwner, i.FundingOwnerId) },
                     Subject = $"Recertification overdue: {i.Name}", Text = "Confirm need, audience, funding and outcome, or decide to retire.",
-                    LinkPath = "/Recertification", ActivityType = "recertificationDue",
+                    LinkPath = "/workbench/Recertification", ActivityType = "recertificationDue",
                 }, $"N14:overdue:{i.CampaignItemId}");
             }, ct);
         return items.Count;

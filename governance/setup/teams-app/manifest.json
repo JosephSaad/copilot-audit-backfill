@@ -26,8 +26,8 @@
     {
       "entityId": "launch",
       "name": "Workbench",
-      "contentUrl": "https://localhost:5450/Teams/Launch?item={subEntityId}",
-      "websiteUrl": "https://localhost:5450/Start",
+      "contentUrl": "https://localhost:5450/workbench/Teams/Launch?item={subEntityId}",
+      "websiteUrl": "https://localhost:5450/workbench/Start",
       "scopes": [
         "personal"
       ]

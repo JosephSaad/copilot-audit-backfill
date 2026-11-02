@@ -259,27 +259,27 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
 
         return new List<SetupStep>
         {
-            new() { Step = 0, What = "Name the Platform Owner and approve RACI version 1", Accountable = "Steering", Screen = "Admin › RACI", Link = "/Admin/Raci",
+            new() { Step = 0, What = "Name the Platform Owner and approve RACI version 1", Accountable = "Steering", Screen = "Admin › RACI", Link = "/workbench/Admin/Raci",
                     Done = s.PlatformOwners > 0 && s.ActiveRaci > 0,
                     Status = s.ActiveRaci > 0 ? (s.PlatformOwners > 0 ? "RACI active; Platform Owner named." : "RACI active; no Platform Owner named.") : "No RACI version is active yet." },
-            new() { Step = 1, What = "Define funding owners (LOBs and Enterprise Shared) and activate them", Accountable = "Finance / FinOps", Screen = "Registry › Funding owners", Link = "/Registry/FundingOwners",
+            new() { Step = 1, What = "Define funding owners (LOBs and Enterprise Shared) and activate them", Accountable = "Finance / FinOps", Screen = "Registry › Funding owners", Link = "/workbench/Registry/FundingOwners",
                     Done = s.ActiveOwners > 0 && s.DraftOwners == 0, Status = $"{s.ActiveOwners} active, {s.DraftOwners} still in draft." },
-            new() { Step = 2, What = "Publish the approved service catalog", Accountable = "Platform Owner", Screen = "Registry › Services", Link = "/Registry/Services",
+            new() { Step = 2, What = "Publish the approved service catalog", Accountable = "Platform Owner", Screen = "Registry › Services", Link = "/workbench/Registry/Services",
                     Done = s.ApprovedServices > 0 && s.ServicesWithoutOwner == 0, Status = $"{s.ApprovedServices} approved or pilot; {s.ServicesWithoutOwner} without an operational owner." },
-            new() { Step = 3, What = "Approve a control template for every approved service", Accountable = "Platform Owner", Screen = "Registry › Control templates", Link = "/Registry/Templates",
+            new() { Step = 3, What = "Approve a control template for every approved service", Accountable = "Platform Owner", Screen = "Registry › Control templates", Link = "/workbench/Registry/Templates",
                     Done = s.ApprovedServices > 0 && s.ServicesWithoutTemplate == 0, Status = $"{s.ServicesWithoutTemplate} approved services without an active template." },
-            new() { Step = 4, What = "Record the commercial inventory and reconcile it to contracts", Accountable = "Finance / FinOps", Screen = "Registry › Commercial", Link = "/Registry/Commercial",
+            new() { Step = 4, What = "Record the commercial inventory and reconcile it to contracts", Accountable = "Finance / FinOps", Screen = "Registry › Commercial", Link = "/workbench/Registry/Commercial",
                     Done = s.CommercialItems > 0 && s.UnreconciledItems == 0, Status = $"{s.CommercialItems} items, {s.UnreconciledItems} not reconciled." },
-            new() { Step = 5, What = "Approve evidence and continuity standards (SLAs, escalation, recipients)", Accountable = "Platform Owner", Screen = "Admin › SLAs and notifications", Link = "/Admin/Intake",
+            new() { Step = 5, What = "Approve evidence and continuity standards (SLAs, escalation, recipients)", Accountable = "Platform Owner", Screen = "Admin › SLAs and notifications", Link = "/workbench/Admin/Intake",
                     Done = s.StandardsApproved > 0 && s.SlaPolicies > 0 && s.EscalationSteps > 0 && s.OwnersWithoutRecipients == 0,
                     Status = (s.StandardsApproved > 0 ? "Standards approved" : "Standards not approved yet")
                              + $"; {s.SlaPolicies} SLA policies, {s.EscalationSteps} escalation steps; "
                              + (s.OwnersWithoutRecipients == 0 ? "recipients confirmed for every active funding owner." : $"{s.OwnersWithoutRecipients} active funding owners without confirmed recipients.") },
-            new() { Step = 6, What = "Brownfield discovery: sync inventory, register or claim what exists", Accountable = "Platform Owner", Screen = "Registry › Discovery", Link = "/Registry/Discovery",
+            new() { Step = 6, What = "Brownfield discovery: sync inventory, register or claim what exists", Accountable = "Platform Owner", Screen = "Registry › Discovery", Link = "/workbench/Registry/Discovery",
                     Done = s.InventoryRuns > 0 && s.UnhandledDiscovered == 0, Status = s.InventoryRuns == 0 ? "No inventory sync has succeeded yet." : $"{s.UnhandledDiscovered} discovered items not claimed or under a finding; {s.OpenUnregistered} open unregistered findings." },
-            new() { Step = 7, What = "Approve funding envelopes for every active funding owner", Accountable = "LOB business owners", Screen = "Registry › Envelopes", Link = "/Registry/Envelopes",
+            new() { Step = 7, What = "Approve funding envelopes for every active funding owner", Accountable = "LOB business owners", Screen = "Registry › Envelopes", Link = "/workbench/Registry/Envelopes",
                     Done = s.ActiveOwners > 0 && s.OwnersWithoutEnvelope == 0, Status = $"{s.OwnersWithoutEnvelope} active funding owners without an active envelope." },
-            new() { Step = 8, What = "Open intake", Accountable = "Platform Owner", Screen = "Admin › Intake switch", Link = "/Admin/Intake",
+            new() { Step = 8, What = "Open intake", Accountable = "Platform Owner", Screen = "Admin › Intake switch", Link = "/workbench/Admin/Intake",
                     Done = string.Equals(s.IntakeOpen, "true", StringComparison.OrdinalIgnoreCase), Status = string.Equals(s.IntakeOpen, "true", StringComparison.OrdinalIgnoreCase) ? "Intake is open." : "Intake is closed." },
         };
     }

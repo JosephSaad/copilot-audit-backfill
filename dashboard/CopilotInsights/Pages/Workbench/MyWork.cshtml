@@ -1,0 +1,49 @@
+@page "/workbench/MyWork"
+@model MyWorkModel
+@{
+    ViewData["Title"] = "My work";
+}
+<div class="page-head">
+    <div>
+        <h1>My work</h1>
+        <p class="lead">Every open task you can act on: assigned to you, waiting for a role you hold in that funding owner, or covered by a delegation you received. The task due first is at the top. Open a task to see what it needs and who else is involved.</p>
+    </div>
+</div>
+<partial name="_Search" model="Model.Search" />
+@if (Model.Tasks.Items.Count == 0)
+{
+    <div class="card empty">Nothing is waiting for you. New tasks appear here and arrive by email.</div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead>
+            <tr>
+                <partial name="_Th" model='("title", "Task", "What needs doing, and the request it belongs to.")' />
+                <partial name="_Th" model='("request", "Request", "The request number. Open it to act on the task.")' />
+                <partial name="_Th" model='("owner", "Funding owner", "The LOB or Enterprise Shared unit that funds the workload.")' />
+                <partial name="_Th" model='("", "Status", "Who the task is waiting for, since when, and when it is due under the service level.")' />
+                <partial name="_Th" model='("due", "Due", "Due date and time. Reminders go out at 50 and 80 percent of the time; at the due time the task escalates one level.")' />
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var t in Model.Tasks.Items)
+            {
+                var overdue = t.DueUtc is not null && t.DueUtc < DateTime.UtcNow;
+                <tr>
+                    <td>
+                        <div><strong>@t.Title</strong></div>
+                        <div class="small muted">@Ui.Words(t.TaskType) @(t.StageCode is null ? "" : "· stage " + t.StageCode)@(t.EscalationLevel > 0 ? $" · escalated {t.EscalationLevel}×" : "")</div>
+                    </td>
+                    <td>@if (t.RequestPublicId is Guid g) { <a href="/workbench/Requests/@g">@t.RequestNumber</a> } else if (t.RelatedEntityType == "CAMPAIGN_ITEM") { <a href="/workbench/Recertification">Recertification</a> } else { <span class="muted">—</span> }</td>
+                    <td>@t.FundingOwnerName</td>
+                    <td>@Ui.TaskSentence(t.RoleName, t.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</td>
+                    <td class="nowrap">@if (t.DueUtc is null) { <span class="muted">No SLA</span> } else { @Ui.Pill(overdue ? "OVERDUE" : "ON_TIME", overdue ? "bad" : "ok") <div class="small">@Ui.Local(t.DueUtc)</div> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Tasks.Query.Page, Model.Tasks.Pages, Model.Tasks.Total)" />
+}

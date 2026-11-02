@@ -1,0 +1,71 @@
+@page "/workbench/Admin/Roles"
+@model Governance.Web.Pages.Admin.RolesModel
+@{
+    ViewData["Title"] = "Roles";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Central roles</h1>
+        <p class="lead">Roles that act for the whole tenant: Platform Owner, intake, operations, architecture, risk, FinOps, commercial, sourcing, steering, administrators and auditors. They can be synced from Entra security groups. LOB roles are assigned on each funding owner's page. Every assignment has an effective period and a yearly review.</p>
+    </div>
+</div>
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("person", "Person", "Who holds the role.")' />
+            <partial name="_Th" model='("role", "Role", "What they can do.")' />
+            <partial name="_Th" model='("from", "From", "Effective from.")' />
+            <partial name="_Th" model='("", "Until", "Effective until; open when blank.")' />
+            <partial name="_Th" model='("", "Source", "Assigned in the Workbench, or synced from an Entra group.")' />
+            <th scope="col"><span class="sr-only">End</span></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var r in Model.Items.Items)
+        {
+            <tr>
+                <td>@r.PersonName<div class="small muted">@r.Upn</div></td>
+                <td>@r.RoleName</td>
+                <td>@Ui.Date(r.EffectiveFrom)</td>
+                <td>@(r.EffectiveTo is null ? "Open" : Ui.Date(r.EffectiveTo))</td>
+                <td>@Ui.Words(r.Source)</td>
+                <td>@if (Model.CanAssign && r.Source != "ENTRA_GROUP" && (r.EffectiveTo is null || r.EffectiveTo >= DateTime.UtcNow.Date)) { <form method="post" asp-page-handler="End" asp-route-role="@r.PublicId"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form> }</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />
+@if (Model.CanAssign)
+{
+    <div class="grid grid-2 mt">
+        <form method="post" asp-page-handler="Assign" class="card">
+            <idem />
+            <h2>Assign a central role</h2>
+            <div class="form-grid">
+                <div class="field"><label for="rp">Person <help>Who gets the role. Central roles apply to every funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                <div class="field"><label for="rr">Role <help>Administrators configure but never decide (SoD5). Auditors read only.</help></label><select id="rr" name="roleCode">@foreach (var r in Model.CentralRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
+                <div class="field"><label for="rt">Until (optional) <help>The last day the role applies. Leave empty for open-ended; every assignment is still reviewed each year.</help></label><input id="rt" type="date" name="effectiveTo" /></div>
+            </div>
+            <button class="btn btn-ghost mt" type="submit">Assign</button>
+        </form>
+        <form method="post" asp-page-handler="Map" class="card">
+            <idem />
+            <h2>Sync a role from an Entra group <help>Members of the group get the role at the next directory sync (every 15 minutes) and lose it when they leave the group.</help></h2>
+            <div class="form-grid">
+                <div class="field"><label for="gg">Entra group ID <help>The object ID of a security group in Entra. Its members get the role at the next directory sync.</help></label><input id="gg" name="groupId" required pattern="[0-9a-fA-F-]{36}" /></div>
+                <div class="field"><label for="gn">Group name <help>A name to recognize the group by; the ID is what counts.</help></label><input id="gn" name="groupName" maxlength="256" /></div>
+                <div class="field"><label for="gr">Role <help>The Workbench role members of this group hold.</help></label><select id="gr" name="roleCode">@foreach (var r in Model.CentralRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
+            </div>
+            <button class="btn btn-ghost mt" type="submit">Map</button>
+            @if (Model.Groups.Count > 0)
+            {
+                <h3>Mapped groups</h3>
+                <ul>@foreach (var g in Model.Groups) { <li>@(g.GroupName ?? g.EntraGroupId.ToString()) → @g.RoleName</li> }</ul>
+            }
+        </form>
+    </div>
+}

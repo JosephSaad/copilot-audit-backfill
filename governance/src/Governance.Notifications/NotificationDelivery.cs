@@ -118,7 +118,7 @@ public sealed class NotificationDelivery(
                 try
                 {
                     if (!record)
-                        await activity.SendBulkAsync(targets.Select(t => t.EntraObjectId!.Value).ToList(), m.ActivityType, m.Subject, m.LinkPath ?? "/Start", TemplateParameters(m), ct);
+                        await activity.SendBulkAsync(targets.Select(t => t.EntraObjectId!.Value).ToList(), m.ActivityType, m.Subject, m.LinkPath ?? "/workbench/Start", TemplateParameters(m), ct);
                     foreach (var t in targets) await RecordAsync(row, t.PersonId, null, "ACTIVITY", record ? "RECORDED" : "SENT", m.Subject, null);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -224,7 +224,7 @@ public sealed class NotificationDelivery(
         => db.InTransactionAsync(u => outbox.EnqueueAsync(u, new OutboxMessage
         {
             EventType = "N19", Roles = { new RoleTarget(Roles.WorkbenchAdmin, ScopeTypes.Tenant, null), new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
-            Subject = subject, Text = text, LinkPath = "/Admin/Integrations",
+            Subject = subject, Text = text, LinkPath = "/workbench/Admin/Integrations",
         }, dedupe));
 
     private static string Describe(Exception ex) => ex is IntegrationPermissionException or PermanentDeliveryException ? ex.Message : $"{ex.GetType().Name}: {(ex.Message.Length > 300 ? ex.Message[..300] : ex.Message)}";

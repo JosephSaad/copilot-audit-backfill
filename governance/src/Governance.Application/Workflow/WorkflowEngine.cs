@@ -129,7 +129,7 @@ public sealed class WorkflowEngine(
             EventType = "N01", RequestId = requestId, FundingOwnerId = r.FundingOwnerId, PersonIds = people, Queues = { "INTAKE" },
             Subject = $"{r.RequestNumber} submitted: {r.Title}",
             Text = "The request was submitted. The intake team checks completeness and sponsorship within 2 business days.",
-            LinkPath = $"/Requests/{r.PublicId}",
+            LinkPath = $"/workbench/Requests/{r.PublicId}",
         }, $"N01:{requestId}");
 
         await OpenStageAsync(uow, await GetRequestAsync(uow, requestId), first.StageCode, actor);
@@ -380,7 +380,7 @@ public sealed class WorkflowEngine(
         {
             EventType = "N02", RequestId = requestId, FundingOwnerId = r.FundingOwnerId, PersonIds = people,
             Subject = $"{r.RequestNumber} closed without a response", Text = "The request was returned and closed after 10 business days without a response. Start a new request when you are ready.",
-            LinkPath = $"/Requests/{r.PublicId}", ActivityType = "requestReturned",
+            LinkPath = $"/workbench/Requests/{r.PublicId}", ActivityType = "requestReturned",
         }, $"N02:autoclose:{requestId}");
     }
 
@@ -737,7 +737,7 @@ public sealed class WorkflowEngine(
                 Queues = QueueFor(effectiveRole),
                 Subject = $"{r.RequestNumber}: {title}",
                 Text = reason ?? title,
-                LinkPath = $"/Requests/{r.PublicId}",
+                LinkPath = $"/workbench/Requests/{r.PublicId}",
                 ActivityType = assigned is not null && stageCode == Stages.Remediate ? "requestReturned" : "taskAssigned",
                 Facts = new() { ["due"] = times.DueUtc?.ToString("o") ?? "", ["stage"] = stageCode },
             }, $"{notify}:task:{task.TaskId}");
@@ -800,7 +800,7 @@ public sealed class WorkflowEngine(
             var role = await resolver.EffectiveRoleAsync(uow, i.DecisionRoleCode!, r.FundingOwnerId);
             var scopeType = await resolver.ScopeTypeOfAsync(uow, role);
             foreach (var p in await resolver.HoldersAsync(uow, role, scopeType, scopeType == ScopeTypes.FundingOwner ? r.FundingOwnerId : null, false))
-                await outbox.AddDigestAsync(uow, p, "N17", $"{r.RequestNumber} {r.Title}: now at {stage.Name}.", $"/Requests/{r.PublicId}");
+                await outbox.AddDigestAsync(uow, p, "N17", $"{r.RequestNumber} {r.Title}: now at {stage.Name}.", $"/workbench/Requests/{r.PublicId}");
         }
     }
 
@@ -815,12 +815,12 @@ public sealed class WorkflowEngine(
         await outbox.EnqueueAsync(uow, new OutboxMessage
         {
             EventType = "N06", RequestId = r.RequestId, DecisionId = decisionId, FundingOwnerId = r.FundingOwnerId, PersonIds = people,
-            Subject = $"{r.RequestNumber}: {Outcomes.Label(input.Outcome)}", Text = text, LinkPath = $"/Requests/{r.PublicId}", ActivityType = "decisionRecorded",
+            Subject = $"{r.RequestNumber}: {Outcomes.Label(input.Outcome)}", Text = text, LinkPath = $"/workbench/Requests/{r.PublicId}", ActivityType = "decisionRecorded",
         }, $"N06:{decisionId}");
         // The LOB business owner gets the decision in the daily digest.
         var ownerRole = await resolver.EffectiveRoleAsync(uow, Roles.LobBusinessOwner, r.FundingOwnerId);
         foreach (var p in await resolver.HoldersAsync(uow, ownerRole, ScopeTypes.FundingOwner, r.FundingOwnerId, false))
-            await outbox.AddDigestAsync(uow, p, "N06", $"{r.RequestNumber} {r.Title}: {text}", $"/Requests/{r.PublicId}");
+            await outbox.AddDigestAsync(uow, p, "N06", $"{r.RequestNumber} {r.Title}: {text}", $"/workbench/Requests/{r.PublicId}");
     }
 
     private async Task CloseTaskAsync(Uow uow, TaskRow t, int personId, string outcome, string? notes)

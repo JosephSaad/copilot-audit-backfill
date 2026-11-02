@@ -60,7 +60,7 @@ public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decis
             await outbox.EnqueueAsync(uow, new OutboxMessage
             {
                 EventType = "N12", EventId = e.EventId, FundingOwnerId = fundingOwnerId, Roles = roles, Queues = { "OPERATIONS" },
-                Subject = $"{severity} consumption event: {title}", Text = $"{description} Acknowledge by {due:u}.", LinkPath = $"/Operations/Events/{e.PublicId}",
+                Subject = $"{severity} consumption event: {title}", Text = $"{description} Acknowledge by {due:u}.", LinkPath = $"/workbench/Operations/Events/{e.PublicId}",
             }, $"N12:{e.EventId}");
             await run.AuditAsync(uow, "event.report", "ConsumptionEvent", e.PublicId, $"{severity} {eventClass}");
             return e.PublicId.ToString();
@@ -188,7 +188,7 @@ public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decis
             await outbox.EnqueueAsync(uow, new OutboxMessage
             {
                 EventType = "N14", PersonIds = owners, Subject = $"Recertification due by {dueOn:d MMM yyyy}: {name}",
-                Text = "Confirm need, audience, funding and outcome for each workload you own: renew, resize, reclassify or retire.", LinkPath = "/Recertification", ActivityType = "recertificationDue",
+                Text = "Confirm need, audience, funding and outcome for each workload you own: renew, resize, reclassify or retire.", LinkPath = "/workbench/Recertification", ActivityType = "recertificationDue",
             }, $"N14:campaign:{id}");
             await run.AuditAsync(uow, "campaign.create", "Campaign", id, $"{count} items");
             return count.ToString();
@@ -244,7 +244,7 @@ public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decis
                         EventType = "N14", FundingOwnerId = i.FundingOwnerId, TaskId = taskId,
                         Roles = { new RoleTarget(ownerRole ?? Roles.LobBusinessOwner, ScopeTypes.FundingOwner, i.FundingOwnerId) },
                         Subject = $"Recertification to decide: {i.WorkloadName}", Text = $"The owner proposes to {outcome.ToLowerInvariant()} it. You decide.",
-                        LinkPath = "/Recertification", ActivityType = "recertificationDue",
+                        LinkPath = "/workbench/Recertification", ActivityType = "recertificationDue",
                     }, $"N14:item:{i.Id}");
                 }
                 await run.AuditAsync(uow, "campaign.propose", "CampaignItem", i.Id, outcome);
@@ -280,7 +280,7 @@ public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decis
                 {
                     EventType = "N06", RequestId = draft.RequestId, FundingOwnerId = i.FundingOwnerId, PersonIds = { requester },
                     Subject = $"{draft.RequestNumber}: retirement drafted for {i.WorkloadName}", Text = "Recertification decided to retire this workload. Add the retirement plan and submit the request.",
-                    LinkPath = $"/Requests/{draft.PublicId}",
+                    LinkPath = $"/workbench/Requests/{draft.PublicId}",
                 }, $"N06:retire:{i.Id}");
                 return $"RETIRE_DRAFTED:{draft.PublicId}";
             }

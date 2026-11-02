@@ -22,7 +22,7 @@ public class WorkerFixTests
     public void Activity_body_never_sends_the_reserved_actor_parameter()
     {
         var graph = Clients.Graph(new ReplayHandler());
-        var body = graph.ActivityBody("taskAssigned", "preview", "/Requests/abc",
+        var body = graph.ActivityBody("taskAssigned", "preview", "/workbench/Requests/abc",
             new Dictionary<string, string> { ["Actor"] = "The Workbench", ["actor"] = "x", ["taskTitle"] = "CCG-1: Routine approval" }, null);
         var json = JsonSerializer.Serialize(body);
         using var doc = JsonDocument.Parse(json);

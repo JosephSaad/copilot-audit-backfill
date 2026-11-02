@@ -58,7 +58,7 @@ if (teams)
     var oid = await cmd.ExecuteScalarAsync(ct) as Guid?;
     if (oid is null) { Console.Error.WriteLine($"{to} is not in sec.Person yet (run the directory sync first)."); return 1; }
     var teamsSender = host.Services.GetRequiredService<ITeamsActivitySender>();
-    await teamsSender.SendAsync(oid.Value, "taskAssigned", "Test notice from the Governance Workbench", "/Start",
+    await teamsSender.SendAsync(oid.Value, "taskAssigned", "Test notice from the Governance Workbench", "/workbench/Start",
         new Dictionary<string, string> { ["taskTitle"] = "a test task (no action needed)" }, ct);   // {actor} is filled by Teams
     Console.WriteLine($"Teams activity notice sent to {to}.");
 }

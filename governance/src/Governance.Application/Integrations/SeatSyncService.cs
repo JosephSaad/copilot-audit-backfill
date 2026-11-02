@@ -27,7 +27,7 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
         ["Microsoft_365_Copilot_EDU"] = (Guid.Parse("ad9c22b3-52d7-4e7e-973c-88121ea96436"), "Microsoft 365 Copilot (Education Faculty)"),
     };
 
-    public const string FindingsLink = "/Operations/Findings";
+    public const string FindingsLink = "/workbench/Operations/Findings";
 
     private sealed record GroupRow(int SeatGroupId, Guid? EntraGroupId, string DisplayName, string Purpose);
 

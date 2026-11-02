@@ -11,7 +11,7 @@
       { "type": "FactSet", "facts": [ { "title": "Stage", "value": "B2" }, { "title": "Funding owner", "value": "Retail Banking" } ] }
     ],
     "actions": [
-      { "type": "Action.OpenUrl", "title": "Open in the Workbench", "url": "http://localhost:5450/Requests/00000000-0000-0000-0000-000000000000" }
+      { "type": "Action.OpenUrl", "title": "Open in the Workbench", "url": "http://localhost:5450/workbench/Requests/00000000-0000-0000-0000-000000000000" }
     ]
   }
 }

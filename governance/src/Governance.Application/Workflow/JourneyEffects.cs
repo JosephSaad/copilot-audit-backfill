@@ -179,7 +179,7 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
             EventType = "N07", RequestId = r.RequestId, FundingOwnerId = r.FundingOwnerId, Queues = { "OPERATIONS" },
             Roles = { new RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) }, DigestOnly = false,
             Subject = $"{r.RequestNumber}: fulfillment task created", Text = "An ITSM task with the exact settings to apply was created. Configure in the admin center, then close the ticket.",
-            LinkPath = $"/Requests/{r.PublicId}",
+            LinkPath = $"/workbench/Requests/{r.PublicId}",
         }, $"N07:ticket:{ticketId}");
     }
 
@@ -354,7 +354,7 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
                 EventType = "N20", FindingId = fid, RequestId = r.RequestId, FundingOwnerId = r.FundingOwnerId,
                 Roles = { new RoleTarget(Roles.PlatformOwner, ScopeTypes.Tenant, null), new RoleTarget(Roles.LobBusinessOwner, ScopeTypes.FundingOwner, r.FundingOwnerId) },
                 Subject = $"Role vacancy: {roleCode.Replace('_', ' ').ToLowerInvariant()}", Text = $"{r.RequestNumber} is waiting because nobody holds this role in scope.",
-                LinkPath = "/Operations/Findings",
+                LinkPath = "/workbench/Operations/Findings",
             }, $"N20:{fid}");
     }
 }

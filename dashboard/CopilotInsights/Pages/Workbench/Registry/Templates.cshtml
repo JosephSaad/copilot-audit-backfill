@@ -1,0 +1,48 @@
+@page "/workbench/Registry/Templates"
+@model Governance.Web.Pages.Registry.TemplatesModel
+@{
+    ViewData["Title"] = "Control templates";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Control templates</h1>
+        <p class="lead">For each service route: the settings baseline the operator applies, the verification checks (including an explicit deny case), permitted exceptions and operator roles. A new version activates only after the Platform Owner and Steering approve it, as two different people (SoD6). <help>Process references: A3.</help></p>
+    </div>
+</div>
+@if (Model.CanDraft)
+{
+    <form method="post" asp-page-handler="Draft" class="card btn-row">
+        <idem />
+        <label for="ds">Draft a new version for <help>Copy the active template of this service as a draft you can change. It takes effect only after two approvals.</help></label>
+        <select id="ds" name="serviceId">@foreach (var s in Model.Services) { <option value="@s.Value">@s.Text</option> }</select>
+        <button class="btn btn-ghost" type="submit">Create draft</button>
+    </form>
+}
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("service", "Service", "The service route this template governs.")' />
+            <partial name="_Th" model='("version", "Version", "Each request is fulfilled against the version active when its ITSM task was created.")' />
+            <partial name="_Th" model='("status", "Status", "Draft, pending a second approval, active or retired.")' />
+            <partial name="_Th" model='("", "Checks", "Verification checks run at D1.")' />
+            <partial name="_Th" model='("", "Approvals", "Platform Owner and Steering, different people.")' />
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var t in Model.Items.Items)
+        {
+            <tr>
+                <td><a href="/workbench/Registry/Templates/@t.PublicId"><strong>@t.ServiceName</strong></a></td>
+                <td>Version @(t.VersionNo)</td>
+                <td>@Ui.Pill(t.Status)</td>
+                <td class="num">@t.Checks</td>
+                <td class="small">@(t.PlatformOwnerApprovalName ?? "—") / @(t.SteeringApprovalName ?? "—")</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />

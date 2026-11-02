@@ -89,7 +89,7 @@ public sealed class OutboxProcessor(Db db, IEnumerable<IOutboxHandler> handlers,
                             EventType = "N19", Queues = { "OPERATIONS" },
                             Roles = { new RoleTarget(Domain.Roles.WorkbenchAdmin, Domain.ScopeTypes.Tenant, null), new RoleTarget(Domain.Roles.PlatformOperator, Domain.ScopeTypes.Tenant, null) },
                             Subject = $"Delivery failed: {row.EventType}", Text = $"An outbox item ({row.EventType}) failed {row.Attempts} times and was set aside. Last error: {Short(note)}",
-                            LinkPath = "/Admin/Integrations",
+                            LinkPath = "/workbench/Admin/Integrations",
                         }, $"N19:dead:{row.OutboxId}");
                 }
                 else
