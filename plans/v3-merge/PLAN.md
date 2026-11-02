@@ -64,14 +64,14 @@ models. 3.0.0 makes them one.
 | `Workbench.Operator` | New role `GovernanceOperator` | Fulfillment and verification queues |
 | `Workbench.Admin` | Insights `Admin` (with `dash.RoleGrant.Pages` for chosen governance admin pages) | Configuration pages |
 | `Workbench.Auditor` | New role `GovernanceAuditor` | Read-only, evidence and audit export |
-| LOB seat admin (`LOB_SEAT_ADMIN`) | `Governance` granted for one line of business: new nullable column `dash.RoleGrant.FundingOwnerId` | One line of business |
+| LOB seat admin (`LOB_SEAT_ADMIN`) | Stays a Workbench role (sec.RoleAssignment), named by the business owner or another seat admin, as before: it is work for one line of business, not page access, and needs no Insights grant (built: no `FundingOwnerId` column was needed) | One line of business |
 | RACI positions and delegations | Stay in `sec.*`: they route work, not page access. Admin › Check someone's access shows them. | Per activity |
 
 - The role CHECK on `dash.RoleGrant` and `dash.AccessProfileRole` is widened with the three new roles. A
   wider CHECK is allowed by the schema rule.
 - Row-level security keeps working. On every governance connection, the site sets `SESSION_CONTEXT`: PersonId
-  from `sec.Person` (matched by object ID or SID), IsCentral from an org-wide `Governance` grant, and the lines
-  of business from `FundingOwnerId` grants.
+  from `sec.Person` (matched by Entra object ID, else UPN, else the sign-in name) and IsCentral from their central
+  Workbench roles, as before.
 - `sec.RoleAssignment` stays (its rows are ledger history) but is no longer read for page access.
 - Access profiles get governance starters: "Seat admin for a line of business", "Governance operator",
   "Auditor".
@@ -94,10 +94,9 @@ S = up to a day, M = a few days, L = a week or more. Each phase ends with every 
 
 ### Phase 1: one site (L)
 
-- The governance pages move into the dashboard as a section of its own, "Governance", under `/governance/...`.
-  The old Workbench addresses redirect, following the redirect rule for moved pages.
-- Insights already has a "Governance" section (AI apps, DLP, controls). Name: "Ownership and approvals" for
-  the new section, so both keep their meaning (ask the user).
+- Built: the pages are under `/workbench/...` (Insights already uses `/governance` for its AI apps and controls),
+  in five menu sections: Ownership and approvals, Approval queues, Ownership registry, Governance operations,
+  Workbench settings. The standalone Workbench was never deployed, so its old addresses need no redirects.
 - One layout, one menu (`Nav.cs`), one style sheet, info icons on every field. The Workbench's own layout and
   CSS go.
 - The Workbench's services (`Governance.Application`, `Governance.Domain`, `Governance.Infrastructure`,
@@ -120,14 +119,16 @@ S = up to a day, M = a few days, L = a week or more. Each phase ends with every 
 
 ### Phase 3: one person list and one license read (M)
 
-- `sec.Person` is filled from `dash.Person` by Entra object ID (2.8.0 added `dash.Person.ObjectId`), so there
-  is no second directory sync. The Workbench's `DirectorySyncJob` keeps only what the Copilot database doesn't
-  have: Entra-only accounts and managers.
+- Built differently (2026-11-02): `dash.Person` has no mail, job title, cost center or leave date, and the
+  Workbench needs them (a role holder who changes cost center raises a vacancy finding). So the Workbench keeps its
+  own directory read into `sec.Person`, and the two lists are one by Entra object ID: a person signing in to the
+  site is found in `sec.Person` by the object ID Insights records (`dash.Person.ObjectId`), else by UPN.
 - License holders: `SeatSyncJob` keeps reading the shared license group and each LOB's tracking group (Insights
   doesn't hold tracking groups). Who holds a Copilot license comes from `audit.CopilotLicense`, so it isn't read
   twice.
-- "Reclaim inactive seats" uses Insights' activity (`bi` last activity per person) instead of
-  `intg.CopilotActivity`. That table stays, filled from `bi`, so its readers keep working.
+- Built: the seat read fills `intg.CopilotActivity` from Insights' `dash.UserDay` when it can read the Insights
+  database (`ConnectionStrings:Insights` for the worker; Insights' own connection on the site), and from Microsoft's
+  usage report otherwise. "Reclaim inactive seats" reads that table as before.
 
 ### Phase 4: one seat and chargeback model (L)
 

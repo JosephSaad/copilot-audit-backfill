@@ -154,8 +154,8 @@ function Test-SqlParameterDefault {
 }
 
 function Get-SchemaSnapshot {
-    <# The shape of one installed database as sorted lines. -Database is the name the lines carry: copilot or license. #>
-    param([Parameter(Mandatory)][string] $ConnectionString, [Parameter(Mandatory)][ValidateSet('copilot', 'license')][string] $Database)
+    <# The shape of one installed database as sorted lines. -Database is the name the lines carry: copilot, license or governance (the Workbench's). #>
+    param([Parameter(Mandatory)][string] $ConnectionString, [Parameter(Mandatory)][ValidateSet('copilot', 'license', 'governance')][string] $Database)
     $type = @"
 CASE WHEN t.name IN (N'nvarchar', N'nchar') THEN CONCAT(t.name, N'(', IIF(x.max_length = -1, N'max', CONVERT(NVARCHAR(10), x.max_length / 2)), N')')
      WHEN t.name IN (N'varchar', N'char', N'varbinary', N'binary') THEN CONCAT(t.name, N'(', IIF(x.max_length = -1, N'max', CONVERT(NVARCHAR(10), x.max_length)), N')')

@@ -142,6 +142,9 @@ def pages():
         return os.environ['AUDIT_PAGES'].split(',')
     src = open(os.path.join(REPO, 'dashboard', 'CopilotInsights', 'Pages', 'Nav.cs'), encoding='utf-8').read()
     paths = sorted(set(re.findall(r'new\("[^"]+", "(/[^"]*)"', src)))
+    # The Governance Workbench's pages, from its menu (when the site has it set up; otherwise they answer 404).
+    wb = open(os.path.join(REPO, 'dashboard', 'CopilotInsights', 'Workbench', 'WorkbenchNav.cs'), encoding='utf-8').read()
+    paths += sorted(set('/workbench' + p for p in re.findall(r'new\("[^"]+", \$"\{P\}(/[^"]*)"', wb)))
     return ['/?home=1'] + [p for p in paths] + EXTRA
 
 
