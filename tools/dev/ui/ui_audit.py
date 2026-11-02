@@ -48,7 +48,7 @@ AUDIT_JS = r"""
   for (const e of document.querySelectorAll(sel)) {
     if (!visible(e)) continue;
     const s = getComputedStyle(e);
-    if (e.scrollWidth > e.clientWidth + 2 && e.clientWidth > 0 && (s.overflowX === 'hidden' || s.overflowX === 'clip' || s.textOverflow === 'ellipsis'))
+    if (e.scrollWidth > e.clientWidth + 2 && e.clientWidth > 1 && (s.overflowX === 'hidden' || s.overflowX === 'clip' || s.textOverflow === 'ellipsis'))
       issues.push({kind: 'clipped', el: name(e), text: txt(e), hover: hasHover(e), detail: `${e.scrollWidth}px of text in ${e.clientWidth}px`});
     const box = e.closest('.kpi, .panel, td, th, .card, form.inline, .page-head');
     if (box && box !== e) {

@@ -17,7 +17,7 @@
         <div class="field">
             <label for="fo" class="req">Funding owner <help>Whose workload or users are affected. Prefilled from your own attribution.</help></label>
             <select id="fo" name="fundingOwnerId" required>
-                <option value="">Choose…</option>
+                <option value="">Choose one</option>
                 @foreach (var o in Model.FundingOwners) { <option value="@o.Value" selected="@(o.Value == Model.DefaultFundingOwner?.ToString())">@o.Text</option> }
             </select>
         </div>

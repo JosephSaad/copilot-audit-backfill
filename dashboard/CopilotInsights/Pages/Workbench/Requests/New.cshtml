@@ -37,7 +37,7 @@
         {
         <div class="field">
             <label asp-for="Input.FundingOwnerId" class="req">Funding owner <help k="req.fundingowner">The LOB or Enterprise Shared unit that pays for this and whose business owner is accountable. One funding owner at a time (A2). @(Model.AttributionBasis is null ? "" : "Prefilled from " + Model.AttributionBasis + ".")</help></label>
-            <select asp-for="Input.FundingOwnerId" asp-items="Sel(Model.FundingOwners, Model.Input.FundingOwnerId?.ToString())"><option value="">Choose…</option></select>
+            <select asp-for="Input.FundingOwnerId" asp-items="Sel(Model.FundingOwners, Model.Input.FundingOwnerId?.ToString())"><option value="">Choose one</option></select>
             @if (Model.AttributionBasis is not null) { <span class="hint">Prefilled from @Model.AttributionBasis. Change it if this work is funded elsewhere.</span> }
         </div>
         }
@@ -46,7 +46,7 @@
             <div class="field">
                 <label asp-for="Input.SponsorPersonId" class="req">Sponsor <help>The person who owns the purpose and outcome claims and receives lifecycle notices. A request without a valid sponsor is returned at B2.</help></label>
                 <select asp-for="Input.SponsorPersonId" data-filter-by="Input.FundingOwnerId">
-                    <option value="">Choose…</option>
+                    <option value="">Choose one</option>
                     @foreach (var s in Model.Sponsors)
                     {
                         <option value="@s.PersonId" data-fo="@s.FundingOwnerId" selected="@(Model.Input.SponsorPersonId == s.PersonId && Model.Input.FundingOwnerId == s.FundingOwnerId)">@s.Text</option>
@@ -78,27 +78,27 @@
             </div>
             <div class="field">
                 <label asp-for="Input.ServiceId" class="req">Service <help>@Model.Caveat("C01") Only approved catalog services are listed; anything else is an exception (J3).</help></label>
-                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Choose…</option></select>
+                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.RequestedLifecycleStage" class="req">Stage you need <help>@Model.Caveat("C03") Builders start in Development or Test; Production needs the acceptance gate (D5) with test evidence.</help></label>
-                <select asp-for="Input.RequestedLifecycleStage" asp-items='Codes(new[] { ("LOCAL", "Local or mocked"), ("DEVELOPMENT", "Development"), ("TEST", "Test"), ("PRODUCTION", "Production") }, Model.Input.RequestedLifecycleStage)'><option value="">Choose…</option></select>
+                <select asp-for="Input.RequestedLifecycleStage" asp-items='Codes(new[] { ("LOCAL", "Local or mocked"), ("DEVELOPMENT", "Development"), ("TEST", "Test"), ("PRODUCTION", "Production") }, Model.Input.RequestedLifecycleStage)'><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.Audience">Who will use it <help>@Model.Caveat("C13") Customers in the audience always go to specialist review.</help></label>
-                <select asp-for="Input.Audience" asp-items="Codes(Audiences.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.Audience)"><option value="">Choose…</option></select>
+                <select asp-for="Input.Audience" asp-items="Codes(Audiences.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.Audience)"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.DataClass">Highest data class it touches <help>Confidential or restricted data triggers Security and Risk review (B8).</help></label>
-                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose…</option></select>
+                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.ActionScope">What it does <help>Agents that act in internal or external systems need a pattern that allows it, or a review.</help></label>
-                <select asp-for="Input.ActionScope" asp-items="Codes(ActionScopes.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.ActionScope)"><option value="">Choose…</option></select>
+                <select asp-for="Input.ActionScope" asp-items="Codes(ActionScopes.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.ActionScope)"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.TriggerType">How it is triggered <help>@Model.Caveat("C12") Scheduled and autonomous agents consume credits with nobody watching, so FinOps reviews the forecast.</help></label>
-                <select asp-for="Input.TriggerType" asp-items="Codes(TriggerTypes.All.Select(x => (x, Ui.Words(x))), Model.Input.TriggerType)"><option value="">Choose…</option></select>
+                <select asp-for="Input.TriggerType" asp-items="Codes(TriggerTypes.All.Select(x => (x, Ui.Words(x))), Model.Input.TriggerType)"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.EnvironmentClassCode">Environment class <help>The class sets the institutional default agent limit and whether tenant capacity may be drawn (E6, G8).</help></label>
@@ -166,7 +166,7 @@
             </div>
             <div class="field">
                 <label asp-for="Input.DataClass">Highest data class <help>Confidential or restricted data adds a Security and Risk review.</help></label>
-                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose…</option></select>
+                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose one</option></select>
             </div>
             <fieldset class="full">
                 <legend>What it involves <help>Each box opens the matching review.</help></legend>
@@ -184,11 +184,11 @@
         <div class="form-grid">
             <div class="field">
                 <label asp-for="Input.WorkloadPublicId" class="req">Workload or environment <help>Only workloads you can see are listed. The request's funding owner must be the workload's.</help></label>
-                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose…</option></select>
+                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.ChangeKind" class="req">What to change <help>An allocation is per environment; an agent limit is per agent and does not stop the flows it calls (C11); an envelope is the internal budget.</help></label>
-                <select asp-for="Input.ChangeKind" asp-items='Codes(new[] { ("ALLOCATION", "Environment allocation"), ("AGENT_LIMIT", "Agent monthly limit"), ("ENVELOPE", "Funding envelope") }, Model.Input.ChangeKind)'><option value="">Choose…</option></select>
+                <select asp-for="Input.ChangeKind" asp-items='Codes(new[] { ("ALLOCATION", "Environment allocation"), ("AGENT_LIMIT", "Agent monthly limit"), ("ENVELOPE", "Funding envelope") }, Model.Input.ChangeKind)'><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.EnvironmentId">Power Platform environment ID <help>For allocations and limits: the environment's GUID from the Power Platform admin center.</help></label>
@@ -214,7 +214,7 @@
         <div class="form-grid">
             <div class="field">
                 <label asp-for="Input.WorkloadPublicId" class="req">Workload to retire <help>Only workloads you can see are listed.</help></label>
-                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose…</option></select>
+                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.ReplacementWorkload">Replaced by <help>If something takes its place.</help></label>
@@ -238,7 +238,7 @@
         <div class="form-grid">
             <div class="field">
                 <label asp-for="Input.CommercialKind" class="req">Kind <help>P3 and pack purchases and renewals are approved by the Commercial Authority; Sourcing executes.</help></label>
-                <select asp-for="Input.CommercialKind" asp-items='Codes(new[] { ("P3_PURCHASE", "P3 pre-purchase"), ("PACK_PURCHASE", "Monthly capacity pack"), ("RENEWAL", "Renewal"), ("CRITICAL_SHARED_FUNDING", "Critical shared funding, F9") }, Model.Input.CommercialKind)'><option value="">Choose…</option></select>
+                <select asp-for="Input.CommercialKind" asp-items='Codes(new[] { ("P3_PURCHASE", "P3 pre-purchase"), ("PACK_PURCHASE", "Monthly capacity pack"), ("RENEWAL", "Renewal"), ("CRITICAL_SHARED_FUNDING", "Critical shared funding, F9") }, Model.Input.CommercialKind)'><option value="">Choose one</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.ServiceId">Service <help>The service the capacity is for, if one.</help></label>
@@ -250,7 +250,7 @@
             </div>
             <div class="field">
                 <label asp-for="Input.Unit" class="req">Unit <help>Credits, P3 commit units and currency are separate units; nothing is converted without a dated rate (E8).</help></label>
-                <select asp-for="Input.Unit" asp-items='Codes(new[] { ("COPILOT_CREDIT", "Copilot Credits"), ("P3_COMMIT_UNIT", "P3 commit units"), ("USD", "US dollars"), ("CAD", "Canadian dollars") }, Model.Input.Unit)'><option value="">Choose…</option></select>
+                <select asp-for="Input.Unit" asp-items='Codes(new[] { ("COPILOT_CREDIT", "Copilot Credits"), ("P3_COMMIT_UNIT", "P3 commit units"), ("USD", "US dollars"), ("CAD", "Canadian dollars") }, Model.Input.Unit)'><option value="">Choose one</option></select>
             </div>
             <div class="field full">
                 <label asp-for="Input.Rationale" class="req">Rationale <help>Coverage, forecast scenarios and the comparison method (C18).</help></label>
@@ -280,7 +280,7 @@
             <div class="field">
                 <label asp-for="Input.FundingOwnerId" class="req">LOB <help>The line of business whose reservation changes. Only LOBs where you are the business owner, a delegated approver, the finance partner or a product owner are listed.</help></label>
                 <select asp-for="Input.FundingOwnerId" id="seatLob">
-                    <option value="">Choose…</option>
+                    <option value="">Choose one</option>
                     @foreach (var l in Model.SeatLobs)
                     {
                         <option value="@l.FundingOwnerId" data-reserved="@(l.ReservedSeats ?? 0)" data-assigned="@(l.AssignedSeats?.ToString() ?? "not read yet")" data-group="@(l.TrackingGroup ?? "no tracking group mapped")" selected="@(Model.Input.FundingOwnerId == l.FundingOwnerId)">@l.Name</option>

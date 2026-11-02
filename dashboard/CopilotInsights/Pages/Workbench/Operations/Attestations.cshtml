@@ -24,7 +24,7 @@
                 <div class="field"><label for="v-@key">@key <help>Expected by the template: @expected</help></label><input id="v-@key" name="v_@key" maxlength="400" /></div>
             }
             <div class="field"><label for="aa" class="req">Auto-apply new services <help>On by default in Microsoft 365: new services can join this policy without any change here (C16). Expected: @(Model.Expected.TryGetValue("autoApplyNewServices", out var aa) ? aa : "as approved").</help></label>
-                <select id="aa" name="v_autoApplyNewServices" required><option value="">Choose…</option><option value="false">Off</option><option value="true">On</option></select></div>
+                <select id="aa" name="v_autoApplyNewServices" required><option value="">Choose one</option><option value="false">Off</option><option value="true">On</option></select></div>
             <div class="field"><label for="rs">Why now <help>After a change you made, or the monthly check (new services can join a policy when auto-apply is on).</help></label><select id="rs" name="reason"><option value="CHANGE">After a change</option><option value="MONTHLY">Monthly check</option></select></div>
             <div class="field full"><label for="ev" class="req">Evidence <help>The export or screenshot you read the values from. Its hash goes into the ledger.</help></label><input id="ev" type="file" name="file" required /></div>
         </div>

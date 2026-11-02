@@ -27,7 +27,7 @@
         {
             <form method="post" asp-page-handler="Claim" asp-route-finding="@f.PublicId" class="form-grid mt">
                 <idem />
-                <div class="field"><label for="fo-@f.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="fo-@f.PublicId" name="fundingOwnerId" required><option value="">Choose…</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+                <div class="field"><label for="fo-@f.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="fo-@f.PublicId" name="fundingOwnerId" required><option value="">Choose one</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
                 <div class="field"><label for="po-@f.PublicId">Product owner <help>Who answers for it day to day.</help></label><select id="po-@f.PublicId" name="productOwnerPersonId"><option value="">Unknown</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
                 <div class="field"><label for="nm-@f.PublicId">Name <help>A name people will recognize.</help></label><input id="nm-@f.PublicId" name="name" maxlength="200" /></div>
                 <div class="field"><button class="btn btn-ghost" type="submit">Claim and register</button></div>
@@ -48,7 +48,7 @@
         {
             <form method="post" asp-page-handler="Claim" asp-route-workload="@w.PublicId" class="form-grid mt">
                 <idem />
-                <div class="field"><label for="wo-@w.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="wo-@w.PublicId" name="fundingOwnerId" required><option value="">Choose…</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+                <div class="field"><label for="wo-@w.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="wo-@w.PublicId" name="fundingOwnerId" required><option value="">Choose one</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
                 <div class="field"><label for="wp-@w.PublicId">Product owner <help>Who answers for it day to day.</help></label><select id="wp-@w.PublicId" name="productOwnerPersonId"><option value="">Unknown</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
                 <div class="field"><button class="btn btn-ghost" type="submit">Claim</button></div>
             </form>

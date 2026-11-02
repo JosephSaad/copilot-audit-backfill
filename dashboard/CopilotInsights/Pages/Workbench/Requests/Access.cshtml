@@ -15,7 +15,7 @@
         <div class="field">
             <label for="fo">Your funding owner <help k="j1.fundingowner">Worked out from your Entra cost center and division (or a dated override). If it is wrong, choose another here and tell your manager: your Entra record may need fixing (RK7).</help></label>
             <select id="fo" name="FundingOwnerId">
-                <option value="">Choose…</option>
+                <option value="">Choose one</option>
                 @foreach (var o in Model.FundingOwners) { <option value="@o.Value" selected="@(o.Value == Model.FundingOwnerId?.ToString())">@o.Text</option> }
             </select>
             @if (!string.IsNullOrEmpty(Model.Basis)) { <span class="hint">From @Model.Basis.</span> }

@@ -46,7 +46,7 @@
             <idem />
             <h2>Assign a central role</h2>
             <div class="form-grid">
-                <div class="field"><label for="rp">Person <help>Who gets the role. Central roles apply to every funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                <div class="field"><label for="rp">Person <help>Who gets the role. Central roles apply to every funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
                 <div class="field"><label for="rr">Role <help>Administrators configure but never decide (SoD5). Auditors read only.</help></label><select id="rr" name="roleCode">@foreach (var r in Model.CentralRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
                 <div class="field"><label for="rt">Until (optional) <help>The last day the role applies. Leave empty for open-ended; every assignment is still reviewed each year.</help></label><input id="rt" type="date" name="effectiveTo" /></div>
             </div>
