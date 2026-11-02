@@ -334,7 +334,7 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
     public Task<string?> SaveServiceAsync(Guid idem, Guid? publicId, ServiceInput i)
         => run.RunAsync(idem, "service.save", async uow =>
         {
-            run.Require(Permissions.RegistryEdit, null, "The Platform Owner publishes the service catalogue.");
+            run.Require(Permissions.RegistryEdit, null, "The Platform Owner publishes the service catalog.");
             if (string.IsNullOrWhiteSpace(i.Code) || string.IsNullOrWhiteSpace(i.Name)) throw new DomainException("Code and name are required.");
             var args = new
             {
@@ -590,7 +590,7 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
         {
             run.Require(Permissions.RegistryFinance, null, "FinOps records the commercial inventory.");
             if (string.IsNullOrWhiteSpace(i.Name)) throw new DomainException("Give the item a name.");
-            if (i.ItemType is not ("LICENCE" or "PACK" or "P3" or "PAYG_SCOPE")) throw new DomainException("Choose the item type.");
+            if (i.ItemType is not ("LICENSE" or "PACK" or "P3" or "PAYG_SCOPE")) throw new DomainException("Choose the item type.");
             var args = new
             {
                 i.ItemType, Name = CommandRunner.Trim(i.Name, 200), i.Quantity, i.Unit, StartOn = i.StartOn?.Date, EndOn = i.EndOn?.Date, RenewalOn = i.RenewalOn?.Date, i.AutoRenew,

@@ -36,7 +36,7 @@ own rule: where merged activities differ between C and I, show C.
 | 5 | Classification, routing and platform feature approval | C A C R C C C | same | match |
 | 6 | Environment and policy pattern | - A C R R C **C** | - A C R R C **-** | Sourcing **I**: configuration; billing scope goes through rows 2, 5 and 9 |
 | 7 | Technical implementation, monitoring and response | - A C C R C **C** | - A C C R C **-** | Sourcing **I**: operations; a C would add a consult task to every fulfillment |
-| 8 | Microsoft capability evidence validation | - A C R C C **C** | - A C R C C **-** | Sourcing **I**: Architecture's technical judgement |
+| 8 | Microsoft capability evidence validation | - A C R C C **C** | - A C R C C **-** | Sourcing **I**: Architecture's technical judgment |
 | 9 | P3 evaluation and purchase recommendation | C C A/R C - C R | same | match |
 | 10 | Forecast, estimator, credits-versus-license review | C R A/R C C C C | same | match |
 | 11 | Cost-center mapping, showback, chargeback, reconciliation | C C A/R C R - C | same | match |
@@ -54,7 +54,7 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Schema source | SDK-style SQL project producing a DACPAC | Ordered idempotent scripts (`src/Governance.Database/Scripts`) and `Deploy-Database.ps1` | Ledger tables and DACPAC extraction have known limits (R31); scripts rerun safely |
 | Classification columns | NOT NULL on `core.Workload` | Nullable, enforced by `ClassificationComplete` at B3 | Discovered workloads exist before they are classified |
 | Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | Kestrel on `http://localhost:5450`, worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
-| Spelling | British ("licence") | American ("license") in code and UI | House style of the user's other repositories |
+| Spelling | British ("license") | American ("license") in code and UI | House style of the user's other repositories |
 | Test persona switch | not in the architecture | Development-only "Act as" switch, audited, off unless `Testing:AllowActAs` is true and the environment is Development | One real account in the test tenant has to play every role, and segregation of duties needs different people |
 
 ## Fixes from the core review (2026-10-24)
@@ -73,7 +73,7 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 |---|---|---|
 | Ledger digests | `deploy/Save-LedgerDigest.ps1` writes one digest file per run to a WORM share every 4 hours; `-Verify` checks the database against all of them | On-premises SQL Server stores digests automatically only in Azure immutable storage; a file share on write-once storage keeps the evidence outside the database (R27) |
 | Snapshot isolation | The DBA sets `ALLOW_SNAPSHOT_ISOLATION ON` on the database | `sys.sp_verify_database_ledger` refuses to run without it; `Deploy-Database.ps1` sets only `READ_COMMITTED_SNAPSHOT` today (candidate for the deploy script) |
-| SQL certificate validation | Production runs `Deploy-Database.ps1 -TrustServerCertificate:$false` | The script's default trusts any server certificate, which suits only the local test server |
+| SQL certificate validation | Certificates are checked unless `-TrustServerCertificate` is passed | Only the local test server passes it (same rule as Insights' installer) |
 | Mirror guard | The installers mirror files with robocopy only into an empty folder or one marked `.cgw-install` by an earlier install of the same kind | `/MIR` deletes what is not in the source; a wrong path must not wipe another application's folder |
 | Settings | Installers refuse a settings file with placeholders, a password, a client secret or any `Testing` switch turned on | No secrets in files; test switches never reach production |
 | ITSM credential | Certificate-based OAuth where the ITSM supports it, otherwise the institution's vault injects `Itsm__ClientSecret` into the service environment | Keeps the only possible secret out of files and source |

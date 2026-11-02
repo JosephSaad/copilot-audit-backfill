@@ -62,7 +62,7 @@
         <h2>Prepare an envelope</h2>
         <div class="form-grid">
             <div class="field"><label for="eo" class="req">Funding owner <help>The LOB or Enterprise Shared unit whose budget this is.</help></label><select id="eo" name="fundingOwnerId" required>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
-            <div class="field"><label for="es" class="req">Service <help>The catalogue service the envelope pays for.</help></label><select id="es" name="serviceId" required>@foreach (var o in Model.Services) { <option value="@o.Value">@o.Text</option> }</select></div>
+            <div class="field"><label for="es" class="req">Service <help>The catalog service the envelope pays for.</help></label><select id="es" name="serviceId" required>@foreach (var o in Model.Services) { <option value="@o.Value">@o.Text</option> }</select></div>
             <div class="field"><label for="ef" class="req">From <help>First day of the budget period.</help></label><input id="ef" type="date" name="start" value="@(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).ToString("yyyy-MM-dd"))" required /></div>
             <div class="field"><label for="et" class="req">To <help>Last day of the budget period.</help></label><input id="et" type="date" name="end" value="@(new DateTime(DateTime.UtcNow.Year, 12, 31).ToString("yyyy-MM-dd"))" required /></div>
             <div class="field"><label for="ea" class="req">Amount <help>The budget in Copilot Credits. It is an internal limit, not a Microsoft setting; the business owner approves it.</help></label><input id="ea" type="number" name="amount" min="1" step="1" required /></div>

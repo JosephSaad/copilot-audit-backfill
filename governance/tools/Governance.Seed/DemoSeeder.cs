@@ -51,7 +51,7 @@ public sealed class TenantSettings
 
 /// <summary>
 /// Seeds the demo institution's foundation (setup steps 0 to 8 of section 4.1) as the deployment principal:
-/// personas, funding owners passing the activation checklist, cost centers, catalogue, approved templates,
+/// personas, funding owners passing the activation checklist, cost centers, catalog, approved templates,
 /// patterns, envelopes, delegations, commercial inventory, holidays, RACI v1 activated, then opens intake.
 /// </summary>
 public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
@@ -159,9 +159,9 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
                     new { admin, role, from = _today.AddDays(-1), now, review = _today.AddYears(1) }, tx);
         log.WriteLine($"Funding owners: {string.Join(", ", result.FundingOwners.Keys)}.");
 
-        // Step 2: the approved service catalogue.
+        // Step 2: the approved service catalog.
         var ops = result.Person("platformOwner");
-        foreach (var s in Catalogue)
+        foreach (var s in Catalog)
             result.Services[s.Code] = await conn.ExecuteScalarAsync<int>(
                 """
                 INSERT core.Service (Code, Name, Harness, RouteType, TenantAvailability, InstitutionalStatus, IsCustomerFacing, Audiences, DataClasses, AccessTiers,
@@ -172,7 +172,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
                     owner = s.Code.StartsWith("CS_") || s.Code == "SHARED_STUDIO" ? result.Person("operator1") : ops, review = _today.AddMonths(6), s.Description }, tx);
 
         // Step 3: control templates approved by the Platform Owner and Steering (SoD6), with verification checks.
-        foreach (var s in Catalogue)
+        foreach (var s in Catalog)
         {
             var templateId = await conn.ExecuteScalarAsync<int>(
                 """
@@ -206,7 +206,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
         var commercial = result.Person("commercial");
         var items = new List<CommercialSpec>
         {
-            new("LICENCE", "Microsoft 365 Copilot licenses", 1200m, "SEAT", _today.AddMonths(-10), _today.AddMonths(26), _today.AddMonths(25), false, "Tenant", "EA-2025-0412"),
+            new("LICENSE", "Microsoft 365 Copilot licenses", 1200m, "SEAT", _today.AddMonths(-10), _today.AddMonths(26), _today.AddMonths(25), false, "Tenant", "EA-2025-0412"),
             new("PACK", "Copilot Studio monthly capacity pack (25,000 credits)", 25000m, "COPILOT_CREDIT", new DateTime(_today.Year, _today.Month, 1),
                 new DateTime(_today.Year, _today.Month, 1).AddMonths(1).AddDays(-1), new DateTime(_today.Year, _today.Month, 1).AddMonths(1), true, "Tenant", "EA-2025-0412-P"),
             new("P3", "Copilot Credit pre-purchase plan (P3)", 300000m, "P3_COMMIT_UNIT", _today.AddDays(75).AddYears(-1), _today.AddDays(75), _today.AddDays(75), false,
@@ -434,7 +434,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
         new("DENY_OUT_OF_SCOPE", "Explicit deny case: a user outside the scope groups gets no allowance from this policy.", "TEST_EVIDENCE", null, true, "C10"),
     };
 
-    private static readonly ServiceSpec[] Catalogue =
+    private static readonly ServiceSpec[] Catalog =
     {
         new("CS_STANDARD", "Copilot Studio (standard harness)", "Standard", "PPAC_ENVIRONMENT", "GA", "APPROVED", false,
             "EMPLOYEES_TEAM,EMPLOYEES_LOB,EMPLOYEES_ALL", "PUBLIC,INTERNAL,CONFIDENTIAL", "Developer,Test,Production",

@@ -35,7 +35,7 @@ public class DatabaseFixture : IAsyncLifetime
     public void Deploy(bool createLogins)
     {
         var script = Path.Combine(RepoRoot, "src", "Governance.Database", "Deploy-Database.ps1");
-        var args = new List<string> { "-NoProfile", "-File", script, "-SqlServer", Server, "-Database", Database };
+        var args = new List<string> { "-NoProfile", "-File", script, "-SqlServer", Server, "-Database", Database, "-TrustServerCertificate" };
         if (createLogins) args.AddRange(new[] { "-CreateSqlLogins", "-LocalSettingsPath", _settingsPath });
         var psi = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var a in args) psi.ArgumentList.Add(a);

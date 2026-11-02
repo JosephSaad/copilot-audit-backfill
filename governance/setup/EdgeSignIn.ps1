@@ -22,7 +22,7 @@ function Import-MsalFromModule {
         foreach ($dep in 'Microsoft.IdentityModel.Abstractions.dll') {
             $p = Join-Path $dir $dep
             if (-not (Test-Path $p)) { $p = Join-Path (Split-Path $dir) $dep }
-            if (Test-Path $p) { try { [void][Reflection.Assembly]::LoadFrom($p) } catch { } }
+            if (Test-Path $p) { try { [void][Reflection.Assembly]::LoadFrom($p) } catch { Write-Verbose "Could not load ${p}: $($_.Exception.Message)" } }
         }
         [void][Reflection.Assembly]::LoadFrom($msal)
         return
@@ -52,7 +52,7 @@ function Get-EdgeToken {
     $accounts = @($pca.GetAccountsAsync().GetAwaiter().GetResult())
     if ($accounts.Count -gt 0) {
         try { return $pca.AcquireTokenSilent($scopeList, $accounts[0]).ExecuteAsync().GetAwaiter().GetResult() }
-        catch [Microsoft.Identity.Client.MsalUiRequiredException] { }
+        catch [Microsoft.Identity.Client.MsalUiRequiredException] { Write-Verbose 'The cached sign-in needs the browser again.' }
         catch { if ($_.Exception.InnerException -isnot [Microsoft.Identity.Client.MsalUiRequiredException]) { throw } }
     }
 

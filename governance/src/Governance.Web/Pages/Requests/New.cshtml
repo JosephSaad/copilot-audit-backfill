@@ -77,7 +77,7 @@
                 <select asp-for="Input.WorkloadType" asp-items='Codes(new[] { ("AGENT", "Agent"), ("ENVIRONMENT", "Environment"), ("AGENT_FLOW", "Agent flow"), ("SERVICE_ENTITLEMENT", "Service entitlement cohort"), ("OTHER", "Other") }, Model.Input.WorkloadType)'></select>
             </div>
             <div class="field">
-                <label asp-for="Input.ServiceId" class="req">Service <help>@Model.Caveat("C01") Only approved catalogue services are listed; anything else is an exception (J3).</help></label>
+                <label asp-for="Input.ServiceId" class="req">Service <help>@Model.Caveat("C01") Only approved catalog services are listed; anything else is an exception (J3).</help></label>
                 <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Choose…</option></select>
             </div>
             <div class="field">
@@ -145,8 +145,8 @@
         <h2 class="mt">The exception</h2>
         <div class="form-grid">
             <div class="field">
-                <label asp-for="Input.ServiceId">Service or harness <help>It may be outside the catalogue; that is what an exception is for.</help></label>
-                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Not in the catalogue</option></select>
+                <label asp-for="Input.ServiceId">Service or harness <help>It may be outside the catalog; that is what an exception is for.</help></label>
+                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Not in the catalog</option></select>
             </div>
             <div class="field">
                 <label asp-for="Input.WorkloadPublicId">Workload it affects <help>If it changes something already registered.</help></label>

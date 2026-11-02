@@ -12,7 +12,7 @@ public sealed record RuleResult(bool Passed, IReadOnlyList<string> Reasons)
     public static RuleResult From(List<string> reasons) => reasons.Count == 0 ? Pass : new(false, reasons);
 }
 
-/// <summary>B2: required fields per journey, sponsor validity, funding owner status, catalogue eligibility, duplicates.</summary>
+/// <summary>B2: required fields per journey, sponsor validity, funding owner status, catalog eligibility, duplicates.</summary>
 public static class CompletenessCheck
 {
     public sealed record Facts(
@@ -41,7 +41,7 @@ public static class CompletenessCheck
                 else if (!f.SponsorActive) missing.Add("The sponsor's account is disabled or has left.");
                 if (string.IsNullOrWhiteSpace(p.WorkloadName) && f.ExistingWorkload is null) missing.Add("Name the workload.");
                 if (string.IsNullOrWhiteSpace(p.BusinessOutcome)) missing.Add("State the measurable business outcome.");
-                if (f.Service is null) missing.Add("Choose a service from the catalogue.");
+                if (f.Service is null) missing.Add("Choose a service from the catalog.");
                 else if (f.Service.InstitutionalStatus is "NOT_APPROVED" or "RETIRED" && !p.MaterialChange)
                     missing.Add($"{f.Service.Name} is not approved here; use the exception journey (J3) instead.");
                 if (p.EstimateCreditsPerMonth is null) missing.Add("Estimate monthly Copilot Credits (a range is fine; write the middle).");
@@ -134,7 +134,7 @@ public static class PatternFit
 
     public static class Conditions
     {
-        public const string NotInCatalogue = "SERVICE_NOT_APPROVED";
+        public const string NotInCatalog = "SERVICE_NOT_APPROVED";
         public const string Preview = "PREVIEW_SERVICE";
         public const string CustomerFacing = "CUSTOMER_FACING";
         public const string DataClass = "SENSITIVE_DATA";
@@ -171,7 +171,7 @@ public static class PatternFit
         }
 
         var service = f.Service;
-        if (service is null || service.InstitutionalStatus is "NOT_APPROVED" or "RETIRED") failed.Add(Conditions.NotInCatalogue);
+        if (service is null || service.InstitutionalStatus is "NOT_APPROVED" or "RETIRED") failed.Add(Conditions.NotInCatalog);
         if (service is not null && (service.TenantAvailability == "PREVIEW" || service.InstitutionalStatus == "PILOT")) failed.Add(Conditions.Preview);
         if (p.CustomerFacing || p.Audience == Audiences.Customers || service?.IsCustomerFacing == true) failed.Add(Conditions.CustomerFacing);
         if (p.NewConnectorOrIntegration) failed.Add(Conditions.Connector);
@@ -199,12 +199,12 @@ public static class PatternFit
             if (misses.Count == 0) { match = pat; break; }
             if (patternMisses.Count == 0 || misses.Count < patternMisses.Count) patternMisses = misses;
         }
-        if (match is null) failed.AddRange(patternMisses.Count > 0 ? patternMisses : new List<string> { Conditions.NotInCatalogue });
+        if (match is null) failed.AddRange(patternMisses.Count > 0 ? patternMisses : new List<string> { Conditions.NotInCatalog });
 
         var distinct = failed.Distinct().ToList();
         return distinct.Count == 0 && match is not null
             ? new Result(match.PatternId, match.Code, Array.Empty<string>())
-            : new Result(null, null, distinct.Count == 0 ? new List<string> { Conditions.NotInCatalogue } : distinct);
+            : new Result(null, null, distinct.Count == 0 ? new List<string> { Conditions.NotInCatalog } : distinct);
     }
 
     private static bool InList(string list, string? value)
@@ -213,7 +213,7 @@ public static class PatternFit
 
     public static string Describe(string condition) => condition switch
     {
-        Conditions.NotInCatalogue => "The service or harness is not approved in the catalogue.",
+        Conditions.NotInCatalog => "The service or harness is not approved in the catalog.",
         Conditions.Preview => "The service is in preview or pilot (C02).",
         Conditions.CustomerFacing => "Customers are in the audience (C13).",
         Conditions.DataClass => "The data class is above what the pattern allows.",
@@ -246,11 +246,11 @@ public static class TriggeredDisciplines
         var reviews = new List<Review>();
         void Add(Review r) { if (!reviews.Any(x => x.Discipline == r.Discipline && x.DecisionType == r.DecisionType)) reviews.Add(r); }
         bool Any(params string[] c) => c.Any(failed.Contains);
-        const string C = PatternFit.Conditions.NotInCatalogue;
+        const string C = PatternFit.Conditions.NotInCatalog;
 
         if (Any(C, PatternFit.Conditions.Stage, PatternFit.Conditions.ActionScope, PatternFit.Conditions.Audience))
             Add(new(Disciplines.Architecture, Roles.Architect, DecisionTypes.PlatformFeature, "PLATFORM_FEATURE", Roles.PlatformOwner,
-                "Service, harness or pattern outside the catalogue: Architecture reviews; the Platform Owner decides."));
+                "Service, harness or pattern outside the catalog: Architecture reviews; the Platform Owner decides."));
         if (Any(PatternFit.Conditions.DataClass, PatternFit.Conditions.Connector))
         {
             Add(new(Disciplines.SecurityRisk, Roles.RiskReviewer, DecisionTypes.RiskAcceptance, "SECURITY_RISK", Roles.RiskReviewer,

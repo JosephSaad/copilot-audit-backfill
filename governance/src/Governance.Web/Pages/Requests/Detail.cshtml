@@ -116,7 +116,7 @@
             <dd><a href="/Registry/FundingOwners/@d.FundingOwnerPublicId">@d.FundingOwnerName</a></dd>
             <dt>Requester <help>Who submitted the request. A requester never decides their own request (SoD1).</help></dt><dd>@d.RequesterName</dd>
             <dt>Sponsor <help>Owns the purpose and the outcome claims.</help></dt><dd>@(d.SponsorName ?? "None")</dd>
-            <dt>Service <help>The approved catalogue service the request uses.</help></dt><dd>@(d.ServiceName ?? "None")</dd>
+            <dt>Service <help>The approved catalog service the request uses.</help></dt><dd>@(d.ServiceName ?? "None")</dd>
             @if (Model.EstimateText is string est)
             {
                 <dt>Estimate <help>The requester's monthly Copilot Credits. At the pattern check (B4) it is multiplied by the months it runs inside the envelope period; an approval commits that total against the envelope.</help></dt><dd>@est</dd>
@@ -261,7 +261,7 @@
                             <select id="sc" name="solutionClass"><option value="">Choose…</option>@foreach (var x in SolutionClasses.All) { <option value="@x" selected="@(w?.SolutionClass == x)">@Ui.Words(x)</option> }</select></div>
                         <div class="field"><label for="ls">Lifecycle stage <help>Where it runs now.</help></label>
                             <select id="ls" name="lifecycleStage"><option value="">Choose…</option>@foreach (var x in LifecycleStages.All) { <option value="@x" selected="@(w?.LifecycleStage == x)">@Ui.Words(x)</option> }</select></div>
-                        <div class="field"><label for="sv">Service <help>The catalogue service and harness.</help></label>
+                        <div class="field"><label for="sv">Service <help>The catalog service and harness.</help></label>
                             <select id="sv" name="serviceId">@foreach (var o in Model.Services) { <option value="@o.Value" selected="@(w?.ServiceId?.ToString() == o.Value)">@o.Text</option> }</select></div>
                         <div class="field"><label for="cr">Criticality <help>High or critical business applications need production acceptance with continuity.</help></label>
                             <select id="cr" name="criticality"><option value="">Choose…</option>@foreach (var x in Criticalities.All) { <option value="@x" selected="@(w?.Criticality == x)">@Ui.Words(x)</option> }</select></div>

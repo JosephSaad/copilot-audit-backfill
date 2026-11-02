@@ -24,6 +24,7 @@
 .EXAMPLE
     pwsh -File setup\Setup-TestTenant.ps1 -TenantDomain cloudsconnected.com -AdminUpn joseph.saad@cloudsconnected.com
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Connect-MgGraph takes the access token MSAL just returned as a SecureString; the token is not a stored secret.')]
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $TenantDomain,

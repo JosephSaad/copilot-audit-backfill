@@ -72,7 +72,7 @@ SELECT p.PersonId, r.RoleCode, r.ScopeType, r.Fo, DATEADD(MONTH, -6, @today), 'S
 FROM @roles r JOIN sec.Person p ON p.UserPrincipalName = r.Upn
 WHERE NOT EXISTS (SELECT 1 FROM sec.RoleAssignment x WHERE x.PersonId = p.PersonId AND x.RoleCode = r.RoleCode AND (x.ScopeId = r.Fo OR (x.ScopeId IS NULL AND r.Fo IS NULL)));
 
--- Catalogue, templates, pattern
+-- Catalog, templates, pattern
 IF NOT EXISTS (SELECT 1 FROM core.Service WHERE Code = 'CS-STD')
     INSERT core.Service (Code, Name, Harness, RouteType, TenantAvailability, InstitutionalStatus, Audiences, DataClasses, AccessTiers, OperationalOwnerPersonId, ReviewOn, Description)
     VALUES ('CS-STD', N'Copilot Studio (standard harness)', N'Standard', 'PPAC_ENVIRONMENT', 'GA', 'APPROVED', 'EMPLOYEES_TEAM,EMPLOYEES_LOB,EMPLOYEES_ALL', 'PUBLIC,INTERNAL,CONFIDENTIAL', 'Standard', @ops1, DATEADD(MONTH, 6, @today), N'Agents built in Copilot Studio on the standard harness.');

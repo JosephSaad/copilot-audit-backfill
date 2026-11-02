@@ -90,7 +90,7 @@ USING (VALUES
  ('LOB_FINANCE_PARTNER', N'LOB finance partner', N'Validates cost centers and envelopes; reviews showback.', 'FINANCE', 'FUNDING_OWNER', 0, 1, 0, 15),
  ('LOB_CHAMPION', N'LOB champion', N'Adoption support; no approval rights.', NULL, 'FUNDING_OWNER', 0, 1, 0, 16),
  -- Central roles (scope: tenant)
- ('PLATFORM_OWNER', N'Platform Owner', N'Accountable for classification and routing, platform features, environment and policy pattern, implementation, monitoring and response, Microsoft evidence; owns the catalogue and the Workbench as a product.', 'PLATFORM_OWNER', 'TENANT', 1, 0, 1, 20),
+ ('PLATFORM_OWNER', N'Platform Owner', N'Accountable for classification and routing, platform features, environment and policy pattern, implementation, monitoring and response, Microsoft evidence; owns the catalog and the Workbench as a product.', 'PLATFORM_OWNER', 'TENANT', 1, 0, 1, 20),
  ('INTAKE_ANALYST', N'Intake and entitlement analyst', N'Completeness and sponsorship checks (B2), duplicate detection, fulfillment preparation (B10).', 'ENG_OPS', 'TENANT', 1, 0, 1, 21),
  ('PLATFORM_OPERATOR', N'Platform operator', N'Executes configuration through ITSM tasks; verification (D1); inventory sync; event response (G1 to G5); attestation.', 'ENG_OPS', 'TENANT', 1, 0, 1, 22),
  ('ARCHITECT', N'Architect', N'Classification (B3); environment and policy pattern; capability evidence validation; specialist review (B8).', 'ARCHITECTURE', 'TENANT', 1, 0, 1, 23),
@@ -250,7 +250,7 @@ INSERT wf.EscalationStep (LadderCode, Level, RoleCode, ScopeKind) VALUES
  ('OPERATIONS', 1, 'PLATFORM_OWNER',     'TENANT');
 
 ------------------------------------------------------------------------------------------------
--- Notification catalogue (section 8.3)
+-- Notification catalog (section 8.3)
 ------------------------------------------------------------------------------------------------
 MERGE ntf.NotificationRule AS t
 USING (VALUES
@@ -315,7 +315,7 @@ DECLARE @st TABLE (JourneyCode varchar(10), StageCode varchar(20), Name nvarchar
                    Notify varchar(100), Guidance nvarchar(1000), SortOrder int);
 INSERT @st VALUES
  -- J2 New workload
- ('J2','B2', N'Completeness and sponsorship', 'CLASSIFICATION_ROUTING','WORK','INTAKE_ANALYST',NULL,'BD2','CENTRAL',0,NULL,NULL,'CompletenessCheck','N02,N03', N'Check the sponsor and funding owner are valid, the request is not a duplicate and the service is in the catalogue.', 10),
+ ('J2','B2', N'Completeness and sponsorship', 'CLASSIFICATION_ROUTING','WORK','INTAKE_ANALYST',NULL,'BD2','CENTRAL',0,NULL,NULL,'CompletenessCheck','N02,N03', N'Check the sponsor and funding owner are valid, the request is not a duplicate and the service is in the catalog.', 10),
  ('J2','B7', N'Remediate and resubmit', 'BUSINESS_CASE','WORK','REQUESTER',NULL,'BD10',NULL,0,NULL,NULL,NULL,'N02', N'Fix what was returned and resubmit, or withdraw. Earlier decisions stay on the record.', 15),
  ('J2','B3', N'Classify the workload', 'CLASSIFICATION_ROUTING','WORK','ARCHITECT',NULL,'BD3','SPECIALIST',0,NULL,NULL,'ClassificationComplete','N03', N'Answer the four classification fields independently (C03), the trigger type and the downstream meters.', 20),
  ('J2','B4', N'Approved pattern check', 'CLASSIFICATION_ROUTING','SYSTEM',NULL,NULL,'SAME_DAY',NULL,0,NULL,'PatternFit',NULL,'N04,N05', N'The rules engine checks the request against approved patterns and envelope headroom.', 30),

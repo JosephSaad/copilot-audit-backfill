@@ -48,7 +48,7 @@ Copilot usage report returns hashed names, the read says so, and no seat is prop
 ## 2. Create the database
 
 ```powershell
-pwsh -NoProfile -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json
+pwsh -NoProfile -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json -TrustServerCertificate
 ```
 
 This runs every script in `src\Governance.Database\Scripts` in order. It makes two SQL logins with random

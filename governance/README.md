@@ -64,7 +64,7 @@ Full steps are in [docs/TEST-ENVIRONMENT.md](docs/TEST-ENVIRONMENT.md). In short
 
 ```powershell
 pwsh -File setup\Setup-TestTenant.ps1 -TenantDomain <your domain> -AdminUpn <your admin UPN>
-pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json
+pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json -TrustServerCertificate
 dotnet run --project tools\Governance.Seed -- --database CopilotGovernanceTest --sample-requests
 ```
 

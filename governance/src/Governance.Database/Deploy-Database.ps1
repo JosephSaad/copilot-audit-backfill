@@ -11,7 +11,7 @@
     principal (db_owner on the database); no application identity gets db_owner.
 
 .EXAMPLE
-    pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json
+    pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer localhost -Database CopilotGovernanceTest -CreateSqlLogins -LocalSettingsPath config\appsettings.Local.json -TrustServerCertificate
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +22,7 @@ param(
     [string] $ReaderPrincipal = '',
     [switch] $CreateSqlLogins,
     [string] $LocalSettingsPath = '',
-    [switch] $TrustServerCertificate = $true
+    [switch] $TrustServerCertificate
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

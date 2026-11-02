@@ -264,7 +264,7 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
                     Status = s.ActiveRaci > 0 ? (s.PlatformOwners > 0 ? "RACI active; Platform Owner named." : "RACI active; no Platform Owner named.") : "No RACI version is active yet." },
             new() { Step = 1, What = "Define funding owners (LOBs and Enterprise Shared) and activate them", Accountable = "Finance / FinOps", Screen = "Registry › Funding owners", Link = "/Registry/FundingOwners",
                     Done = s.ActiveOwners > 0 && s.DraftOwners == 0, Status = $"{s.ActiveOwners} active, {s.DraftOwners} still in draft." },
-            new() { Step = 2, What = "Publish the approved service catalogue", Accountable = "Platform Owner", Screen = "Registry › Services", Link = "/Registry/Services",
+            new() { Step = 2, What = "Publish the approved service catalog", Accountable = "Platform Owner", Screen = "Registry › Services", Link = "/Registry/Services",
                     Done = s.ApprovedServices > 0 && s.ServicesWithoutOwner == 0, Status = $"{s.ApprovedServices} approved or pilot; {s.ServicesWithoutOwner} without an operational owner." },
             new() { Step = 3, What = "Approve a control template for every approved service", Accountable = "Platform Owner", Screen = "Registry › Control templates", Link = "/Registry/Templates",
                     Done = s.ApprovedServices > 0 && s.ServicesWithoutTemplate == 0, Status = $"{s.ServicesWithoutTemplate} approved services without an active template." },

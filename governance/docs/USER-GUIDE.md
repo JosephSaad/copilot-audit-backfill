@@ -105,7 +105,7 @@ Teams message. Each field has an (i) icon that says why it is asked.
 
 ## Platform Owner and Steering
 
-- **You do:** own the catalogue, templates and the Workbench; approve RACI and template versions together
+- **You do:** own the catalog, templates and the Workbench; approve RACI and template versions together
   (two different people); open intake once setup is done.
 
 ## Workbench administrator

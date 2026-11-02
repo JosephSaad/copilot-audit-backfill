@@ -15,7 +15,7 @@ HERE = pathlib.Path(__file__).parent
 SHOTS = HERE / "shots"
 SCENES = {s["file"]: s for s in json.loads((HERE / "scenes.json").read_text(encoding="utf-8"))}
 
-# Palette: deep ink-teal dominant, pale mist, amber accent (the screenshots' highlight colour).
+# Palette: deep ink-teal dominant, pale mist, amber accent (the screenshots' highlight color).
 INK = RGBColor(0x12, 0x34, 0x3B)
 TEAL = RGBColor(0x2D, 0x7D, 0x8A)
 MIST = RGBColor(0xEE, 0xF4, 0xF5)

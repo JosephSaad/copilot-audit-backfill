@@ -124,7 +124,7 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
         if (p.TriggerType is TriggerTypes.Autonomous or TriggerTypes.Scheduled) yield return PatternFit.Conditions.Trigger;
         if (p.UsesGitHubHarness) yield return PatternFit.Conditions.GitHubHarness;
         if (p.RequestedLifecycleStage == LifecycleStages.Production) yield return PatternFit.Conditions.ProductionChange;
-        yield return PatternFit.Conditions.NotInCatalogue;
+        yield return PatternFit.Conditions.NotInCatalog;
     }
 
     // ------------------------------------------------------------------------------------------

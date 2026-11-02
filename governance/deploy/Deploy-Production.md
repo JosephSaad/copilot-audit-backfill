@@ -86,11 +86,11 @@ The SQL check runs as you. Step 5 tests it as the gMSA.
    application identity is ever db_owner):
 
    ```powershell
-   pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -WebPrincipal 'CORP\gmsa-cgw-web$' -WorkerPrincipal 'CORP\gmsa-cgw-worker$' -ReaderPrincipal 'CORP\CGW Auditors' -TrustServerCertificate:$false
+   pwsh -File src\Governance.Database\Deploy-Database.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -WebPrincipal 'CORP\gmsa-cgw-web$' -WorkerPrincipal 'CORP\gmsa-cgw-worker$' -ReaderPrincipal 'CORP\CGW Auditors'
    ```
    The script runs every file in `src\Governance.Database\Scripts` in name order (each is safe to rerun), then
    maps the web gMSA to `app_web`, the worker gMSA to `app_worker` and the reader group to `gov_reader`.
-   **Pass `-TrustServerCertificate:$false`**: its default is meant for the local test server. Never pass
+   Leave out `-TrustServerCertificate`: it is for the local test server only. Never pass
    `-CreateSqlLogins` in production (it makes SQL logins with passwords for the local test only).
    Run it against the listener; then add the database to the availability group and let it seed.
 3. **Snapshot isolation for ledger verification.** `sys.sp_verify_database_ledger` refuses to run without it:
@@ -206,7 +206,7 @@ Per environment, mirror `setup\Setup-TestTenant.ps1`, with these differences:
 ## 10. Open for business (Platform Owner)
 
 Follow the setup sequence of the architecture (section 4.1): approve RACI version 1, activate funding owners,
-publish the catalogue and templates, record commercial inventory, set SLAs, run discovery, approve envelopes,
+publish the catalog and templates, record commercial inventory, set SLAs, run discovery, approve envelopes,
 then open intake from **Admin > Intake**.
 
 ## Upgrades

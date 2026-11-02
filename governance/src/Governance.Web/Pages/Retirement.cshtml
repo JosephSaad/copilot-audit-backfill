@@ -32,7 +32,7 @@ else
 {
     <div class="table-wrap">
         <table class="stack">
-            <thead><tr><th scope="col">Workload <help>The workload being retired or already retired.</help></th><th scope="col">Funding owner <help>Who owns and pays for the workload.</help></th><th scope="col">Service <help>The catalogue service it used.</help></th></tr></thead>
+            <thead><tr><th scope="col">Workload <help>The workload being retired or already retired.</help></th><th scope="col">Funding owner <help>Who owns and pays for the workload.</help></th><th scope="col">Service <help>The catalog service it used.</help></th></tr></thead>
             <tbody>@foreach (var w in Model.Retiring.Items) { <tr><td><a href="/Registry/Workloads/@w.PublicId">@w.Name</a></td><td>@w.FundingOwnerName</td><td>@w.ServiceName</td></tr> }</tbody>
         </table>
     </div>

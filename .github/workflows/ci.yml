@@ -114,6 +114,29 @@ jobs:
         shell: pwsh
         run: dotnet publish dashboard/CopilotInsights/CopilotInsights.csproj -c Release -o out/CopilotInsights --nologo
 
+  governance:
+    name: Governance Workbench
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build governance/CopilotGovernance.sln -c Release --nologo
+
+      # The integration tests deploy a database on a local SQL Server with Windows sign-in, which the hosted
+      # runners don't have; they run on the build machine before each release.
+      - name: Unit and contract tests
+        shell: pwsh
+        run: |
+          dotnet test governance/tests/Governance.UnitTests/Governance.UnitTests.csproj -c Release --no-build --nologo
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet test governance/tests/Governance.ContractTests/Governance.ContractTests.csproj -c Release --no-build --nologo
+
   analyze:
     name: PSScriptAnalyzer
     runs-on: windows-latest

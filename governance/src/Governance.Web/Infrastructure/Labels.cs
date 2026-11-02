@@ -33,7 +33,7 @@ public static class Labels
         ["RECERTIFICATION"] = "Recertification", ["FINDING"] = "Finding", ["EVENT"] = "Event", ["CLAIM"] = "Claim", ["ACCEPT_ROLE"] = "Accept a role",
         ["ACTIVATION"] = "Activation",
 
-        // Service catalogue
+        // Service catalog
         ["PPAC_ENVIRONMENT"] = "Power Platform environment", ["M365_POLICY"] = "Microsoft 365 policy", ["ENTRA_PACKAGE"] = "Entra access package",
         ["GA"] = "Generally available", ["PREVIEW"] = "Preview", ["NOT_AVAILABLE"] = "Not available in the tenant",
         ["PILOT"] = "Pilot", ["NOT_APPROVED"] = "Not approved",
@@ -48,7 +48,7 @@ public static class Labels
 
         // Funding owners, units, misc
         ["LOB"] = "Line of business", ["ENTERPRISE_SHARED"] = "Enterprise Shared", ["COPILOT_CREDIT"] = "Copilot Credits", ["P3_COMMIT_UNIT"] = "P3 commit units",
-        ["PAYG_SCOPE"] = "PAYG scope", ["P3"] = "P3 plan", ["PACK"] = "Monthly pack", ["LICENCE"] = "License",
+        ["PAYG_SCOPE"] = "PAYG scope", ["P3"] = "P3 plan", ["PACK"] = "Monthly pack", ["LICENSE"] = "License",
         ["PRODUCTIVITY_SOLUTION"] = "Productivity solution", ["BUSINESS_APPLICATION"] = "Business application",
         ["USER_INITIATED"] = "User-initiated", ["CUSTOMER_TRIGGERED"] = "Customer-triggered",
         ["APP_ONLY"] = "Worker (app-only)", ["DELEGATED"] = "Signed-in operator", ["UPLOAD"] = "Uploaded file", ["TEST_DOUBLE"] = "Test double",

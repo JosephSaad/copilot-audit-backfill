@@ -31,7 +31,7 @@
                 <dt>Funding owner, cost center <help>Who owns and pays for it, and the Finance unit for showback.</help></dt><dd>@d.FundingOwnerName, @(d.CostCenterCode ?? "no cost center")</dd>
                 <dt>Solution class <help>Productivity solution or business application; independent of the funding owner (C03).</help></dt><dd>@(Ui.Words(w.SolutionClass) is { Length: > 0 } a ? a : "Not set")</dd>
                 <dt>Lifecycle stage <help>Local, Development, Test or Production; independent of the service (C03).</help></dt><dd>@(Ui.Words(w.LifecycleStage) is { Length: > 0 } lsv ? lsv : "Not set")</dd>
-                <dt>Service, criticality <help>The catalogue service it uses, and how critical it is.</help></dt><dd>@(d.ServiceName ?? "Not set"), @(Ui.Words(w.Criticality) is { Length: > 0 } c ? c : "criticality not set")</dd>
+                <dt>Service, criticality <help>The catalog service it uses, and how critical it is.</help></dt><dd>@(d.ServiceName ?? "Not set"), @(Ui.Words(w.Criticality) is { Length: > 0 } c ? c : "criticality not set")</dd>
                 <dt>Trigger, data class <help>How it starts (by a user, on a schedule, on its own, or by customers) and the highest data class it touches.</help></dt><dd>@Ui.Words(w.TriggerType), @Ui.Words(w.DataClass)</dd>
                 <dt>Audience, data boundary <help>Who uses it, and where its data may and may not go.</help></dt><dd>@w.Audience; @w.DataBoundary</dd>
                 <dt>Meters <help>Downstream services it consumes (C-DM).</help></dt><dd>@(d.Meters.Count == 0 ? "None listed" : string.Join(", ", d.Meters.Select(Ui.Words)))</dd>

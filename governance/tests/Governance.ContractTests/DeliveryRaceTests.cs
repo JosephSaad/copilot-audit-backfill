@@ -35,7 +35,7 @@ public sealed class DeliveryDatabase : IAsyncLifetime
         while (root is not null && !File.Exists(Path.Combine(root.FullName, "CopilotGovernance.sln"))) root = root.Parent;
         var psi = new ProcessStartInfo("pwsh") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var a in new[] { "-NoProfile", "-File", Path.Combine(root!.FullName, "src", "Governance.Database", "Deploy-Database.ps1"), "-SqlServer", Server,
-                     "-Database", Database, "-CreateSqlLogins", "-LocalSettingsPath", _settings })
+                     "-Database", Database, "-CreateSqlLogins", "-LocalSettingsPath", _settings, "-TrustServerCertificate" })
             psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         var stdout = p.StandardOutput.ReadToEndAsync();

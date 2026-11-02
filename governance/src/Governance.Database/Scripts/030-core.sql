@@ -83,7 +83,7 @@ CREATE TABLE core.AttributionOverride
 )
 WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = core.AttributionOverrideHistory));
 
--- Approved service catalogue (A1). Tenant availability and institutional status are separate (C01).
+-- Approved service catalog (A1). Tenant availability and institutional status are separate (C01).
 IF OBJECT_ID('core.Service') IS NULL
 CREATE TABLE core.Service
 (
@@ -284,13 +284,13 @@ CREATE TABLE core.EnvelopeCommitment
     CreatedUtc    datetime2     NOT NULL CONSTRAINT DF_EnvelopeCommitment_Created DEFAULT SYSUTCDATETIME()
 );
 
--- Commercial inventory (A4): licences, packs, P3, PAYG scopes and who holds purchase authority.
+-- Commercial inventory (A4): licenses, packs, P3, PAYG scopes and who holds purchase authority.
 IF OBJECT_ID('core.CommercialItem') IS NULL
 CREATE TABLE core.CommercialItem
 (
     CommercialItemId int IDENTITY CONSTRAINT PK_CommercialItem PRIMARY KEY,
     PublicId        uniqueidentifier NOT NULL CONSTRAINT DF_CommercialItem_PublicId DEFAULT NEWSEQUENTIALID(),
-    ItemType        varchar(20)    NOT NULL CONSTRAINT CK_CommercialItem_Type CHECK (ItemType IN ('LICENCE','PACK','P3','PAYG_SCOPE')),
+    ItemType        varchar(20)    NOT NULL CONSTRAINT CK_CommercialItem_Type CHECK (ItemType IN ('LICENSE','PACK','P3','PAYG_SCOPE')),
     Name            nvarchar(200)  NOT NULL,
     Quantity        decimal(18,2)  NULL,
     Unit            varchar(20)    NULL CONSTRAINT CK_CommercialItem_Unit CHECK (Unit IN ('COPILOT_CREDIT','P3_COMMIT_UNIT','SEAT','USD','CAD','EUR','GBP')),
@@ -333,15 +333,15 @@ CREATE TABLE core.ApprovedPosture
 )
 WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = core.ApprovedPostureHistory));
 
--- Qualified licence determinations per scenario (C7, C09): no blanket rule.
-IF OBJECT_ID('core.LicenceDetermination') IS NULL
-CREATE TABLE core.LicenceDetermination
+-- Qualified license determinations per scenario (C7, C09): no blanket rule.
+IF OBJECT_ID('core.LicenseDetermination') IS NULL
+CREATE TABLE core.LicenseDetermination
 (
-    LicenceDeterminationId int IDENTITY CONSTRAINT PK_LicenceDetermination PRIMARY KEY,
+    LicenseDeterminationId int IDENTITY CONSTRAINT PK_LicenseDetermination PRIMARY KEY,
     Scenario      nvarchar(400)  NOT NULL,
-    ServiceId     int            NULL CONSTRAINT FK_LicenceDetermination_Service REFERENCES core.Service(ServiceId),
+    ServiceId     int            NULL CONSTRAINT FK_LicenseDetermination_Service REFERENCES core.Service(ServiceId),
     Determination nvarchar(2000) NOT NULL,
-    IncludedInLicence bit        NOT NULL,
+    IncludedInLicense bit        NOT NULL,
     DeterminedByPersonId int     NOT NULL,
     DeterminedOn  date           NOT NULL,
     SourceRef     nvarchar(400)  NULL

@@ -159,10 +159,10 @@ public class PatternFitTests
     }
 
     [Fact]
-    public void Unapproved_service_fails_as_not_in_catalogue()
+    public void Unapproved_service_fails_as_not_in_catalog()
     {
         var s = new Service { ServiceId = 1, TenantAvailability = "GA", InstitutionalStatus = "NOT_APPROVED", RouteType = "PPAC_ENVIRONMENT" };
-        Assert.Contains(C.NotInCatalogue, Fit(MakerPayload(), s).FailedConditions);
+        Assert.Contains(C.NotInCatalog, Fit(MakerPayload(), s).FailedConditions);
     }
 
     [Fact]
@@ -216,7 +216,7 @@ public class PatternFitTests
 public class TriggeredDisciplinesTests
 {
     [Theory]
-    [InlineData(C.NotInCatalogue, Disciplines.Architecture, DecisionTypes.PlatformFeature)]
+    [InlineData(C.NotInCatalog, Disciplines.Architecture, DecisionTypes.PlatformFeature)]
     [InlineData(C.DataClass, Disciplines.SecurityRisk, DecisionTypes.RiskAcceptance)]
     [InlineData(C.Connector, Disciplines.SecurityRisk, DecisionTypes.RiskAcceptance)]
     [InlineData(C.Connector, Disciplines.Architecture, DecisionTypes.PlatformFeature)]
@@ -251,7 +251,7 @@ public class TriggeredDisciplinesTests
     [Fact]
     public void Same_review_is_not_opened_twice()
     {
-        var reviews = TriggeredDisciplines.Evaluate(new[] { C.NotInCatalogue, C.Stage, C.Connector, C.MaterialChange }, Journeys.NewWorkload);
+        var reviews = TriggeredDisciplines.Evaluate(new[] { C.NotInCatalog, C.Stage, C.Connector, C.MaterialChange }, Journeys.NewWorkload);
         Assert.Single(reviews, r => r.Discipline == Disciplines.Architecture && r.DecisionType == DecisionTypes.PlatformFeature);
     }
 
