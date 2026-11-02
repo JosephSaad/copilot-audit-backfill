@@ -118,7 +118,7 @@ public class AdminPagesTests
         Assert.Contains("only a full administrator can remove Admin, and someone selected holds it.", page);
         Assert.Contains("you cannot limit your own Admin role", page);
         /* The Admin tick box is offered to full administrators only. */
-        Assert.Contains("Roles.All.Where(r => Viewer.IsAdmin || r != Roles.Admin)", page);
+        Assert.Contains("Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin)", page);
     }
 
     [Fact]

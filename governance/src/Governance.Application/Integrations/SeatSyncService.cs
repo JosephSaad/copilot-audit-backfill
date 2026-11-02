@@ -12,12 +12,13 @@ namespace Governance.Application.Integrations;
 /// <item>Subscribed SKUs: purchased and assigned units per SKU; known Copilot add-on SKUs are recorded in core.SeatSku.</item>
 /// <item>Seat groups (core.SeatGroup): resolved by name, membership into intg.GroupMember, nesting and sync source recorded.</item>
 /// <item>Holders of every active seat SKU with their license states (group or direct, errors) into intg.SeatHolder.</item>
-/// <item>The Copilot usage report when Reports.Read.All is granted and user names are not concealed.</item>
+/// <item>Copilot activity: from Copilot Insights' own records when the Workbench can read them, else the Copilot usage report
+/// when Reports.Read.All is granted and user names are not concealed.</item>
 /// </list>
 /// Then it raises seat findings, proposes inactive seats for reclaim and takes the monthly draft chargeback snapshot.
 /// The Workbench never changes a license or a group: OIM and ServiceNow do, through the institution's own process.
 /// </summary>
-public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter findings, IClock clock, ILogger<SeatSyncService> log)
+public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter findings, IClock clock, ILogger<SeatSyncService> log, IInsightsActivitySource? insights = null)
 {
     /// <summary>Microsoft 365 Copilot add-on SKUs (Microsoft Learn: product names and service plan identifiers for licensing).</summary>
     public static readonly IReadOnlyDictionary<string, (Guid SkuId, string Name)> KnownAddOns = new Dictionary<string, (Guid, string)>(StringComparer.OrdinalIgnoreCase)
@@ -30,6 +31,21 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
     public const string FindingsLink = "/workbench/Operations/Findings";
 
     private sealed record GroupRow(int SeatGroupId, Guid? EntraGroupId, string DisplayName, string Purpose);
+
+    /// <summary>Each person's last Copilot activity into intg.CopilotActivity; people no longer in the source leave it.</summary>
+    private Task<int> WriteActivityAsync(IEnumerable<(string UserPrincipalName, DateTime? LastActivityDate)> users, DateTime? refresh, long runId, CancellationToken ct)
+        => db.InTransactionAsync(async uow =>
+        {
+            foreach (var u in users)
+                await uow.ExecuteAsync(
+                    """
+                    MERGE intg.CopilotActivity AS t USING (SELECT @UserPrincipalName AS UserPrincipalName) AS s ON t.UserPrincipalName = s.UserPrincipalName
+                    WHEN MATCHED THEN UPDATE SET LastActivityDate = @LastActivityDate, ReportRefreshDate = @refresh, LastSeenRunId = @runId
+                    WHEN NOT MATCHED THEN INSERT (UserPrincipalName, LastActivityDate, ReportRefreshDate, LastSeenRunId) VALUES (@UserPrincipalName, @LastActivityDate, @refresh, @runId);
+                    """, new { u.UserPrincipalName, u.LastActivityDate, refresh, runId });
+            await uow.ExecuteAsync("DELETE FROM intg.CopilotActivity WHERE LastSeenRunId <> @runId", new { runId });
+            return 0;
+        }, ct);
 
     public Task<Guid> RunAsync(int? operatorPersonId, CancellationToken ct)
         => SyncRuns.RunAsync(db, IntegrationCodes.Seats, "APP_ONLY", operatorPersonId, async runId =>
@@ -93,39 +109,52 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
             await db.InTransactionAsync(u => u.ExecuteAsync("DELETE h FROM intg.SeatHolder h WHERE NOT EXISTS (SELECT 1 FROM core.SeatSku k WHERE k.SkuId = h.SkuId AND k.IsActive = 1)"), ct);
             if (activeSkus.Count == 0) notes.Add("No Copilot SKU is recorded yet: none of the tenant's subscribed SKUs is a known Copilot add-on. An administrator can add the SKU in core.SeatSku.");
 
-            // 4. Usage report (Reports.Read.All). Optional: a refusal is a note, not a failure.
+            // 4. Copilot activity: Copilot Insights' own records when the Workbench can read them (every loaded day, names
+            //    never hidden), else the usage report (Reports.Read.All). Optional either way: a refusal is a note, not a failure.
             var settings = await db.InTransactionAsync(SeatSettings.LoadAsync, ct);
             var usageRead = false;
-            try
+            if (insights is not null)
             {
-                var usage = await api.CopilotUsageAsync(settings.UsagePeriod, ct);
-                if (usage.NamesConcealed)
-                    notes.Add("The Copilot usage report conceals user names, so seats could not be matched to activity. Turn off \"Display concealed user, group, and site names in all reports\" in the Microsoft 365 admin center (Org settings > Reports).");
-                else
+                try
                 {
-                    await db.InTransactionAsync(async uow =>
+                    var activity = await insights.ReadAsync(ct);
+                    if (activity.AsOf is null)
+                        notes.Add("Copilot Insights has no activity loaded yet, so the usage report was read instead.");
+                    else
                     {
-                        foreach (var u in usage.Users)
-                            await uow.ExecuteAsync(
-                                """
-                                MERGE intg.CopilotActivity AS t USING (SELECT @UserPrincipalName AS UserPrincipalName) AS s ON t.UserPrincipalName = s.UserPrincipalName
-                                WHEN MATCHED THEN UPDATE SET LastActivityDate = @LastActivityDate, ReportRefreshDate = @refresh, LastSeenRunId = @runId
-                                WHEN NOT MATCHED THEN INSERT (UserPrincipalName, LastActivityDate, ReportRefreshDate, LastSeenRunId) VALUES (@UserPrincipalName, @LastActivityDate, @refresh, @runId);
-                                """, new { u.UserPrincipalName, u.LastActivityDate, refresh = usage.ReportRefreshDate, runId });
-                        await uow.ExecuteAsync("DELETE FROM intg.CopilotActivity WHERE LastSeenRunId <> @runId", new { runId });
-                        return 0;
-                    }, ct);
-                    usageRead = true;
+                        await WriteActivityAsync(activity.Users.Select(u => (u.UserPrincipalName, (DateTime?)u.LastActivityDate)), activity.AsOf, runId, ct);
+                        usageRead = true;
+                        notes.Add($"Copilot activity from Copilot Insights, up to {activity.AsOf:d MMM yyyy}: {activity.Users.Count} people with any use.");
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogWarning(ex, "Copilot Insights' activity could not be read in seat run {RunId}.", runId);
+                    notes.Add("Copilot Insights' activity could not be read, so the usage report was read instead.");
                 }
             }
-            catch (IntegrationPermissionException)
+            if (!usageRead)
             {
-                notes.Add("The Copilot usage report was refused (Reports.Read.All not granted): no reclaim proposals this run.");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                log.LogWarning(ex, "The Copilot usage report could not be read in seat run {RunId}.", runId);
-                notes.Add("The Copilot usage report could not be read: no reclaim proposals this run.");
+                try
+                {
+                    var usage = await api.CopilotUsageAsync(settings.UsagePeriod, ct);
+                    if (usage.NamesConcealed)
+                        notes.Add("The Copilot usage report conceals user names, so seats could not be matched to activity. Turn off \"Display concealed user, group, and site names in all reports\" in the Microsoft 365 admin center (Org settings > Reports).");
+                    else
+                    {
+                        await WriteActivityAsync(usage.Users.Select(u => (u.UserPrincipalName, u.LastActivityDate)), usage.ReportRefreshDate, runId, ct);
+                        usageRead = true;
+                    }
+                }
+                catch (IntegrationPermissionException)
+                {
+                    notes.Add("The Copilot usage report was refused (Reports.Read.All not granted): no reclaim proposals this run.");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogWarning(ex, "The Copilot usage report could not be read in seat run {RunId}.", runId);
+                    notes.Add("The Copilot usage report could not be read: no reclaim proposals this run.");
+                }
             }
 
             // 5. Findings, reclaim proposals and the monthly draft snapshot, in one transaction.

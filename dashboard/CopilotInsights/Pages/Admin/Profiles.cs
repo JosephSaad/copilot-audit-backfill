@@ -85,7 +85,9 @@ FROM dash.AccessProfile AS p ORDER BY p.Name;");
         /* Add or change one. */
         var editing = int.TryParse(Request.Query["edit"], out var eid) ? profiles.FirstOrDefault(p => p.ProfileId == eid) : null;
         var current = editing is null ? [] : Of(editing.ProfileId);
-        var offered = Roles.All.Where(r => Viewer.IsAdmin || r != Roles.Admin).ToList();
+        /* The Workbench's roles only where the Workbench is set up. */
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var offered = Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))).ToList();
         var form = new StringBuilder();
         if (editing is not null) form.Append(Hidden("id", editing.ProfileId));
         form.Append(Input("name", "Name", editing?.Name, 30) + Input("description", "What it is for", editing?.Description, 40));
@@ -141,7 +143,8 @@ ORDER BY g.ProfileId, g.Principal;");
 
         /* Offered: the bundles held today role by role, and the starters. */
         var grants = (await ViewerService.GrantsAsync(Db)).Where(g => g.ProfileId is null).Select(g => (g.Principal, new ProfileRole(g.Role, g.OrgWide, g.Pages)));
-        var proposals = AccessProfiles.Proposals(grants, profiles.Select(p => (IEnumerable<ProfileRole>)Of(p.ProfileId)), profiles.Select(p => p.Name))
+        var proposals = AccessProfiles.Proposals(grants, profiles.Select(p => (IEnumerable<ProfileRole>)Of(p.ProfileId)), profiles.Select(p => p.Name),
+                HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On)
             .Where(p => Viewer.IsAdmin || p.Roles.All(r => r.Role != Roles.Admin)).Take(12).ToList();
         var pt = new Table { Headers = ["Offered as", "Gives", "Held today by", ""], Numeric = new HashSet<int> { 2 }, Sortable = false, EmptyText = "Nothing to offer: every bundle held today is a profile already." };
         foreach (var p in proposals)
@@ -155,7 +158,7 @@ ORDER BY g.ProfileId, g.Principal;");
                 new HtmlString(Form("create", body))]);
         }
         Panels.Add(new("Offered from today's grants", pt.Render(),
-            "Each set of roles that people or groups hold today role by role, most held first, then four starters. Make one a profile in a click, and rename or change it after. " +
+            "Each set of roles that people or groups hold today role by role, most held first, then the starters. Make one a profile in a click, and rename or change it after. " +
             "Granting it to today's holders keeps their role-by-role grants: remove those in Admin › Access once the profile is in place."));
     }
 

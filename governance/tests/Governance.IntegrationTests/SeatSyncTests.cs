@@ -33,6 +33,7 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
     private sealed class FakeSeats : ISeatLicenseApi
     {
         public bool ReportsRefused { get; set; }
+        public int UsageCalls { get; private set; }
         public Task<IReadOnlyList<SubscribedSkuData>> SubscribedSkusAsync(CancellationToken ct)
             => Task.FromResult<IReadOnlyList<SubscribedSkuData>>(new[] { new SubscribedSkuData(AddOn, "Microsoft_365_Copilot", 10, 0, 0, 9), new SubscribedSkuData(Suite, "SUITE_WITH_COPILOT", 50, 0, 0, 1) });
 
@@ -67,6 +68,7 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
 
         public Task<CopilotUsageData> CopilotUsageAsync(string period, CancellationToken ct)
         {
+            UsageCalls++;
             if (ReportsRefused) throw new IntegrationPermissionException("Microsoft Graph", 403);
             return Task.FromResult(new CopilotUsageData(new[]
             {
@@ -76,12 +78,40 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
         }
     }
 
-    private (SeatSyncService Service, Db Db, FakeSeats Api) Build(DateTime now)
+    private sealed class FakeInsights(InsightsActivity? activity) : IInsightsActivitySource
+    {
+        public Task<InsightsActivity> ReadAsync(CancellationToken ct) => activity is null ? throw new InvalidOperationException("Insights database unavailable (test)") : Task.FromResult(activity);
+    }
+
+    private (SeatSyncService Service, Db Db, FakeSeats Api) Build(DateTime now, IInsightsActivitySource? insights = null)
     {
         var clock = new FixedClock(now);
         var appDb = new Db(Options.Create(new DbOptions { ConnectionString = db.WorkerConnectionString }), SystemPrincipal.Instance);
         var api = new FakeSeats();
-        return (new SeatSyncService(appDb, api, new FindingWriter(new OutboxWriter(), clock), clock, NullLogger<SeatSyncService>.Instance), appDb, api);
+        return (new SeatSyncService(appDb, api, new FindingWriter(new OutboxWriter(), clock), clock, NullLogger<SeatSyncService>.Instance, insights), appDb, api);
+    }
+
+    [Fact]
+    public async Task Activity_comes_from_Copilot_Insights_when_it_can_be_read_and_from_the_usage_report_when_not()
+    {
+        using var c = db.Admin();
+        await ArrangeAsync(c);
+        var insights = new InsightsActivity(new DateTime(2026, 11, 1),
+            [new InsightsActivityUser("p2@contoso.example", new DateTime(2026, 10, 31)), new InsightsActivityUser("p3@contoso.example", new DateTime(2026, 6, 1))]);
+        var (service, appDb, api) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc), new FakeInsights(insights));
+        await service.RunAsync(null, default);
+        using var w = await appDb.OpenSystemAsync();
+        var rows = (await w.QueryAsync<(string Upn, DateTime? Last, DateTime? Refresh)>("SELECT UserPrincipalName, LastActivityDate, ReportRefreshDate FROM intg.CopilotActivity ORDER BY UserPrincipalName")).ToList();
+        Assert.Equal([("p2@contoso.example", (DateTime?)new DateTime(2026, 10, 31), (DateTime?)new DateTime(2026, 11, 1)), ("p3@contoso.example", new DateTime(2026, 6, 1), new DateTime(2026, 11, 1))], rows);
+        Assert.Equal(0, api.UsageCalls);
+        Assert.Contains("from Copilot Insights", await w.ExecuteScalarAsync<string>("SELECT TOP 1 Message FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY SyncRunId DESC"));
+
+        // Insights unreadable: the usage report is read instead, and the run still succeeds.
+        var (fallback, _, api2) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc), new FakeInsights(null));
+        await fallback.RunAsync(null, default);
+        Assert.Equal(1, api2.UsageCalls);
+        Assert.Equal("SUCCEEDED", await w.ExecuteScalarAsync<string>("SELECT TOP 1 Status FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY SyncRunId DESC"));
+        Assert.Equal(new DateTime(2026, 7, 1), await w.ExecuteScalarAsync<DateTime>("SELECT LastActivityDate FROM intg.CopilotActivity WHERE UserPrincipalName = 'p2@contoso.example'"));
     }
 
     /// <summary>Both tests share the database: the data is arranged once, whichever test runs first.</summary>

@@ -76,6 +76,9 @@ public static class WorkbenchSetup
             o.CommandTimeoutSeconds = cfg.GetValue("Database:CommandTimeoutSeconds", 60);
         });
         services.AddGovernanceInfrastructure(cfg);
+        /* The seat read run from this site takes Copilot activity from the Insights database it already reads. */
+        if (string.IsNullOrWhiteSpace(cfg.GetConnectionString("Insights")) && cfg["Insights:ConnectionString"] is { Length: > 0 } insights)
+            services.AddSingleton<Governance.Application.Integrations.IInsightsActivitySource>(new Governance.Application.Integrations.InsightsActivitySource(insights));
         services.AddScoped<ICurrentPrincipal>(sp => sp.GetRequiredService<WebPrincipal>());
         services.AddScoped<PrincipalLoader>();
         services.AddScoped<CommandRunner>();

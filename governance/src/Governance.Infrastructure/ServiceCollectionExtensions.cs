@@ -37,6 +37,9 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IEntitlementApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<IAccessReviewApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<ISeatLicenseApi>(sp => sp.GetRequiredService<GraphClient>());
+        // Copilot activity from the Copilot Insights database, when its connection is given: the seat read prefers it.
+        if (configuration.GetConnectionString("Insights") is { Length: > 0 } insights)
+            services.AddSingleton<IInsightsActivitySource>(new InsightsActivitySource(insights));
 
         // Power Platform: app-only unless a delegated token is passed per call.
         services.AddHttpClient<PowerPlatformClient>(c => c.Timeout = TimeSpan.FromMinutes(2))
