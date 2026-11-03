@@ -13,9 +13,9 @@
     -Verify runs sys.sp_verify_database_ledger with all saved digests (monthly, and on an auditor's request).
 
 .EXAMPLE
-    pwsh -File deploy\Save-LedgerDigest.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$
+    pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$
 .EXAMPLE
-    pwsh -File deploy\Save-LedgerDigest.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$ -Verify
+    pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$ -Verify
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(

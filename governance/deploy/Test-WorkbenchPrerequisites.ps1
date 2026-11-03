@@ -1,21 +1,24 @@
 <#
 .SYNOPSIS
-    Checks a server is ready to run the Workbench web application, the worker, or both. Changes nothing.
+    Checks a server is ready for the Workbench part of Copilot Insights: a web server, the worker's server, or
+    both. Changes nothing.
 
 .DESCRIPTION
     Prints one line per check (PASS, WARN, FAIL, SKIP) and exits with 1 when any check fails.
     Checks: Windows and PowerShell 7, elevation, IIS and the ASP.NET Core 10 Hosting Bundle (web), the .NET 10
     runtime (worker), the gMSA on this host, certificates in LocalMachine\My (present, private key, more than
-    30 days left, key readable by the gMSA), SQL Server reachable with Windows authentication and encryption,
-    outbound HTTPS through the proxy to Microsoft and the ITSM, the Data Protection key ring share (web),
-    and Windows time synchronization.
+    30 days left, key readable by the gMSA), SQL Server 2022 or later reachable with Windows authentication and
+    encryption, outbound HTTPS through the proxy to Microsoft and the ITSM, the form-key share (web), and Windows
+    time synchronization.
 
-    SQL is tested as the account running this script. To test as the gMSA itself, run this script from a
-    scheduled task that runs as the gMSA (see deploy\Deploy-Production.md, step 5).
+    dashboard\Install-CopilotInsights.ps1 -GovernanceDatabase runs it before it changes the site, and stops when
+    a check fails. SQL is tested as the account running this script, in master, so it works before the
+    governance database exists. To test as the gMSA itself, run this script from a scheduled task that runs as
+    the gMSA (governance\deploy\Deploy-Production.md, step 4).
 
 .EXAMPLE
-    pwsh -File deploy\Test-WorkbenchPrerequisites.ps1 -Role Web -SqlServer cgw-ag.corp.example -Database CopilotGovernance `
-        -GmsaAccount 'CORP\gmsa-cgw-web$' -CertificateSubject 'CN=CopilotGovernanceWeb' -KeyRingPath '\\fs01\CgwKeys$' `
+    pwsh -File governance\deploy\Test-WorkbenchPrerequisites.ps1 -Role Worker -SqlServer SQLPROD01 -Database CopilotGovernance `
+        -GmsaAccount 'CORP\gmsa-cgw-worker$' -WorkerCertificateSubject 'CN=CopilotGovernanceWorker' `
         -ProxyUrl http://proxy.corp.example:8080 -ItsmUrl https://corp.service-now.com
 #>
 [CmdletBinding()]
@@ -29,7 +32,9 @@ param(
     [string] $KeyRingPath = '',
     [string] $ProxyUrl = '',
     [string] $ItsmUrl = '',
-    [int] $MinimumCertificateDays = 30
+    [int] $MinimumCertificateDays = 30,
+    # When SQL Server has its own self-signed certificate, as for the installer.
+    [switch] $TrustServerCertificate
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -51,13 +56,11 @@ Add-Result 'Elevated session' ($(if (Test-IsAdministrator) { 'PASS' } else { 'WA
 if ($Role -in 'Web', 'Both') {
     $w3svc = Get-Service -Name W3SVC -ErrorAction SilentlyContinue
     Add-Result 'IIS (W3SVC)' ($(if ($w3svc) { 'PASS' } else { 'FAIL' })) ($(if ($w3svc) { "service $($w3svc.Status)" } else { 'IIS is not installed. Add the Web Server role with the default features.' }))
-    $iisModule = Get-Module -ListAvailable IISAdministration
-    Add-Result 'IISAdministration module' ($(if ($iisModule) { 'PASS' } else { 'FAIL' })) ($(if ($iisModule) { "$($iisModule[0].Version)" } else { 'Comes with IIS management tools (Web-Mgmt-Tools).' }))
     $hb = Get-HostingBundleStatus
     $hbOk = $hb.ModulePresent -and $hb.AspNetCore10
     Add-Result 'ASP.NET Core 10 Hosting Bundle' ($(if ($hbOk) { 'PASS' } else { 'FAIL' })) ($(if ($hbOk) { "runtime $($hb.RuntimeVersion)" } else { "module present: $($hb.ModulePresent); ASP.NET Core 10 runtime: $($hb.AspNetCore10). Install the .NET 10 Hosting Bundle, then run 'net stop was /y' and 'net start w3svc'." }))
     if ($KeyRingPath) {
-        if (-not $KeyRingPath.StartsWith('\\')) { Add-Result 'Key ring share' 'WARN' "'$KeyRingPath' is not a UNC path; two web nodes must share one key ring." }
+        if (-not $KeyRingPath.StartsWith('\\')) { Add-Result 'Key ring share' 'WARN' "'$KeyRingPath' is not a UNC path; several web servers must share one set of form keys (Insights:DataProtectionKeysPath)." }
         elseif (Test-Path -LiteralPath $KeyRingPath) {
             $detail = 'reachable from this session'
             if ($GmsaAccount) { $detail += $(if (Test-AccountHasRead -Path $KeyRingPath -Account $GmsaAccount) { "; $GmsaAccount has NTFS access" } else { "; no explicit NTFS entry for $GmsaAccount found (it may come through a group)" }) }
@@ -102,7 +105,7 @@ foreach ($pair in $certChecks) {
         $key = Get-CertificateKeyFile -Certificate $cert -StoreLocation LocalMachine
         if ($null -eq $key) { Add-Result "$label key access" 'WARN' 'Private key file not found (hardware module?); check access with the vendor tool.' }
         else {
-            try { Add-Result "$label key access" ($(if (Test-AccountHasRead -Path $key -Account $GmsaAccount) { 'PASS' } else { 'FAIL' })) ($(if (Test-AccountHasRead -Path $key -Account $GmsaAccount) { "$GmsaAccount reads the key" } else { "Run deploy\Grant-CertificateKeyAccess.ps1 -Subject '$subject' -Account '$GmsaAccount'." })) }
+            try { Add-Result "$label key access" ($(if (Test-AccountHasRead -Path $key -Account $GmsaAccount) { 'PASS' } else { 'FAIL' })) ($(if (Test-AccountHasRead -Path $key -Account $GmsaAccount) { "$GmsaAccount reads the key" } else { "Run governance\deploy\Grant-CertificateKeyAccess.ps1 -Subject '$subject' -Account '$GmsaAccount'." })) }
             catch { Add-Result "$label key access" 'WARN' 'Key ACL not readable from this session (run elevated).' }
         }
     }
@@ -113,14 +116,19 @@ if ($SqlServer) {
     $sqlcmd = Get-Command sqlcmd -ErrorAction SilentlyContinue
     if (-not $sqlcmd) { Add-Result 'SQL Server' 'SKIP' 'sqlcmd is not installed on this server.' }
     else {
-        # -N: encrypt; certificate validated (no -C), as production connections require.
-        $out = & $sqlcmd.Source -S $SqlServer -d $Database -E -N -b -l 15 -h -1 -W -Q "SET NOCOUNT ON; SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS varchar(5)) + '|' + SUSER_SNAME() + '|' + CAST(encrypt_option AS varchar(10)) FROM sys.dm_exec_connections WHERE session_id = @@SPID" 2>&1
+        # -N: encrypt; the certificate is validated unless -TrustServerCertificate (-C). In master: the governance
+        # database may not exist yet.
+        $trustArgs = [string[]]@()
+        if ($TrustServerCertificate) { $trustArgs = [string[]]@('-C') }
+        $db = $Database.Replace("'", "''")
+        $out = & $sqlcmd.Source -S $SqlServer -d master -E -N @trustArgs -b -l 15 -h -1 -W -Q "SET NOCOUNT ON; SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS varchar(5)) + '|' + SUSER_SNAME() + '|' + CAST(encrypt_option AS varchar(10)) + '|' + CASE WHEN DB_ID(N'$db') IS NULL THEN 'no' ELSE 'yes' END FROM sys.dm_exec_connections WHERE session_id = @@SPID" 2>&1
         if ($LASTEXITCODE -eq 0) {
             $parts = ("$out".Trim()) -split '\|'
-            $major = [int]($parts[0])
-            Add-Result 'SQL Server' ($(if ($major -ge 16) { 'PASS' } else { 'FAIL' })) "version $major as $($parts[1]); encrypted: $($parts[2]) (SQL Server 2022 = 16, 2025 = 17; ledger needs 16 or later)"
+            $verdict = Get-SqlVersionVerdict -Major ([int] $parts[0])
+            $exists = if ($parts.Count -gt 3 -and $parts[3] -eq 'yes') { "$Database exists" } else { "$Database will be created" }
+            Add-Result 'SQL Server' $verdict.Status "$($verdict.Detail) Signed in as $($parts[1]); encrypted: $($parts[2]); $exists."
         }
-        else { Add-Result 'SQL Server' 'FAIL' "Cannot connect to $SqlServer/$Database with Windows authentication and a validated encrypted connection: $("$out".Trim())" }
+        else { Add-Result 'SQL Server' 'FAIL' "Cannot connect to $SqlServer with Windows authentication and an encrypted connection: $("$out".Trim())" }
     }
 }
 else { Add-Result 'SQL Server' 'SKIP' 'Pass -SqlServer to check it.' }

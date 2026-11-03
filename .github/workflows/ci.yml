@@ -137,6 +137,12 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           dotnet test governance/tests/Governance.ContractTests/Governance.ContractTests.csproj -c Release --no-build --nologo
 
+      - name: Publish the worker (what Install-CopilotInsights.ps1 -WorkerServer takes)
+        shell: pwsh
+        run: |
+          dotnet publish governance/src/Governance.Worker/Governance.Worker.csproj -c Release -o out/CopilotGovernanceWorker --nologo
+          if (-not (Test-Path out/CopilotGovernanceWorker/Governance.Worker.exe)) { throw 'publish produced no Governance.Worker.exe' }
+
   analyze:
     name: PSScriptAnalyzer
     runs-on: windows-latest
