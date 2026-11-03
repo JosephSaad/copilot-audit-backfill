@@ -47,6 +47,9 @@ worker, and the worker's app registration (governance\deploy\Deploy-Production.m
 - **Seat activity from Insights.** The seat read takes each person's last Copilot use from Insights' records
   (`dash.UserDay`) when it can read the Insights database, so inactive seats are judged on every loaded day and names
   are never hidden; otherwise, or when Insights' data is more than three days old, it reads Microsoft's usage report.
+- **Housekeeping in the worker:** a daily retention job keeps 180 days of job runs and deliveries
+  (`Retention.WorkerRecordDays`, at least 30), each job's last run and last success always; processed notices keep
+  only their key, so a recurring notice is not sent twice. Ledger and audit tables are never touched.
 - **A schema baseline for the Workbench database** (`tests\schema-baseline-governance.tsv`): from 3.0.0 it follows the
   same rule as the Copilot database, additive only.
 - docs\GOVERNANCE-USER-GUIDE.md, GOVERNANCE-RUNBOOK.md, GOVERNANCE-DECISIONS.md, GOVERNANCE-TEST-ENVIRONMENT.md, and a
@@ -57,6 +60,7 @@ worker, and the worker's app registration (governance\deploy\Deploy-Production.m
   `-WorkerServer`, `-WorkerPackagePath`, `-WorkerSettingsFile`, `-WorkerPath`, `-LedgerDigestPath`, `-LedgerDigestAt` and
   `-ProxyUrl`; without them it does what it did.
 - `dash.RoleGrant` and `dash.AccessProfileRole` accept the three Workbench roles.
+- A virtual directory named `workbench` is refused by the installer, as the other names of the site's own addresses are.
 - The Workbench's database script checks the SQL Server certificate unless `-TrustServerCertificate` is given, as the
   dashboard's installer does.
 - Under Entra sign-in with the Workbench on, the site asks for the operator's own token for the Power Platform
@@ -69,6 +73,9 @@ worker, and the worker's app registration (governance\deploy\Deploy-Production.m
 - **One tenant.** On a site with several tenants the Workbench belongs to one (`Workbench:Tenant`, else the first).
 - **Several web servers.** The operator's Power Platform token is kept per server: on another server they are asked to
   sign in again. Servers set up differently (one with the Workbench, one without) set the seat model in turn.
+- **The worker's queue** keeps one small row per notice sent, and a notice whose handler stops the whole worker is
+  tried again without end. A seat assigned directly with no license date in Entra waits `InactiveDays` before it can
+  be proposed for reclaim.
 - **Credit chargeback and Credit commitment** keep their environment routes; they do not use lines of business.
 - **Licensing › Chargeback's *Charged to no group*** still opens Leavers with a different count, as in 2.7.7.
 

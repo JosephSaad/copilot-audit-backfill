@@ -397,7 +397,7 @@ if ($ApplicationPath) {
     $appName = $ApplicationPath.Trim().Trim('/')
     if ($appName -notmatch '^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9][A-Za-z0-9._\-]*)*$') { throw "-ApplicationPath '$ApplicationPath' is not a path such as /CopilotDashboard. Nothing was changed." }
     # A name the dashboard uses for its own addresses (/admin, /agents ...) could not be told from them.
-    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me'
+    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me', 'workbench'
     if (($appName -split '/')[0] -in $own) { throw "-ApplicationPath '$ApplicationPath' has the name of one of the dashboard's own addresses (/$(($appName -split '/')[0])): choose another, such as /CopilotDashboard. Nothing was changed." }
     if (-not (Get-Website -Name $SiteName)) { throw "-ApplicationPath needs an existing site to hold it: there is no site '$SiteName'. Give the site's name with -SiteName. Nothing was changed." }
 }
