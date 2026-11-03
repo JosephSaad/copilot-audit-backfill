@@ -53,7 +53,9 @@ function Literal([string] $s) { return "N'" + $s.Replace("'", "''") + "'" }
 
 Write-Host "== Database $Database on $SqlServer"
 Invoke-SqlText 'master' "IF DB_ID($(Literal $Database)) IS NULL CREATE DATABASE $(Quote $Database);"
-Invoke-SqlText 'master' "ALTER DATABASE $(Quote $Database) SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+# Only the first time: WITH ROLLBACK IMMEDIATE ends every open transaction in the database, which on an upgrade would
+# be the live site's and worker's.
+Invoke-SqlText 'master' "IF EXISTS (SELECT 1 FROM sys.databases WHERE name = $(Literal $Database) AND is_read_committed_snapshot_on = 0) ALTER DATABASE $(Quote $Database) SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
 
 $scripts = Get-ChildItem (Join-Path $PSScriptRoot 'Scripts') -Filter '*.sql' | Sort-Object Name
 foreach ($s in $scripts) {

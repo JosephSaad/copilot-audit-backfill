@@ -8,9 +8,12 @@
     tables. A digest is a hash of the ledger's state; kept outside the database on WORM storage, it lets an
     auditor prove that nobody, DBAs included, changed those rows afterwards.
 
-    Schedule it (SQL Server Agent PowerShell step or Task Scheduler) every few hours, running as an account
-    with VIEW LEDGER CONTENT / GENERATE LEDGER DIGEST on the database and write access to the WORM share.
-    -Verify runs sys.sp_verify_database_ledger with all saved digests (monthly, and on an auditor's request).
+    The installer schedules it daily as the worker's gMSA (a user of the database in app_worker, which may generate
+    digests) with write access to the WORM share. Each run writes a row to intg.JobRun (job LedgerDigest), shown on
+    Admin > Integrations; a failure also ends the script with exit code 1, the task's last result in Task Scheduler,
+    which is the signal when the database itself cannot be reached.
+    -Verify runs sys.sp_verify_database_ledger with all saved digests (monthly, and on an auditor's request), as an
+    account with VIEW LEDGER CONTENT.
 
 .EXAMPLE
     pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer cgw-ag.corp.example -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$
@@ -52,16 +55,43 @@ function Invoke-SqlScalar([string] $Query, [string] $Server, [bool] $Trust) {
     finally { if (Test-Path -LiteralPath $tmp) { [IO.File]::Delete($tmp) } }
 }
 
+function Write-DigestRun([string] $Status, [string] $Message, [datetime] $Started) {
+    # One row in intg.JobRun, job LedgerDigest, so Admin > Integrations shows the digest beside the worker's jobs. When
+    # the database cannot be reached this fails too: then the task's last result in Task Scheduler is the signal.
+    $msg = $Message.Replace("'", "''")
+    if ($msg.Length -gt 900) { $msg = $msg.Substring(0, 900) }
+    $node = "$env:COMPUTERNAME".Replace("'", "''")
+    $query = "INSERT intg.JobRun (JobName, Node, StartedUtc, FinishedUtc, Status, Message) VALUES ('LedgerDigest', N'$node', '$($Started.ToString('yyyy-MM-ddTHH:mm:ss'))', SYSUTCDATETIME(), '$Status', N'$msg');"
+    [void] (Invoke-SqlScalar -Query $query -Server $SqlServer -Trust $TrustServerCertificate.IsPresent)
+}
+
 if (-not $Verify) {
-    $lines = Invoke-SqlScalar -Query 'EXEC sys.sp_generate_database_ledger_digest;' -Server $SqlServer -Trust $TrustServerCertificate.IsPresent
-    $digest = @($lines | Where-Object { $_.StartsWith('{') }) | Select-Object -First 1
-    if (-not $digest) { throw "Unexpected digest output: $($lines -join ' ')" }
-    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
-    $file = Join-Path $DigestPath "$Database-$stamp.json"
-    if ($PSCmdlet.ShouldProcess($file, 'Write ledger digest')) {
-        # New file per digest: WORM storage refuses overwrites, and verification uses every digest.
-        [IO.File]::WriteAllText($file, $digest, [Text.UTF8Encoding]::new($false))
-        Write-Information "Saved $file" -InformationAction Continue
+    # A failure throws, so the task ends with a nonzero result, and is written to intg.JobRun where possible.
+    $started = (Get-Date).ToUniversalTime()
+    $saved = $null
+    try {
+        $lines = Invoke-SqlScalar -Query 'EXEC sys.sp_generate_database_ledger_digest;' -Server $SqlServer -Trust $TrustServerCertificate.IsPresent
+        $digest = @($lines | Where-Object { $_.StartsWith('{') }) | Select-Object -First 1
+        if (-not $digest) { throw "Unexpected digest output: $($lines -join ' ')" }
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+        $file = Join-Path $DigestPath "$Database-$stamp.json"
+        if ($PSCmdlet.ShouldProcess($file, 'Write ledger digest')) {
+            # New file per digest: WORM storage refuses overwrites, and verification uses every digest.
+            [IO.File]::WriteAllText($file, $digest, [Text.UTF8Encoding]::new($false))
+            Write-Information "Saved $file" -InformationAction Continue
+            $saved = $file
+        }
+    }
+    catch {
+        $failure = $_
+        try { Write-DigestRun -Status 'FAILED' -Message "The ledger digest was not saved: $($failure.Exception.Message)" -Started $started }
+        catch { Write-Warning "The failure could not be recorded in intg.JobRun either: $($_.Exception.Message)" }
+        throw $failure
+    }
+    if ($saved) {
+        # The digest is saved: a row that cannot be written is a warning, not a failed digest.
+        try { Write-DigestRun -Status 'SUCCEEDED' -Message "Ledger digest saved to $saved." -Started $started }
+        catch { Write-Warning "The digest was saved, but its row in intg.JobRun was not written: $($_.Exception.Message)" }
     }
     return
 }

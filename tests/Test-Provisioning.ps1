@@ -444,7 +444,7 @@ Write-Host "`n4. The dashboard installer: a re-run keeps the site's settings, an
 $dashInstaller = Join-Path $root 'dashboard' 'Install-CopilotInsights.ps1'
 $dashAst = [System.Management.Automation.Language.Parser]::ParseFile($dashInstaller, [ref] $null, [ref] $null)
 foreach ($f in $dashAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
-    if ($f.Name -in 'ConvertTo-Thumbprint', 'ConvertTo-TenantList', 'Resolve-SiteSetting', 'Assert-WorkbenchInput', 'Resolve-WorkbenchBaseUrl', 'Merge-WorkerSetting', 'Get-LedgerDigestArgument') {
+    if ($f.Name -in 'ConvertTo-Thumbprint', 'ConvertTo-TenantList', 'Resolve-SiteSetting', 'Assert-WorkbenchInput', 'Resolve-WorkbenchBaseUrl', 'Merge-WorkerSetting', 'Get-LedgerDigestArgument', 'Get-WorkerInsightsGrant') {
         . ([scriptblock]::Create($f.Extent.Text))
     }
 }
@@ -526,16 +526,26 @@ Assert-That ((Resolve-WorkbenchBaseUrl -SiteUrl '' -Existing '' -Protocol 'http'
 
 $sample = Get-Content -LiteralPath (Join-Path $root 'governance' 'deploy' 'appsettings.Worker.Production.sample.json') -Raw | ConvertFrom-Json
 $cs = 'Server=SQLPROD01;Database=CopilotGovernance;Integrated Security=true;Encrypt=true;TrustServerCertificate=false;Application Name=CopilotGovernance-Worker'
-$merged = Merge-WorkerSetting -Settings $sample -ConnectionString $cs -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $false
-Assert-That ($merged.ConnectionStrings.GovernanceWorker -eq $cs -and $merged.Notifications.WorkbenchBaseUrl -eq 'https://insights.contoso.com' -and $merged.Tenant.WorkerCertificateSubject -eq 'CN=CopilotGovernanceWorker') `
-    'the worker''s sample settings get the connection string and the site''s address, and keep the rest'
-$ownSettings = [pscustomobject] @{ ConnectionStrings = [pscustomobject] @{ GovernanceWorker = 'Server=tcp:ag,1433;Database=CopilotGovernance;MultiSubnetFailover=True' }; Notifications = [pscustomobject] @{ WorkbenchBaseUrl = 'https://old' } }
-$kept = Merge-WorkerSetting -Settings $ownSettings -ConnectionString $cs -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $false
-Assert-That ($kept.ConnectionStrings.GovernanceWorker -like 'Server=tcp:ag*' -and $kept.Notifications.WorkbenchBaseUrl -eq 'https://old') 'values the file gives are kept'
-$given = Merge-WorkerSetting -Settings $ownSettings -ConnectionString $cs -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $true
-Assert-That ($given.Notifications.WorkbenchBaseUrl -eq 'https://insights.contoso.com') 'except the address when -SiteUrl is given, so the site and the worker link alike'
-$bare = Merge-WorkerSetting -Settings ([pscustomobject] @{}) -ConnectionString $cs -BaseUrl 'https://x' -BaseUrlGiven $false
-Assert-That ($bare.ConnectionStrings.GovernanceWorker -eq $cs -and $bare.Notifications.WorkbenchBaseUrl -eq 'https://x') 'and sections the file lacks are added'
+$ics = 'Server=SQLPROD01;Database=CopilotAudit;Integrated Security=true;Encrypt=true;TrustServerCertificate=false;Application Name=CopilotGovernance-Worker'
+$merged = Merge-WorkerSetting -Settings $sample -ConnectionString $cs -InsightsConnectionString $ics -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $false
+Assert-That ($merged.ConnectionStrings.GovernanceWorker -eq $cs -and $merged.ConnectionStrings.Insights -eq $ics -and $merged.Notifications.WorkbenchBaseUrl -eq 'https://insights.contoso.com' -and $merged.Tenant.WorkerCertificateSubject -eq 'CN=CopilotGovernanceWorker') `
+    'the worker''s sample settings get both connection strings and the site''s address, and keep the rest'
+# A rerun with another -SqlServer or -GovernanceDatabase moved the site but left the worker on the old database, and
+# without ConnectionStrings:Insights the nightly seat read used Microsoft's usage report while the site used Insights.
+$ownSettings = [pscustomobject] @{ ConnectionStrings = [pscustomobject] @{ GovernanceWorker = 'Server=OLDSQL;Database=CopilotGovernanceOld;Integrated Security=true'; Insights = 'Server=OLDSQL;Database=Old' }; Notifications = [pscustomobject] @{ WorkbenchBaseUrl = 'https://old' } }
+$kept = Merge-WorkerSetting -Settings $ownSettings -ConnectionString $cs -InsightsConnectionString $ics -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $false
+Assert-That ($kept.ConnectionStrings.GovernanceWorker -eq $cs -and $kept.ConnectionStrings.Insights -eq $ics) 'a rerun writes both connection strings from its own -SqlServer, -GovernanceDatabase and Copilot database, never keeping old ones'
+Assert-That ($kept.Notifications.WorkbenchBaseUrl -eq 'https://old') 'the address the file gives is kept'
+$given = Merge-WorkerSetting -Settings $ownSettings -ConnectionString $cs -InsightsConnectionString $ics -BaseUrl 'https://insights.contoso.com' -BaseUrlGiven $true
+Assert-That ($given.Notifications.WorkbenchBaseUrl -eq 'https://insights.contoso.com') 'except when -SiteUrl is given, so the site and the worker link alike'
+$bare = Merge-WorkerSetting -Settings ([pscustomobject] @{}) -ConnectionString $cs -InsightsConnectionString $ics -BaseUrl 'https://x' -BaseUrlGiven $false
+Assert-That ($bare.ConnectionStrings.GovernanceWorker -eq $cs -and $bare.ConnectionStrings.Insights -eq $ics -and $bare.Notifications.WorkbenchBaseUrl -eq 'https://x') 'and sections the file lacks are added'
+$mergeCall = @($dashAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Merge-WorkerSetting' }, $true))
+Assert-That ($mergeCall.Count -eq 1 -and $mergeCall[0].Extent.Text -match '-InsightsConnectionString "Server=\$SqlServer;Database=\$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=\$trust') `
+    'the installer gives the worker the Copilot database it installs the site against, with Windows sign-in and the same TrustServerCertificate'
+$wg = Get-WorkerInsightsGrant -Database 'CopilotAudit' -Account 'CONTOSO\gmsa-cgw-worker$'
+Assert-That ($wg -match "CREATE LOGIN \[CONTOSO\\gmsa-cgw-worker\$\] FROM WINDOWS" -and $wg -match 'USE \[CopilotAudit\]' -and $wg -match 'GRANT SELECT ON dash\.UserDay' -and $wg -match 'GRANT SELECT ON bi\.DimUser' -and
+             $wg -notmatch 'GRANT (INSERT|UPDATE|DELETE|EXECUTE)|ALTER ROLE') 'the worker''s account gets read on dash.UserDay and bi.DimUser in the Copilot database, and nothing more'
 
 $digestArgs = Get-LedgerDigestArgument -Script 'C:\CopilotGovernance\Worker\Save-LedgerDigest.ps1' -SqlServer 'SQLPROD01' -Database 'CopilotGovernance' -DigestPath '\\worm01\Ledger$\' -TrustServerCertificate $true
 Assert-That ($digestArgs -eq '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\CopilotGovernance\Worker\Save-LedgerDigest.ps1" -SqlServer "SQLPROD01" -Database CopilotGovernance -DigestPath "\\worm01\Ledger$" -TrustServerCertificate') `
@@ -589,6 +599,26 @@ Assert-That ($pwshCalls.Count -eq 3 -and @($pwshCalls | Where-Object { -not (Tes
 $workerCalls = @($pwshCalls | Where-Object { $_.Extent.Text -like '*Install-WorkbenchWorker.ps1*' }) +
                @($dashAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Register-ScheduledTask' }, $true))
 Assert-That ($workerCalls.Count -eq 2 -and @($workerCalls | Where-Object { -not (Test-Guarded $_ '$WorkerServer') }).Count -eq 0) 'the worker and the digest task are installed only with -WorkerServer'
+$grantUse = @($dashAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Get-WorkerInsightsGrant' }, $true))
+Assert-That ($grantUse.Count -eq 1 -and (Test-Guarded $grantUse[0] '$WorkerAccount') -and (Test-Guarded $grantUse[0] '$GovernanceDatabase')) 'the worker''s read on the Copilot database is granted only when the Workbench is installed with -WorkerAccount'
+
+# The worker's service environment: a rerun changes only what the kit owns, so the secrets an operator put there and
+# a proxy set earlier stay. It was rewritten whole, wiping Itsm__Password and Notifications__ChannelFlowUrl.
+. (Join-Path $root 'governance' 'deploy' 'WorkbenchDeploy.Common.ps1')
+$envBefore = @('DOTNET_ENVIRONMENT=Production', 'HTTPS_PROXY=http://proxy:8080', 'HTTP_PROXY=http://proxy:8080', 'NO_PROXY=localhost', 'Itsm__Password=s3cret', 'Notifications__ChannelFlowUrl=https://flow/x?sig=y')
+$noProxy = Merge-ServiceEnvironment -Existing $envBefore -Set ([ordered] @{ DOTNET_ENVIRONMENT = 'Production' })
+Assert-That ((($noProxy | Sort-Object) -join '|') -eq (($envBefore | Sort-Object) -join '|')) 'a worker rerun without -ProxyUrl keeps the proxy and the operator''s secrets in the service environment'
+$newProxy = Merge-ServiceEnvironment -Existing $envBefore -Set ([ordered] @{ dotnet_environment = 'Staging'; HTTPS_PROXY = 'http://new:3128'; HTTP_PROXY = 'http://new:3128'; NO_PROXY = 'localhost,127.0.0.1' })
+Assert-That ($newProxy.Count -eq 6 -and 'Itsm__Password=s3cret' -in $newProxy -and 'Notifications__ChannelFlowUrl=https://flow/x?sig=y' -in $newProxy -and 'HTTPS_PROXY=http://new:3128' -in $newProxy -and
+             'dotnet_environment=Staging' -in $newProxy -and -not ($newProxy -match '^DOTNET_ENVIRONMENT=Production$')) 'and a new -ProxyUrl or environment replaces only those entries, whatever their case'
+$fresh = Merge-ServiceEnvironment -Existing @() -Set ([ordered] @{ DOTNET_ENVIRONMENT = 'Production' })
+Assert-That ($fresh.Count -eq 1 -and $fresh[0] -eq 'DOTNET_ENVIRONMENT=Production') 'a new service gets only what the kit sets'
+$workerText = [System.IO.File]::ReadAllText((Join-Path $root 'governance' 'deploy' 'Install-WorkbenchWorker.ps1'))
+Assert-That ($workerText -match 'Merge-ServiceEnvironment -Existing \$current' -and $workerText -match "Get-ItemProperty -Path \`$regPath -Name 'Environment'") 'Install-WorkbenchWorker.ps1 merges into the service''s environment as it is, rather than rewriting it'
+$digestText = [System.IO.File]::ReadAllText((Join-Path $root 'governance' 'deploy' 'Save-LedgerDigest.ps1'))
+Assert-That ($digestText -match "INSERT intg\.JobRun \(JobName" -and $digestText -match "'LedgerDigest'" -and $digestText -match 'throw \$failure') 'the ledger digest records each run for Admin > Integrations and fails with a nonzero exit code'
+$guide = [System.IO.File]::ReadAllText((Join-Path $root 'governance' 'deploy' 'Deploy-Production.md'))
+Assert-That ($guide -match '(?s)Secrets\..{0,400}service''s own environment' -and $guide -notmatch 'machine environment variables') 'Deploy-Production.md names one place for the worker''s secrets: the service''s own environment, which reruns keep'
 $settingsWrite = @($dashAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.Extent.Text -like "Set-Prop `$settings.ConnectionStrings 'Governance'*" }, $true))
 Assert-That ($settingsWrite.Count -eq 1 -and (Test-Guarded $settingsWrite[0] '$GovernanceDatabase') -and $settingsWrite[0].Extent.Text -match 'Integrated Security=true') `
     'the site''s settings get ConnectionStrings:Governance with Windows sign-in, only with -GovernanceDatabase'

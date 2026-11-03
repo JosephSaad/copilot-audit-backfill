@@ -36,6 +36,29 @@ function Test-GmsaName([string] $Account) {
     return $Account -match '^[A-Za-z0-9][A-Za-z0-9.\-]{0,62}\\[A-Za-z0-9][A-Za-z0-9.\-_]{0,62}\$$'
 }
 
+function Merge-ServiceEnvironment {
+    <#
+    .SYNOPSIS
+        The service's environment (the REG_MULTI_SZ "Environment" value under its service key) with the entries this kit
+        owns set, and every other entry kept as it was: the secrets an operator added there (Itsm__Password,
+        Notifications__ChannelFlowUrl) survive a rerun. Entries are NAME=value; names compare without regard to case.
+        Pure, for the tests.
+    .PARAMETER Existing
+        The value as it is now (empty for a new service).
+    .PARAMETER Set
+        Names and values to set; any entry of the same name is replaced.
+    #>
+    param([string[]] $Existing = @(), [System.Collections.IDictionary] $Set = @{})
+    $result = [System.Collections.Generic.List[string]]::new()
+    $owned = @($Set.Keys | ForEach-Object { "$_".ToUpperInvariant() })
+    foreach ($entry in @($Existing | Where-Object { $_ })) {
+        $name = ($entry -split '=', 2)[0].Trim().ToUpperInvariant()
+        if ($name -notin $owned) { $result.Add($entry) }
+    }
+    foreach ($k in $Set.Keys) { $result.Add("$k=$($Set[$k])") }
+    , $result.ToArray()
+}
+
 function Get-WorkbenchCertificate {
     <#
     .SYNOPSIS Newest valid certificate with a private key and this exact subject, as Microsoft.Identity.Web selects it.

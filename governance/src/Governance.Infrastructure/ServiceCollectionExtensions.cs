@@ -3,6 +3,7 @@ using Governance.Application;
 using Governance.Application.Integrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
 
 namespace Governance.Infrastructure;
@@ -20,7 +21,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddGovernanceCore();
 
-        services.AddSingleton(_ => LoadTenantSettings(configuration));
+        services.AddSingleton(sp => LoadTenantSettings(configuration, SearchForLocalFiles(sp.GetService<IHostEnvironment>())));
         services.Configure<GraphOptions>(configuration.GetSection("Graph"));
         services.Configure<PowerPlatformOptions>(configuration.GetSection("PowerPlatform"));
         services.Configure<ItsmOptions>(configuration.GetSection("Itsm"));
@@ -86,21 +87,31 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRegistryImport, RegistryImportService>();
         services.AddScoped<IIntegrationStatus, IntegrationStatusService>();
         services.AddScoped<SeatSyncService>();
+        services.AddScoped<ItsmPollService>();
+        services.AddScoped<RetentionService>();
         return services;
     }
 
     /// <summary>
-    /// Tenant IDs from setup\Setup-TestTenant.ps1. Workbench:TenantSettingsPath wins; otherwise config\tenant.test.json is
-    /// looked for upward from the content root. Missing settings give an empty object: integrations then report themselves
-    /// as not configured instead of the host failing to start.
+    /// Whether the test tenant's file (config\tenant.test.json) is looked for upward from the program's folder: in
+    /// Development, and where no host says otherwise (tests and tools). A production site or worker reads its settings
+    /// files only, so a stray file above the install folder never changes which tenant it talks to.
     /// </summary>
-    public static TenantSettings LoadTenantSettings(IConfiguration configuration)
+    public static bool SearchForLocalFiles(IHostEnvironment? environment) => environment is null || environment.IsDevelopment();
+
+    /// <summary>
+    /// Tenant IDs from setup\Setup-TestTenant.ps1. Workbench:TenantSettingsPath wins; otherwise, when
+    /// <paramref name="searchUpward"/>, config\tenant.test.json is looked for upward from the content root. Missing
+    /// settings give an empty object: integrations then report themselves as not configured instead of the host failing
+    /// to start. The "Tenant" section of the settings wins over either.
+    /// </summary>
+    public static TenantSettings LoadTenantSettings(IConfiguration configuration, bool searchUpward = true)
     {
         var path = configuration["Workbench:TenantSettingsPath"];
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
             path = null;
-            for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            for (var dir = searchUpward ? new DirectoryInfo(AppContext.BaseDirectory) : null; dir is not null; dir = dir.Parent)
             {
                 var candidate = Path.Combine(dir.FullName, "config", "tenant.test.json");
                 if (File.Exists(candidate)) { path = candidate; break; }

@@ -2,7 +2,13 @@
 -- The application sets SESSION_CONTEXT (PersonId, IsCentral) read-only on every connection open.
 -- Session context is trusted only for the application roles; gov_reader and db_owner see all rows
 -- (a DBA can alter the policy anyway; tamper evidence comes from the ledger tables, not from RLS).
+--
+-- The policy's predicates are schema-bound, so the policy is dropped and recreated around them. All of it runs in
+-- one transaction: should any batch fail, Deploy-Database.ps1 (sqlcmd -b) stops, the connection closes and SQL Server
+-- rolls everything back, so the previous policy stays on. Row-level security is never left off.
 SET NOCOUNT ON;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
 GO
 IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'FundingOwnerPolicy' AND schema_id = SCHEMA_ID('sec'))
     DROP SECURITY POLICY sec.FundingOwnerPolicy;
@@ -115,4 +121,6 @@ CREATE SECURITY POLICY sec.FundingOwnerPolicy
     ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON core.SeatChargeSnapshot,
     ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON core.SeatReclaim
 WITH (STATE = ON, SCHEMABINDING = ON);
+GO
+IF @@TRANCOUNT > 0 COMMIT TRANSACTION;
 GO

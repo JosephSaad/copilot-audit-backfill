@@ -33,6 +33,12 @@ public interface IItsmClient
 
 public sealed record ItsmCreate(Guid CorrelationId, string Kind, string ShortDescription, string Description, string AssignmentGroup, string Urgency, string PayloadJson);
 public sealed record ItsmTicketRef(string Number, string? Url, string State);
+/// <summary>The ITSM has no ticket with this number (deleted, or moved out of the integration account's reach).</summary>
+public sealed class ItsmTicketNotFoundException(string number) : Exception($"ITSM ticket {number} was not found.")
+{
+    public string Number { get; } = number;
+}
+
 public sealed record ItsmTicketState(string Number, string State, string? ClosedByUpn, string? ClosureNotes, DateTime? ClosedUtc);
 
 /// <summary>X9: email from the one scoped notification mailbox (Graph sendMail), with SMTP fallback.</summary>

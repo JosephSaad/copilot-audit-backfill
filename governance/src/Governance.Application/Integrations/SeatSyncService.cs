@@ -97,10 +97,10 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                                ON t.MemberObjectId = s.MemberObjectId AND t.SkuId = s.SkuId AND t.AssignedByGroupId = s.AssignedByGroupId
                             WHEN MATCHED THEN UPDATE SET State = @State, Error = @Error, UsageLocation = @UsageLocation, UserPrincipalName = @UserPrincipalName,
                                  StateUpdatedUtc = @StateUpdatedUtc, LastSeenRunId = @runId
-                            WHEN NOT MATCHED THEN INSERT (MemberObjectId, SkuId, AssignedByGroupId, State, Error, UsageLocation, UserPrincipalName, StateUpdatedUtc, LastSeenRunId)
-                                 VALUES (@MemberObjectId, @SkuId, @AssignedByGroupId, @State, @Error, @UsageLocation, @UserPrincipalName, @StateUpdatedUtc, @runId);
+                            WHEN NOT MATCHED THEN INSERT (MemberObjectId, SkuId, AssignedByGroupId, State, Error, UsageLocation, UserPrincipalName, StateUpdatedUtc, LastSeenRunId, FirstSeenUtc)
+                                 VALUES (@MemberObjectId, @SkuId, @AssignedByGroupId, @State, @Error, @UsageLocation, @UserPrincipalName, @StateUpdatedUtc, @runId, @now);
                             """,
-                            new { row.MemberObjectId, row.SkuId, row.AssignedByGroupId, row.State, row.Error, row.UsageLocation, row.UserPrincipalName, row.StateUpdatedUtc, runId });
+                            new { row.MemberObjectId, row.SkuId, row.AssignedByGroupId, row.State, row.Error, row.UsageLocation, row.UserPrincipalName, row.StateUpdatedUtc, runId, now = clock.UtcNow });
                     await uow.ExecuteAsync("DELETE FROM intg.SeatHolder WHERE SkuId = @sku AND LastSeenRunId <> @runId", new { sku, runId });
                     return 0;
                 }, ct);
@@ -120,6 +120,12 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                     var activity = await insights.ReadAsync(ct);
                     if (activity.AsOf is null)
                         notes.Add("Copilot Insights has no activity loaded yet, so the usage report was read instead.");
+                    else if (IsStale(activity.AsOf.Value, today))
+                    {
+                        // Its nightly load has stopped: every holder would look inactive since then.
+                        log.LogWarning("Copilot Insights' activity ends {AsOf:yyyy-MM-dd}, more than {Days} days ago; seat run {RunId} reads the usage report instead.", activity.AsOf, MaxInsightsAgeDays, runId);
+                        notes.Add($"Copilot Insights' activity ends {activity.AsOf:d MMM yyyy}, more than {MaxInsightsAgeDays} days ago (its nightly load may have stopped), so the usage report was read instead.");
+                    }
                     else
                     {
                         await WriteActivityAsync(activity.Users.Select(u => (u.UserPrincipalName, (DateTime?)u.LastActivityDate)), activity.AsOf, runId, ct);
@@ -171,6 +177,12 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
             if (notes.Count > 0) message += " " + string.Join(" ", notes);
             return (holders, raised, message);
         }, ct);
+
+    /// <summary>Copilot Insights' activity older than this (days before today) is not used: the usage report is read instead.</summary>
+    public const int MaxInsightsAgeDays = 3;
+
+    /// <summary>Whether Insights' last loaded day is too old to judge inactivity by. Pure, for the tests.</summary>
+    public static bool IsStale(DateTime asOf, DateTime today) => (today.Date - asOf.Date).TotalDays > MaxInsightsAgeDays;
 
     /// <summary>One row per user, SKU and source. A state for another SKU is ignored; a license with no state is kept as a direct one.</summary>
     public static IEnumerable<(Guid MemberObjectId, Guid SkuId, Guid AssignedByGroupId, string? State, string? Error, string? UsageLocation, string? UserPrincipalName, DateTime? StateUpdatedUtc)>
@@ -247,7 +259,7 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
     }
 
     /// <summary>
-    /// Seats with no Copilot activity for Seats.InactiveDays are proposed for reclaim; proposals whose holder became active
+    /// Seats with no Copilot activity for Seats.InactiveDays, held for at least as long, are proposed for reclaim; proposals whose holder became active
     /// or lost the seat are cancelled; reclaims whose seat is gone are closed as removed. Without a usage report this run,
     /// only the seat-gone checks run (nothing is proposed or cancelled on missing data).
     /// </summary>
@@ -290,7 +302,16 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                          JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
                               AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
                          WHERE gm.MemberObjectId = s.MemberObjectId) lob
+            -- Since when the person has held a seat: the earliest of the license state's date in Entra and the day the
+            -- seat read first saw it. Unknown (rows read before FirstSeenUtc existed) counts as long held.
+            OUTER APPLY (SELECT CASE WHEN COUNT(CASE WHEN h.FirstSeenUtc IS NULL AND h.StateUpdatedUtc IS NULL THEN 1 END) > 0 THEN NULL
+                                     ELSE MIN(CASE WHEN h.StateUpdatedUtc IS NULL OR h.FirstSeenUtc < h.StateUpdatedUtc THEN h.FirstSeenUtc ELSE h.StateUpdatedUtc END) END AS HeldSince
+                         FROM intg.SeatHolder h
+                         JOIN core.SeatSku k ON k.SkuId = h.SkuId AND k.Kind = 'COPILOT_ADDON' AND k.IsActive = 1
+                         WHERE h.MemberObjectId = s.MemberObjectId AND h.State IN ('Active','ActiveWithError')) seat
             WHERE (a.LastActivityDate IS NULL OR a.LastActivityDate <= @cutoff)
+              -- A seat held for less than the inactivity window is not proposed: its holder has not had the time to use it.
+              AND (seat.HeldSince IS NULL OR seat.HeldSince <= @cutoff)
               AND NOT EXISTS (SELECT 1 FROM core.SeatReclaim r WHERE r.PersonId = p.PersonId AND r.Status IN ('PROPOSED','RECLAIM'))
               -- A seat the business owner chose to keep is not proposed again within the same inactivity window.
               AND NOT EXISTS (SELECT 1 FROM core.SeatReclaim r WHERE r.PersonId = p.PersonId AND r.Status = 'KEEP' AND r.DecidedUtc > @cutoff);

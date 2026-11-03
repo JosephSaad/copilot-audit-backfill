@@ -136,18 +136,20 @@ if ($PSCmdlet.ShouldProcess($ServiceName, "Create or update the service (binPath
     Invoke-Sc @('failureflag', $ServiceName, '1')
 }
 
-# Environment variables for the service only (REG_MULTI_SZ "Environment" under the service key).
-$envVars = [System.Collections.Generic.List[string]]::new()
-$envVars.Add("DOTNET_ENVIRONMENT=$EnvironmentName")
-if ($ProxyUrl) {
-    $envVars.Add("HTTPS_PROXY=$ProxyUrl")
-    $envVars.Add("HTTP_PROXY=$ProxyUrl")
-    $envVars.Add("NO_PROXY=$NoProxy")
-}
+# Environment variables for the service only (REG_MULTI_SZ "Environment" under the service key). Only the entries this
+# script owns change: DOTNET_ENVIRONMENT, and the proxy when -ProxyUrl is given. Everything else there is kept, the
+# worker's secrets above all (Itsm__Password, Notifications__ChannelFlowUrl: Deploy-Production.md, step 8.3), and the
+# proxy set by an earlier run when this one has no -ProxyUrl.
 $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
-if ($PSCmdlet.ShouldProcess($regPath, "Set service environment: $($envVars -join '; ')")) {
-    New-ItemProperty -Path $regPath -Name 'Environment' -PropertyType MultiString -Value $envVars.ToArray() -Force | Out-Null
-    Write-DeployOk 'service environment set'
+$current = @()
+$item = Get-ItemProperty -Path $regPath -Name 'Environment' -ErrorAction SilentlyContinue
+if ($item) { $current = @($item.Environment) }
+$owned = [ordered] @{ DOTNET_ENVIRONMENT = $EnvironmentName }
+if ($ProxyUrl) { $owned['HTTPS_PROXY'] = $ProxyUrl; $owned['HTTP_PROXY'] = $ProxyUrl; $owned['NO_PROXY'] = $NoProxy }
+$envVars = Merge-ServiceEnvironment -Existing $current -Set $owned
+if ($PSCmdlet.ShouldProcess($regPath, "Set service environment: $(($owned.Keys | ForEach-Object { "$_=$($owned[$_])" }) -join '; '); other entries kept: $($envVars.Count - $owned.Count)")) {
+    New-ItemProperty -Path $regPath -Name 'Environment' -PropertyType MultiString -Value $envVars -Force | Out-Null
+    Write-DeployOk "service environment set; other entries kept: $($envVars.Count - $owned.Count)"
 }
 
 # "Log on as a service": granted by Windows when sc.exe sets a gMSA logon on most builds; verify.

@@ -191,6 +191,36 @@ public class ItsmContractTests
         Assert.Contains("tenant pool off", state.ClosureNotes);
     }
 
+    /// <summary>
+    /// ServiceNow returns closed_by as {display_value, link, value}, with no email: the closer's email is asked for by
+    /// dot-walking, or SoD2 (the approver closed the ticket) could never match anyone.
+    /// </summary>
+    [Fact]
+    public async Task The_closer_is_read_from_the_dot_walked_email_ServiceNow_returns()
+    {
+        var h = new ReplayHandler().On(r => r.RequestUri!.Query.Contains("number=SCTASK0010002"), "itsm-get-closed-servicenow.json");
+        var state = await Clients.Itsm(h).GetAsync("SCTASK0010002", default);
+        Assert.Equal("CLOSED", state.State);
+        Assert.Equal("dana.operator@contoso.example", state.ClosedByUpn);
+        Assert.Contains("sysparm_fields=", h.Requests[0].Url);
+        Assert.Contains("closed_by.email", h.Requests[0].Url);
+        Assert.Contains("closed_by.user_name", h.Requests[0].Url);
+
+        // Without the dot-walked fields, the name and sys_id are never taken for the closer.
+        using var bare = JsonDocument.Parse("""{"number":{"value":"X"},"state":{"value":"3"},"closed_by":{"display_value":"Dana Operator","link":"https://x","value":"8d2f"}}""");
+        Assert.Null(ServiceNowItsmClient.ParseState(bare.RootElement).ClosedByUpn);
+        using var userOnly = JsonDocument.Parse("""{"number":{"value":"X"},"state":{"value":"3"},"closed_by.email":{"value":""},"closed_by.user_name":{"value":"dana.operator"}}""");
+        Assert.Equal("dana.operator", ServiceNowItsmClient.ParseState(userOnly.RootElement).ClosedByUpn);
+    }
+
+    [Fact]
+    public async Task A_ticket_ServiceNow_no_longer_has_is_reported_as_not_found()
+    {
+        var h = new ReplayHandler().OnStatus(_ => true, HttpStatusCode.OK, "{\"result\":[]}");
+        var ex = await Assert.ThrowsAsync<ItsmTicketNotFoundException>(() => Clients.Itsm(h).GetAsync("SCTASK0099999", default));
+        Assert.Equal("SCTASK0099999", ex.Number);
+    }
+
     [Fact]
     public async Task Search_by_correlation_checks_both_tables()
     {

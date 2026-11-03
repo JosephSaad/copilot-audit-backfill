@@ -170,6 +170,9 @@ CREATE TABLE intg.SeatHolder
     LastSeenRunId     bigint           NOT NULL,
     CONSTRAINT PK_SeatHolder PRIMARY KEY (MemberObjectId, SkuId, AssignedByGroupId)
 );
+-- When the seat read first saw this assignment (set on insert, never changed). A seat newer than Seats.InactiveDays
+-- is not proposed for reclaim: its holder has not had the time to use it. NULL for rows read before the column existed.
+IF COL_LENGTH('intg.SeatHolder', 'FirstSeenUtc') IS NULL ALTER TABLE intg.SeatHolder ADD FirstSeenUtc datetime2 NULL;
 
 -- Per seat group per run: whether it is found, synced from AD, and whether it nests other groups
 -- (group-based licensing ignores members of nested groups).

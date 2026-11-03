@@ -227,7 +227,8 @@ public sealed class NotificationDelivery(
             Subject = subject, Text = text, LinkPath = "/workbench/Admin/Integrations",
         }, dedupe));
 
-    private static string Describe(Exception ex) => ex is IntegrationPermissionException or PermanentDeliveryException ? ex.Message : $"{ex.GetType().Name}: {(ex.Message.Length > 300 ? ex.Message[..300] : ex.Message)}";
+    /// <summary>The delivery record's note: the error's type and a reference, the error itself in the worker's log.</summary>
+    private string Describe(Exception ex) => FailureNote.For(log, ex, "A notice delivery failed");
 }
 
 /// <summary>N17: one email per person a day with their informed items (07:00 institution time by default, ntf.Preference.DigestHour).</summary>

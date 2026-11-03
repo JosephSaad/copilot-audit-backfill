@@ -77,7 +77,10 @@ a FAIL: the governance database's ledger tables need 2022 (version 16) or later.
 1. **Instance.** SQL Server 2022 or later, Windows authentication only, encrypted connections. At the client, the
    instance that holds the Copilot database holds this one too.
 2. **Create or upgrade the database.** The installer does it when run with `-GrantDatabaseAccess` (it runs
-   `Deploy-Database.ps1`, maps the site's app pool account to `app_web` and `-WorkerAccount` to `app_worker`).
+   `Deploy-Database.ps1`, maps the site's app pool account to `app_web` and `-WorkerAccount` to `app_worker`, and
+   gives `-WorkerAccount` read on `dash.UserDay` and `bi.DimUser` in the Copilot database, where the nightly seat
+   read takes Copilot activity; without `-GrantDatabaseAccess` that grant is written to
+   `Grant-WorkbenchWorkerAccess.sql` in the site's folder).
    Without `-GrantDatabaseAccess` it prints the command for a DBA, such as:
 
    ```powershell
@@ -95,7 +98,10 @@ a FAIL: the governance database's ledger tables need 2022 (version 16) or later.
 4. **Ledger digests on WORM storage.** Create a share on write-once storage (retention lock as long as the records
    schedule) that the worker's gMSA can write to, and give it to the installer as `-LedgerDigestPath`. The scheduled
    task *Copilot Governance ledger digest* then runs `Save-LedgerDigest.ps1` daily at `-LedgerDigestAt` (02:00
-   unless given) as the worker's gMSA, which, as a user of the database, may generate digests. Monthly, and
+   unless given) as the worker's gMSA. SQL Server 2022 and 2025 let any user of the database generate a digest;
+   where the engine has a `GENERATE LEDGER DIGEST` permission, the database scripts grant it to `app_worker`. Each
+   run shows as the job `LedgerDigest` in **Admin > Integrations**; a run that fails also ends with a nonzero last
+   result in Task Scheduler, the only signal when the database itself could not be reached. Monthly, and
    whenever an auditor asks, verify the database against every digest saved so far, as an account with
    `VIEW LEDGER CONTENT`:
 
@@ -151,16 +157,30 @@ and Workbench roles are Insights grants. The worker needs one app registration o
 ## 8. Install (Windows administrators)
 
 1. **The worker's settings.** Make `appsettings.Worker.Production.json` from
-   `governance\deploy\appsettings.Worker.Production.sample.json` and replace every `<...>` value except the two the
-   installer fills in (`ConnectionStrings:GovernanceWorker` and `Notifications:WorkbenchBaseUrl`). The worker's
-   installer refuses a file with placeholders left, secrets, or any `Testing` switch turned on.
+   `governance\deploy\appsettings.Worker.Production.sample.json` and replace every `<...>` value except the three the
+   installer fills in. It writes both connection strings on every run, from that run's `-SqlServer`,
+   `-GovernanceDatabase` and Copilot database (`ConnectionStrings:GovernanceWorker`, and `ConnectionStrings:Insights`,
+   from which the nightly seat read takes Copilot activity, as the site's manual read does), and fills in
+   `Notifications:WorkbenchBaseUrl`. The worker's installer refuses a file with placeholders left, secrets, or any
+   `Testing` switch turned on.
 2. **The site's Workbench settings.** The installer writes `ConnectionStrings:Governance` and
    `Notifications:WorkbenchBaseUrl` into the site's `appsettings.Production.json`. Add the `Tenant`, `Workbench` and
    `Itsm` sections from `governance\deploy\appsettings.Web.Production.sample.json` to that file by hand on each web
    server (every update keeps it), then recycle the app pool.
-3. **Secrets.** The ITSM credential and the channel flow URL never go into a file: set them as machine environment
-   variables for the worker's service (`Itsm__Password`, `Notifications__ChannelFlowUrl`), or have the
-   institution's vault agent inject them.
+3. **Secrets.** The ITSM credential and the channel flow URL never go into a file. They go in one place: the worker
+   service's own environment (the `Environment` value under its service key, read by the service only), as
+   `Itsm__Password` and `Notifications__ChannelFlowUrl`. Set them once the service exists (after step 4), keeping the
+   entries already there:
+
+   ```powershell
+   $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\CopilotGovernanceWorker'
+   $entries = @((Get-ItemProperty $key -Name Environment -ErrorAction SilentlyContinue).Environment) |
+       Where-Object { $_ -and $_ -notmatch '^(Itsm__Password|Notifications__ChannelFlowUrl)=' }
+   Set-ItemProperty $key -Name Environment -Type MultiString -Value (@($entries) + "Itsm__Password=$(Read-Host 'ITSM password')" + "Notifications__ChannelFlowUrl=$(Read-Host 'Channel flow URL')")
+   Restart-Service CopilotGovernanceWorker
+   ```
+   Every rerun of the installer keeps them: it changes only `DOTNET_ENVIRONMENT`, and the proxy entries when
+   `-ProxyUrl` is given.
 4. **The server that runs the worker**, first with `-WhatIf`, in Windows PowerShell 5.1 as an administrator:
 
    ```powershell
@@ -172,8 +192,8 @@ and Workbench roles are Insights grants. The worker needs one app registration o
    ```
    Without `-WorkerPackagePath`, the worker is published from `governance\src\Governance.Worker` (needs the .NET 10
    SDK). The service starts delayed-automatic as the gMSA, restarts after 1, 2 and 5 minutes on failure, and gets
-   the proxy as service-only environment variables. If it fails with error 1069, give the gMSA "Log on as a
-   service" by Group Policy.
+   the proxy as service-only environment variables (a rerun without `-ProxyUrl` keeps the proxy set before). If it
+   fails with error 1069, give the gMSA "Log on as a service" by Group Policy.
 5. **Every other web server**: the same command without `-WorkerServer` and the worker's parameters:
 
    ```powershell
@@ -195,7 +215,8 @@ open intake from **Admin > Intake**.
    the previous version keeps working against the upgraded database.
 2. Web servers one at a time: drain the server at the load balancer, rerun step 8.5 (or 8.4 on the worker's
    server) with the new packages, put it back. The first run with `-GrantDatabaseAccess` upgrades the database;
-   every script is safe to rerun. Run again without `-WorkerSettingsFile`, the worker keeps its installed settings.
+   every script is safe to rerun. Run again without `-WorkerSettingsFile`, the worker keeps its installed settings,
+   with its connection strings rewritten from the run's parameters, and the secrets in its service environment.
 
 ## Rollback
 
