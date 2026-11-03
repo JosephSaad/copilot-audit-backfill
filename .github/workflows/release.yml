@@ -196,6 +196,32 @@ jobs:
           path: copilot-insights-*.zip
           retention-days: 1
           if-no-files-found: error
+      - name: Test the Governance Workbench
+        shell: pwsh
+        # The hosted runner has no SQL Server: the tests that deploy a database run on the build machine before each release.
+        env:
+          CGW_SKIP_SQL: '1'
+        run: |
+          dotnet test governance/tests/Governance.UnitTests/Governance.UnitTests.csproj -c Release --nologo
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet test governance/tests/Governance.ContractTests/Governance.ContractTests.csproj -c Release --nologo
+      - name: Publish the Workbench worker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Framework-dependent, as the site: the Hosting Bundle's .NET 10 runtime runs it. Built on Windows, so it has Governance.Worker.exe.
+          $name = "copilot-governance-worker-$env:GITHUB_REF_NAME"
+          dotnet publish governance/src/Governance.Worker/Governance.Worker.csproj -c Release -o "publish/CopilotGovernanceWorker" --nologo
+          if (-not (Test-Path publish/CopilotGovernanceWorker/Governance.Worker.exe)) { throw 'publish produced no Governance.Worker.exe' }
+          Compress-Archive -Path publish/CopilotGovernanceWorker -DestinationPath "$name.zip" -CompressionLevel Optimal
+          Get-Item "$name.zip" | Select-Object Name, Length
+      - name: Upload the worker for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: governance-worker
+          path: copilot-governance-worker-*.zip
+          retention-days: 1
+          if-no-files-found: error
 
   publish:
     name: Publish release
@@ -214,6 +240,12 @@ jobs:
           name: dashboard-site
           path: dist
 
+      - name: Download the Workbench worker
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: governance-worker
+          path: dist
+
       - name: Build the archive
         id: build
         shell: bash
@@ -228,7 +260,7 @@ jobs:
           STAGE="$(mktemp -d)/${NAME}"
           mkdir -p "$STAGE"
           rsync -a --exclude='.git/' --exclude='.github/' --exclude='.gitignore' \
-                --exclude='dist/' --exclude='*.zip' --exclude='*.sha256' --exclude='bin/' --exclude='obj/' ./ "$STAGE/"
+                --exclude='dist/' --exclude='publish/' --exclude='*.zip' --exclude='*.sha256' --exclude='bin/' --exclude='obj/' ./ "$STAGE/"
 
           # Deterministic ordering so the checksum is reproducible from a
           # given tree, and a flat archive rooted at the version folder.
@@ -250,10 +282,20 @@ jobs:
           sha256sum "${SITE}.zip" > "${SITE}.zip.sha256"
           echo "site=${SITE}" >> "$GITHUB_OUTPUT"
 
+          # The published Workbench worker, for Install-CopilotInsights.ps1 -WorkerServer -WorkerPackagePath.
+          WORKER="copilot-governance-worker-${VERSION}"
+          if [ ! -f "dist/${WORKER}.zip" ]; then
+            echo "The worker package dist/${WORKER}.zip is missing" >&2
+            exit 1
+          fi
+          mv "dist/${WORKER}.zip" .
+          sha256sum "${WORKER}.zip" > "${WORKER}.zip.sha256"
+          echo "worker=${WORKER}" >> "$GITHUB_OUTPUT"
+
           echo "--- archive ---"
           unzip -l "${NAME}.zip"
           echo "--- checksums ---"
-          cat "${NAME}.zip.sha256" "${SITE}.zip.sha256"
+          cat "${NAME}.zip.sha256" "${SITE}.zip.sha256" "${WORKER}.zip.sha256"
 
       # This proves only that nothing changed between two steps of this job. Where the files came
       # from rests on the pinned actions and the read-only tokens.
@@ -263,6 +305,7 @@ jobs:
           set -euo pipefail
           sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
           sha256sum -c "${{ steps.build.outputs.site }}.zip.sha256"
+          sha256sum -c "${{ steps.build.outputs.worker }}.zip.sha256"
 
       # 2.7.6: the full reporting reference (the guide, every table and view column by column, and the scripts' text) is
       # made here from this release's files, with both guides as Word documents: the repository keeps the guide only.
@@ -308,6 +351,7 @@ jobs:
           set -euo pipefail
           NAME="${{ steps.build.outputs.name }}"
           SITE="${{ steps.build.outputs.site }}"
+          WORKER="${{ steps.build.outputs.worker }}"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file notes.md \
@@ -315,6 +359,8 @@ jobs:
             "${NAME}.zip.sha256" \
             "${SITE}.zip" \
             "${SITE}.zip.sha256" \
+            "${WORKER}.zip" \
+            "${WORKER}.zip.sha256" \
             reporting/REPORTING-REFERENCE.md \
             reporting/REPORTING-REFERENCE.docx \
             reporting/REPORTING.docx

@@ -5,15 +5,16 @@
     Safe to rerun; supports -WhatIf.
 
 .DESCRIPTION
-    Two worker nodes may run at once: every singleton job takes a SQL application lock (sp_getapplock), so
-    a job never runs on both. Install the same version on both nodes.
+    dashboard\Install-CopilotInsights.ps1 -GovernanceDatabase -WorkerServer runs it on the one server chosen for
+    the worker; run it by hand only to install the worker apart from the site. Should a second copy run anyway,
+    every singleton job takes a SQL application lock (sp_getapplock), so a job never runs on both.
 
     The service is stopped while the files are mirrored and started again afterwards. Files are mirrored
     with robocopy only into an empty folder or a folder this kit installed before (.cgw-install marker);
     appsettings.Production.json is never deleted by the mirror.
 
 .EXAMPLE
-    pwsh -File deploy\Install-WorkbenchWorker.ps1 -PublishPath D:\Drop\Worker -InstallPath D:\CopilotGovernance\Worker `
+    pwsh -File governance\deploy\Install-WorkbenchWorker.ps1 -PublishPath D:\Drop\Worker -InstallPath D:\CopilotGovernance\Worker `
         -GmsaAccount 'CORP\gmsa-cgw-worker$' -SettingsFile D:\Drop\appsettings.Worker.Production.json `
         -ProxyUrl http://proxy.corp.example:8080 -WhatIf
 #>
@@ -40,11 +41,11 @@ if ($ProxyUrl -and $ProxyUrl -notmatch '^https?://[^\s/]+(:\d+)?/?$') { throw "-
 
 $exe = Join-Path $PublishPath 'Governance.Worker.exe'
 if (-not (Test-Path -LiteralPath $exe)) {
-    throw "'$PublishPath' does not hold a published worker (Governance.Worker.exe missing). Run: dotnet publish src\Governance.Worker -c Release -r win-x64 -o <folder>."
+    throw "'$PublishPath' does not hold a published worker (Governance.Worker.exe missing). Run: dotnet publish governance\src\Governance.Worker -c Release -o <folder>."
 }
 $settings = Assert-SettingsFile -Path $SettingsFile -RequiredKeys @(
     'ConnectionStrings:GovernanceWorker', 'Tenant:TenantId', 'Tenant:WorkerClientId', 'Tenant:WorkerCertificateSubject',
-    'Notifications:Mailbox', 'Workbench:BaseUrl')
+    'Tenant:Mailbox', 'Notifications:WorkbenchBaseUrl')
 
 # ------------------------------------------------------------------------------------------------
 # Prerequisites (refuse with a plain message)
@@ -54,12 +55,12 @@ $problems = [System.Collections.Generic.List[string]]::new()
 if (-not (Test-IsAdministrator)) { $problems.Add('Run from an elevated PowerShell 7 session (services and certificate keys need administrator rights).') }
 $selfContained = Test-Path -LiteralPath (Join-Path $PublishPath 'hostfxr.dll')
 if (-not $selfContained -and -not (Get-DotNetRuntime10)) { $problems.Add('The .NET 10 runtime is not installed, and the worker was not published self-contained.') }
-$subject = $settings['Worker']['CertificateDistinguishedName']
+$subject = $settings['Tenant']['WorkerCertificateSubject']
 $cert = Get-WorkbenchCertificate -Subject $subject -StoreLocation LocalMachine
 if ($null -eq $cert) { $problems.Add("The worker certificate '$subject' is not in LocalMachine\My with a private key.") }
 elseif (($cert.NotAfter - (Get-Date)).TotalDays -lt 30) { $problems.Add("The worker certificate '$subject' expires on $($cert.NotAfter.ToString('yyyy-MM-dd')): rotate it first.") }
 if ($problems.Count -gt 0) {
-    throw ("This server is not ready for the Workbench worker:`n - " + ($problems -join "`n - ") + "`nRun deploy\Test-WorkbenchPrerequisites.ps1 -Role Worker for the full list.")
+    throw ("This server is not ready for the Workbench worker:`n - " + ($problems -join "`n - ") + "`nRun governance\deploy\Test-WorkbenchPrerequisites.ps1 -Role Worker for the full list.")
 }
 Write-DeployOk "runtime and certificate $($cert.Thumbprint) in place"
 

@@ -5,13 +5,6 @@
 #>
 Set-StrictMode -Version Latest
 
-# Routes of the web application. An IIS application path named like one of them cannot be told apart from a
-# page address, so the installer refuses it.
-$script:WorkbenchRoutes = @(
-    'start', 'mywork', 'requests', 'queues', 'registry', 'operations', 'recertification', 'exceptions', 'retirement',
-    'reports', 'admin', 'teams', 'health', 'signin-oidc', 'signout-oidc', 'microsoftidentity', 'css', 'js', 'lib', 'img'
-)
-
 function Write-DeployStep([string] $Text) { Write-Information "== $Text" -InformationAction Continue }
 function Write-DeployOk([string] $Text) { Write-Information "   ok  $Text" -InformationAction Continue }
 function Write-DeployNote([string] $Text) { Write-Information "   --  $Text" -InformationAction Continue }
@@ -19,6 +12,17 @@ function Write-DeployNote([string] $Text) { Write-Information "   --  $Text" -In
 function ConvertTo-CheckResult {
     param([string] $Name, [ValidateSet('PASS', 'WARN', 'FAIL', 'SKIP')] [string] $Status, [string] $Detail)
     [pscustomobject]@{ Check = $Name; Status = $Status; Detail = $Detail }
+}
+
+function Get-SqlVersionVerdict {
+    <#
+    .SYNOPSIS PASS for SQL Server 2022 (16) or later, which the governance database's ledger tables need; FAIL with the reason otherwise.
+    #>
+    param([Parameter(Mandatory)] [int] $Major)
+    $names = @{ 11 = '2012'; 12 = '2014'; 13 = '2016'; 14 = '2017'; 15 = '2019'; 16 = '2022'; 17 = '2025' }
+    $name = if ($names.ContainsKey($Major)) { "SQL Server $($names[$Major]) (version $Major)" } else { "SQL Server version $Major" }
+    if ($Major -ge 16) { return [pscustomobject]@{ Status = 'PASS'; Detail = "$name." } }
+    [pscustomobject]@{ Status = 'FAIL'; Detail = "$name is too old: the governance database needs SQL Server 2022 (version 16) or later for its ledger tables. Upgrade the instance, or leave out -GovernanceDatabase." }
 }
 
 function Test-IsAdministrator {
@@ -188,7 +192,7 @@ function Assert-SettingsFile {
     .SYNOPSIS Checks the production settings file holds the keys the application needs and no test switches.
     #>
     param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string[]] $RequiredKeys)
-    if (-not (Test-Path -LiteralPath $Path)) { throw "Settings file '$Path' does not exist. Start from deploy\appsettings.*.Production.sample.json." }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Settings file '$Path' does not exist. Start from governance\deploy\appsettings.*.Production.sample.json." }
     $json = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -AsHashtable
     $missing = foreach ($key in $RequiredKeys) {
         $node = $json

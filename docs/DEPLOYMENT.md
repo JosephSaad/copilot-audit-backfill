@@ -795,6 +795,44 @@ Each guide lists the values to collect, has a part written to hand to the admini
 
 With a setting in place, the nightly run loads that source as a last step. Without it, the run skips the step with a line in its log. A loader that fails is recorded and does not fail the night. Admin › Health shows each one's last run.
 
+### Step 27. The Governance Workbench (optional)
+
+*Web servers, as an administrator, in Windows PowerShell 5.1, from the source package's folder. About 30 minutes, after the accounts, certificate and app registration in [governance\deploy\Deploy-Production.md](../governance/deploy/Deploy-Production.md) are ready.*
+
+The Workbench's pages are served by the dashboard at `/workbench`, with its own database (`CopilotGovernance`, on the same SQL Server, which must be 2022 or later) and a worker that runs as a Windows service on one server. It stays off until the installer is given `-GovernanceDatabase`; without it, nothing below happens. Each web server also needs PowerShell 7 (`pwsh`) and the SQL Server command-line tools (`sqlcmd`).
+
+On the one server that runs the worker:
+
+```powershell
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v3.0.0.zip -SqlServer SQLPROD01 -GrantDatabaseAccess `
+    -GovernanceDatabase CopilotGovernance -SiteUrl https://insights.contoso.com `
+    -WorkerServer -WorkerAccount 'CONTOSO\gmsa-cgw-worker$' -WorkerPackagePath .\copilot-governance-worker-v3.0.0.zip `
+    -WorkerSettingsFile D:\Drop\appsettings.Worker.Production.json -LedgerDigestPath '\\worm01\CopilotGovernanceLedger$'
+```
+
+On every other web server, the same without the worker's parameters (`-WorkerAccount` still maps the worker's account in the database):
+
+```powershell
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v3.0.0.zip -SqlServer SQLPROD01 -GrantDatabaseAccess `
+    -GovernanceDatabase CopilotGovernance -SiteUrl https://insights.contoso.com -WorkerAccount 'CONTOSO\gmsa-cgw-worker$'
+```
+
+Run either with `-WhatIf` first: it checks the parameters and the server, lists what would change, and changes nothing.
+
+| Parameter | What it does |
+|---|---|
+| `-GovernanceDatabase` | Turns the Workbench on. Runs `governance\deploy\Test-WorkbenchPrerequisites.ps1` before the site goes offline and stops when a check fails (a SQL Server older than 2022 is refused by name). Writes `ConnectionStrings:Governance` (Windows sign-in as the app pool's account) and `Notifications:WorkbenchBaseUrl` into the site's `appsettings.Production.json`. With `-GrantDatabaseAccess`, creates or upgrades the database with `governance\src\Governance.Database\Deploy-Database.ps1` and puts the site's account in `app_web`; without it, prints that command for a DBA. |
+| `-SiteUrl` | The address people open, such as the load balancer's, with the virtual directory if any, never ending in `/workbench`. The links in Workbench notices start with it. Omitted: the address already set, else this server's binding. |
+| `-WorkerAccount` | The worker's gMSA (`DOMAIN\name$`), put in `app_worker`. |
+| `-WorkerServer` | On this server only: installs the worker as the Windows service `CopilotGovernanceWorker` through `governance\deploy\Install-WorkbenchWorker.ps1` (delayed start, restarts on failure), with `Save-LedgerDigest.ps1` beside it. Every job also takes a SQL lock (`sp_getapplock`), so a second copy would wait rather than run a job twice. |
+| `-WorkerPackagePath` | The release's `copilot-governance-worker-v3.0.0.zip`, a published folder, or the source folder. Omitted: `governance\src\Governance.Worker`, published there (needs the .NET 10 SDK). |
+| `-WorkerSettingsFile` | The worker's settings, made from `governance\deploy\appsettings.Worker.Production.sample.json`. Needed the first time; a re-run without it keeps the installed file. The installer fills in its connection string and the site's address. |
+| `-WorkerPath` | The worker's folder, `C:\CopilotGovernance\Worker` unless given. |
+| `-LedgerDigestPath`, `-LedgerDigestAt` | A share on write-once storage the worker's account can write to: the task *Copilot Governance ledger digest* saves a digest of the ledger there daily at `-LedgerDigestAt` (02:00 unless given), as the worker's account. |
+| `-ProxyUrl` | The outbound proxy, for the prerequisite check and the worker's calls to Microsoft and the ITSM. |
+
+Then add the `Tenant`, `Workbench` and `Itsm` sections of `governance\deploy\appsettings.Web.Production.sample.json` to the site's `appsettings.Production.json` on each web server, and open `https://insights.contoso.com/workbench`. [governance\deploy\Deploy-Production.md](../governance/deploy/Deploy-Production.md) has the rest: the gMSA and certificate, the worker's app registration and mailbox, Teams, and the checks after the install.
+
 ## Running it
 
 Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01`; `-Task Status` shows what is loaded and when each step last ran.

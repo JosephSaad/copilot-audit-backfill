@@ -8,7 +8,7 @@
     account. Run it again after every certificate rotation: a new certificate has a new key file.
 
 .EXAMPLE
-    pwsh -File deploy\Grant-CertificateKeyAccess.ps1 -Subject 'CN=CopilotGovernanceWeb' -Account 'CORP\gmsa-cgw-web$' -WhatIf
+    pwsh -File governance\deploy\Grant-CertificateKeyAccess.ps1 -Subject 'CN=CopilotGovernanceWeb' -Account 'CORP\gmsa-cgw-web$' -WhatIf
 #>
 [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName = 'Subject')]
 param(
