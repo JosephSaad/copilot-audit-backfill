@@ -14,7 +14,7 @@ public sealed record ImportOwner(Guid PublicId, string Name, string Code, bool R
 public sealed record ImportItem(Guid FundingOwner, string Name, int Seats, DateTime From, string Notes, IReadOnlyList<InsightsReservation> Rows);
 
 /// <summary>
-/// Workbench › Admin › Seat groups › "Start from Insights' reservations": the reservation register Copilot Insights kept
+/// Workbench settings › Seat groups › "Start from Insights' reservations": the reservation register Copilot Insights kept
 /// (dash.Reservation) offered once as each line of business's first reservation. Nothing is copied until an
 /// administrator chooses a funding owner for a row and confirms; a funding owner that already has a reservation is
 /// skipped, as the Workbench allows a first reservation once. The register itself is only read.

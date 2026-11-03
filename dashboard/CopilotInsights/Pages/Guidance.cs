@@ -22,7 +22,7 @@ public static class Guidance
         ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
         ["/leadership/costs"] = new("See what AI and automation cost, what can be saved, and what they return, in one view.", "Take the top three savings this month; send the growth items to their owners."),
         ["/leadership/credit-chargeback"] = new("See each line of business's Copilot Credits by path, and what they charge it.", "Route every environment first; then send each line of business its month."),
-        ["/leadership/reservations"] = new("See each organization's reserved seats against its licenses, and what it is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
+        ["/leadership/reservations"] = new("See the Copilot seats reserved against the licenses held, and what each organization, or line of business, is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
         ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
         ["/leadership/boardpack"] = new("Report the program to the board on one page.", "Print it or save it as a PDF for the steering group."),
         ["/leadership/assumptions"] = new("Know what every cost and saving rests on, and where to change it.", "Settle any prices that disagree before you quote a figure."),
@@ -56,7 +56,7 @@ public static class Guidance
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
         ["/licensing/credit-use"] = new("Estimate each person's Copilot Credits and tokens, and what a cap would touch.", "Set the credit policy's cap from the spread; license the people above a license's worth."),
         ["/licensing/suites"] = new("See which of E3, E5 and E7 fits each holder, and what a move down saves.", "Drop the copies now; agree each move down with the manager, and with security for E5."),
-        ["/licensing/reservation-holders"] = new("See who an organization's licenses are assigned to.", "Map anyone under no leader; reclaim what is unused before reserving more."),
+        ["/licensing/reservation-holders"] = new("See who holds the reserved licenses of an organization or line of business.", "Map anyone under no leader or no line of business; reclaim what is unused before reserving more."),
         ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
 
         // Security

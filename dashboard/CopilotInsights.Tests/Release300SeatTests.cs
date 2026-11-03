@@ -112,8 +112,8 @@ public class Release300SeatTests
         Assert.True(guard.IndexOf("if (_seats.On) throw new ArgumentException(RegisterKept);", StringComparison.Ordinal) < guard.IndexOf("return await change();", StringComparison.Ordinal));
         /* With the Workbench on, the forms are not drawn: the note points to the Workbench's seat pages. */
         var view = Source.Read("Pages", "Leadership", "Reservations.Workbench.cs");
-        Assert.Contains("Workbench › Registry › Copilot seats", view);
-        Assert.Contains("Workbench › Admin › Seat groups", view);
+        Assert.Contains("Ownership registry › Copilot seats", view);
+        Assert.Contains("Workbench settings › Seat groups", view);
         Assert.DoesNotContain("AdminAsync(", view);
     }
 

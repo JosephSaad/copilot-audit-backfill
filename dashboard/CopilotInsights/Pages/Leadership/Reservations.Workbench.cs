@@ -16,7 +16,7 @@ public sealed partial class ReservationsModel
 {
     public const string RegisterKept =
         "the Workbench's lines of business are the Copilot seat record, so the reservation register, its rate, the purchase gate and the Technology pool are kept as they are and no longer changed here. " +
-        "Record reservations in Workbench › Registry › Copilot seats and the groups behind them in Workbench › Admin › Seat groups.";
+        "Record reservations in Ownership registry › Copilot seats and the groups behind them in Workbench settings › Seat groups.";
 
     const string LinesOfBusinessIntro = "Each line of business's reserved Microsoft 365 Copilot seats, from the Workbench, against the seats its tracking group holds, and the monthly chargeback FinOps certified: reserved, assigned, unused, over and charged.";
 
@@ -46,8 +46,8 @@ public sealed partial class ReservationsModel
         if (v.Lobs.Count == 0)
         {
             Notice = whole
-                ? "No line of business has Copilot seats yet. FinOps records each one's first reservation in Workbench › Registry › Copilot seats" +
-                  (Viewer.IsAdmin ? "; Workbench › Admin › Seat groups can start them from this page's earlier reservation register." : ".")
+                ? "No line of business has Copilot seats yet. FinOps records each one's first reservation in Ownership registry › Copilot seats" +
+                  (Viewer.IsAdmin ? "; Workbench settings › Seat groups can start them from this page's earlier reservation register." : ".")
                 : "Copilot seats are recorded by line of business in the Workbench, and your Workbench roles name none. The whole organization's figures are for the Licensing role.";
             if (Viewer.IsAdmin) AdminNote();
             return;
@@ -77,7 +77,7 @@ public sealed partial class ReservationsModel
                 s.Unallocated < 0 ? "crit" : null, links.Seats));
         }
         var last = v.LastCertified;
-        Kpis.Add(new($"Monthly chargeback ({cur})", last is null ? "Not certified yet" : M(last.Amount),
+        Kpis.Add(new("Monthly chargeback", last is null ? "Not certified yet" : M(last.Amount),
             last is null ? "no month certified by the FinOps lead yet" : $"{last.Month:MMMM yyyy}, certified: {last.Charged:#,0} seats charged",
             Href: last is null ? null : links.Month(last.Month)));
 
@@ -87,7 +87,7 @@ public sealed partial class ReservationsModel
         var t = new Table
         {
             Headers = ["Line of business", "Code", "Tracking group", "Reserved", "Assigned", "Over reservation", "Unused reserved", "Inactive", "Asked for", "Open findings",
-                       last is null ? $"Certified chargeback ({cur})" : $"Chargeback, {last.Month:MMM yyyy} ({cur})"],
+                       last is null ? "Certified chargeback" : $"Chargeback, {last.Month:MMM yyyy}"],
             Numeric = new HashSet<int> { 3, 4, 5, 6, 7, 8, 9, 10 },
             EmptyText = "No line of business has Copilot seats yet.",
         };
@@ -123,10 +123,10 @@ public sealed partial class ReservationsModel
             EmptyText = "No exceptions: every line of business has a tracking group, and every seat is claimed by one." };
         void Add(string what, int n, string todo) { if (n > 0) t.Rows.Add([what, n, todo]); }
         var untracked = v.Charged.Where(l => l.TrackingGroup is null).Select(l => l.Name).ToList();
-        Add("Line of business with no tracking group", untracked.Count, "Map its tracking group in Workbench › Admin › Seat groups: " + string.Join(", ", untracked));
+        Add("Line of business with no tracking group", untracked.Count, "Map its tracking group in Workbench settings › Seat groups: " + string.Join(", ", untracked));
         Add("Seats no line of business claims", v.NoLob?.AssignedSeats ?? 0, "Add the people to their line of business's tracking group through its OIM role, or remove the seat.");
         Add("Open seat findings", v.Charged.Sum(l => l.OpenFindings), "Work them in the Workbench: each line of business's page lists its own.");
-        Add("Months waiting to be certified", v.Months.Count(m => !m.Certified && m.Month < new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1)), "The FinOps lead certifies each month in Workbench › Reports › Seat chargeback.");
+        Add("Months waiting to be certified", v.Months.Count(m => !m.Certified && m.Month < new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1)), "The FinOps lead certifies each month in Governance operations › Seat chargeback.");
         if (v.Summary is { Stale: true }) Add("License read-back more than a day old", 1, "Platform Operations runs it again from Workbench › Operations.");
         Panels.Add(new("Exceptions", t.Render(), "Raised from the Workbench's seat read-back and its findings.", "half"));
     }
@@ -146,6 +146,6 @@ public sealed partial class ReservationsModel
     void AdminNote() =>
         Panels.Add(new("Reservation register", new HtmlString(
             $"<p>Not changed here: {E(RegisterKept)}</p><p class=\"sub\">Its rows, its rate and its month-end snapshots are kept as they were, and nothing is added to them. " +
-            "Workbench › Admin › Seat groups offers the register's current rows once, as each line of business's first reservation, for an administrator to confirm.</p>"),
+            "Workbench settings › Seat groups offers the register's current rows once, as each line of business's first reservation, for an administrator to confirm.</p>"),
             "With the Workbench off, this page shows the register and its forms again.", "full"));
 }
