@@ -1,7 +1,27 @@
-# Decisions
+# Governance Workbench: decisions
 
-Decisions taken for the build, including the architecture's open decisions (section 15.2) and where the
-build differs from the architecture, with the reason.
+Decisions taken for the Governance Workbench, including the architecture's open decisions (section 15.2) and
+where the build differs from the architecture, with the reason. The Workbench was built on its own and became
+part of Copilot Insights in 3.0.0; the first section is what that merge decided, and the sections after it are
+the Workbench's own decisions from before, with page names updated.
+
+## Merged into Copilot Insights (3.0.0)
+
+| # | Decision | Why |
+|---|---|---|
+| D1 | One record for Copilot seats per line of business: the Workbench's `core.SeatReservation`. The dashboard's `dash.Reservation` is hidden when the Workbench is on; its rows and columns stay | The client's own facts (14 lines of business, AD tracking groups, the April true-down window, Finance decides) are in the Workbench's model |
+| D2 | A separate database, `CopilotGovernance`, on the same SQL Server as the Copilot database | Ledger tables are append-only; keeping them apart leaves the deployed Copilot database untouched. SQL Server 2022 is then needed for the governance part only |
+| D3 | Sign-in is the dashboard's: Windows, or Entra ID where the site is set up for it | With the dashboard's roles (D4), a person is matched by SID or Entra object ID, so nothing needs Entra only |
+| D4 | One role system, the dashboard's. The Workbench's app roles become grants in Admin › Access: Governance (was Central), GovernanceOperator (Operator), GovernanceAuditor (Auditor), Admin (Admin). RACI positions, roles for one line of business and delegations stay in the Workbench: they route work, not page access | One place to grant, one access check, access profiles and groups for everything |
+| D5 | The Workbench's worker is the product's Windows service; the PowerShell nightly run stays as it is | A first step toward one .NET worker without moving the loaders yet |
+| D6 | Two app registrations: the pipeline's (audit read) and the worker's (users, groups, access reviews, mail, Teams) | Each permission set is reviewed and granted on its own |
+| D7 | Version 3.0.0 | A new database, a Windows service and a new SQL Server requirement for one part |
+| | Off unless `ConnectionStrings:Governance` is set; then every `/workbench` address answers 404 | A client can install 3.0.0 with no governance setup and nothing changes |
+| | Pages under `/workbench/...`, in menu sections named Ownership and approvals, Approval queues, Ownership registry, Governance operations and Workbench settings | The dashboard already has a Governance section (AI apps, DLP, models and controls) |
+| | The seat read takes Copilot activity from the dashboard's own records when it can read them, else Microsoft's usage report | It covers every loaded day and never hides names |
+| | From 3.0.0 the governance database follows the dashboard's schema rule: additive only | Reports and the client's data survive every upgrade |
+
+<!-- 3.0.0: seats section pending (how Leadership › Copilot reservations reads core.SeatReservation, and "Start from Insights' reservations") -->
 
 ## Open decisions (architecture section 15.2)
 
@@ -51,11 +71,11 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Area | Architecture | Build | Why |
 |---|---|---|---|
 | Data access | EF Core for commands, Dapper for queries | Dapper throughout, hand-written SQL | Ledger, temporal and RLS objects are clearer in explicit SQL; one data access style |
-| Schema source | SDK-style SQL project producing a DACPAC | Ordered idempotent scripts (`src/Governance.Database/Scripts`) and `Deploy-Database.ps1` | Ledger tables and DACPAC extraction have known limits (R31); scripts rerun safely |
+| Schema source | SDK-style SQL project producing a DACPAC | Ordered idempotent scripts (`governance/src/Governance.Database/Scripts`) and `Deploy-Database.ps1` | Ledger tables and DACPAC extraction have known limits (R31); scripts rerun safely |
 | Classification columns | NOT NULL on `core.Workload` | Nullable, enforced by `ClassificationComplete` at B3 | Discovered workloads exist before they are classified |
-| Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | Kestrel on `http://localhost:5450`, worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
+| Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | The Copilot Insights site under Kestrel on `http://localhost:5291` (before 3.0.0, a Workbench site of its own on port 5450), worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
 | Spelling | British ("license") | American ("license") in code and UI | House style of the user's other repositories |
-| Test persona switch | not in the architecture | Development-only "Act as" switch, audited, off unless `Testing:AllowActAs` is true and the environment is Development | One real account in the test tenant has to play every role, and segregation of duties needs different people |
+| Test persona switch | not in the architecture | Development-only "Act as" switch (`/workbench/ActAs`), audited, offered only to an Insights administrator, off unless `Testing:AllowActAs` is true and the environment is Development; the site refuses to start with it on anywhere else | One real account in the test tenant has to play every role, and segregation of duties needs different people |
 
 ## Fixes from the core review (2026-10-24)
 
@@ -67,11 +87,15 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Configurer | If the person who closes the fulfillment ticket approved the request, the change goes back to fulfillment with an SoD finding (SoD2). |
 | Exit rules | B2 completes only when the completeness check passes; D1 passes only with a passing verification recorded by the verifier since the ticket closed (P5). |
 
-## Production deployment (deploy/)
+## Production deployment (governance/deploy/)
+
+Taken before the merge, for the Workbench's own installers. From 3.0.0 the Workbench's pages are installed
+with the dashboard ([DEPLOYMENT.md](DEPLOYMENT.md)); the rows on certificates, digests and settings still
+apply to the database and the worker.
 
 | Area | Decision | Why |
 |---|---|---|
-| Ledger digests | `deploy/Save-LedgerDigest.ps1` writes one digest file per run to a WORM share every 4 hours; `-Verify` checks the database against all of them | On-premises SQL Server stores digests automatically only in Azure immutable storage; a file share on write-once storage keeps the evidence outside the database (R27) |
+| Ledger digests | `governance/deploy/Save-LedgerDigest.ps1` writes one digest file per run to a WORM share every 4 hours; `-Verify` checks the database against all of them | On-premises SQL Server stores digests automatically only in Azure immutable storage; a file share on write-once storage keeps the evidence outside the database (R27) |
 | Snapshot isolation | The DBA sets `ALLOW_SNAPSHOT_ISOLATION ON` on the database | `sys.sp_verify_database_ledger` refuses to run without it; `Deploy-Database.ps1` sets only `READ_COMMITTED_SNAPSHOT` today (candidate for the deploy script) |
 | SQL certificate validation | Certificates are checked unless `-TrustServerCertificate` is passed | Only the local test server passes it (same rule as Insights' installer) |
 | Mirror guard | The installers mirror files with robocopy only into an empty folder or one marked `.cgw-install` by an earlier install of the same kind | `/MIR` deletes what is not in the source; a wrong path must not wipe another application's folder |
@@ -82,7 +106,7 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 
 | Item | Choice | Why |
 |---|---|---|
-| Business calendar | Canadian federal statutory holidays, with the observed Monday when a holiday falls on a weekend; time zone Eastern | The demo institution is a Toronto bank; replace with the institution's own calendar in Admin › SLAs |
+| Business calendar | Canadian federal statutory holidays, with the observed Monday when a holiday falls on a weekend; time zone Eastern | The demo institution is a Toronto bank; replace with the institution's own calendar in Workbench settings › SLAs and escalation |
 | Envelope period | The calendar year | The seed must produce envelopes active today; set the institution's fiscal year in production |
 | The real administrator | Workbench administrator and auditor only | Administrators cannot decide (SoD5); business personas are used through the test-only Act as switch |
 | Personas | 46 fictional people, `@example.invalid` mail, flagged synthetic | No real personal data in the demo |
