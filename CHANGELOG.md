@@ -24,8 +24,11 @@ and the worker from this release. No new package. Nothing changes where the Work
   (`Seats.IncreaseEffective`). The monthly draft charges no-LOB seats to the active funding owner named, as seats
   above its reservation (a row of its own when it has none); a code that names no active funding owner leaves them a
   row of their own, and the pages say so.
-- **`rpt.vSeatReservationCurrent`** in the Workbench database: today's seats by line of business with the last
-  certified chargeback, for Power BI and Grafana through its reporting role, `gov_reader`.
+- **`rpt.vSeatReservationCurrent`** in the Workbench database: today's seats by line of business with the latest
+  certified month's chargeback (one month for every row, so its amounts add up), for Power BI and Grafana through its
+  reporting role, `gov_reader`.
+- **`dash.LineOfBusinessName`** in the Copilot database: the Workbench's funding owners' codes and names, kept by the
+  dashboard every quarter hour, so a month's credit snapshot keeps the names it had.
 
 ### Changed
 - **Leadership › Credit chargeback,** with the Workbench on, charges each environment's credits to a Workbench funding
@@ -33,7 +36,13 @@ and the worker from this release. No new package. Nothing changes where the Work
   sees the lines the Workbench's seat scope gives them, and an agent is misrouted when its environment's line is not the one
   whose tracking group holds its owner's seat. Off, it keeps the reservation register.
 - **One person list.** The worker's directory read gives a person recorded without an Entra object ID the one
-  Insights records for the same UPN, unless another person already has it.
+  Insights records for the same UPN: an enabled account with one object ID for it, and only if no other person here
+  has it.
+- **An adversarial review of 3.0.1** found 12 issues, fixed before release with tests: the tenant-wide gate shown to
+  a viewer of one line of business, a no-LOB charge the pages promised but the draft did not make, the view mixing
+  months, a credit viewer's lines not matching their seat scope, old wording, codes and setting names shown to
+  non-administrators, snapshot names, the person link's cost and a reused UPN, uncached reads and a failed page when
+  the Workbench database does not answer, and "1,136" read as no baseline.
 - **`Test-FigureLinks.ps1 -ActAs`** checks the seat figures that open Workbench pages, as a test persona.
 
 ### Known limits
