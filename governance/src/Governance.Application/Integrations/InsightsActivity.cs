@@ -17,6 +17,9 @@ public sealed record InsightsActivityUser(string UserPrincipalName, DateTime Las
 public interface IInsightsActivitySource
 {
     Task<InsightsActivity> ReadAsync(CancellationToken ct);
+
+    /// <summary>Each person's Entra object ID by UPN, as Insights' directory load records it (dash.Person.ObjectId).</summary>
+    Task<IReadOnlyList<(string Upn, Guid ObjectId)>> ObjectIdsAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<(string, Guid)>>([]);
 }
 
 /// <summary>Reads dash.UserDay (each person's interactions per day) and bi.DimUser (their UPN). Read only.</summary>
@@ -29,6 +32,16 @@ public sealed class InsightsActivitySource(string connectionString) : IInsightsA
         GROUP BY u.UserPrincipalName;
         SELECT CONVERT(date, CONVERT(char(8), MAX(DateKey))) FROM dash.UserDay;
         """;
+
+    public async Task<IReadOnlyList<(string Upn, Guid ObjectId)>> ObjectIdsAsync(CancellationToken ct)
+    {
+        await using var c = new SqlConnection(connectionString);
+        await c.OpenAsync(ct);
+        /* dash.Person.ObjectId came with the 2.8.0 license tool; an older Insights database has none to give. */
+        return (await c.QueryAsync<(string Upn, Guid ObjectId)>(new CommandDefinition(
+            "IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL EXEC (N'SELECT Upn, ObjectId FROM dash.Person WHERE ObjectId IS NOT NULL AND Upn IS NOT NULL');",
+            commandTimeout: 600, cancellationToken: ct))).ToList();
+    }
 
     public async Task<InsightsActivity> ReadAsync(CancellationToken ct)
     {

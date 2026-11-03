@@ -120,7 +120,7 @@ public static class CreditChargeRules
 }
 
 /// <summary>2.7.2: the credit register, the month's chargeback, its snapshots, the wrong-path checks and the commitments.</summary>
-public sealed class CreditChargeData(Db db, Settings settings)
+public sealed class CreditChargeData(Db db, Settings settings, global::Governance.Web.Infrastructure.WorkbenchLines? lines = null)
 {
     public async Task<bool> ReadyAsync() =>
         await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CreditRoute', N'U') IS NULL OR OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;
@@ -147,12 +147,19 @@ public sealed class CreditChargeData(Db db, Settings settings)
         (await db.QueryAsync<DateTime>("SELECT DISTINCT DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1) FROM audit.PowerPlatformCreditDay WHERE Product = 'Copilot Studio' ORDER BY 1 DESC;")).ToList();
 
     /// <summary>The org IDs a viewer of part of the organization sees: those led from inside it. Null: all.</summary>
+    /// <remarks>With the Governance Workbench on, the lines of business their Workbench roles cover.</remarks>
     async Task<HashSet<string>?> VisibleOrgsAsync(ReportContext c) =>
-        c.Root is null ? null : (await db.QueryAsync<string>($@"
+        c.Root is null ? null : Workbench ? await lines!.VisibleCodesAsync() : (await db.QueryAsync<string>($@"
 SELECT DISTINCT r.OrgId FROM dash.Reservation AS r
 WHERE r.LeaderUpn IN (SELECT du.UserPrincipalName FROM bi.DimUser AS du {c.Scope("du.UserKey")});", c.Args())).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Whether a route's Org ID names a Governance Workbench funding owner (by code) rather than the reservation register.</summary>
+    public bool ByFundingOwner => Workbench;
+
+    bool Workbench => lines?.On == true;
+
     async Task<Dictionary<string, string>> OrgNamesAsync() =>
+        Workbench ? await lines!.NamesAsync() :
         await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.Reservation', N'U') IS NULL THEN 0 ELSE 1 END;") == 0 ? new(StringComparer.OrdinalIgnoreCase) :
         (await db.QueryAsync<(string OrgId, string Name)>("SELECT OrgId, Name FROM (SELECT OrgId, Name, ROW_NUMBER() OVER (PARTITION BY OrgId ORDER BY EffectiveFrom DESC) AS n FROM dash.Reservation) AS x WHERE n = 1;"))
             .ToDictionary(r => r.OrgId, r => r.Name, StringComparer.OrdinalIgnoreCase);
@@ -247,6 +254,7 @@ FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m = month })).T
     /// <summary>Null when the check cannot run: no agent inventory loaded, or no reservation register to place the owners.</summary>
     public async Task<List<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>?> MisroutedAsync(ReportContext c)
     {
+        if (Workbench) return await MisroutedByFundingOwnerAsync(c);
         if (await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL OR OBJECT_ID(N'dash.fnReservationMember', N'IF') IS NULL THEN 0 WHEN NOT EXISTS (SELECT 1 FROM dash.AgentInventory WHERE Environment IS NOT NULL) OR NOT EXISTS (SELECT 1 FROM dash.Reservation WHERE LeaderUpn IS NOT NULL) THEN 0 ELSE 1 END;") == 0) return null;
         var visible = await VisibleOrgsAsync(c);
         var rows = await db.QueryAsync<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>(@"
@@ -264,9 +272,42 @@ ORDER BY ai.Environment, 1;");
     }
 
     /// <summary>Routes naming an org ID the reservation register does not have.</summary>
-    public async Task<List<string>> UnknownOrgsAsync() =>
+    public async Task<List<string>> UnknownOrgsAsync()
+    {
+        if (Workbench)
+        {
+            var known = await lines!.NamesAsync();
+            return (await db.QueryAsync<string>("SELECT DISTINCT OrgId FROM dash.CreditRoute WHERE OrgId IS NOT NULL;")).Where(o => !known.ContainsKey(o)).ToList();
+        }
+        return await RegisterUnknownOrgsAsync();
+    }
+
+    async Task<List<string>> RegisterUnknownOrgsAsync() =>
         await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.Reservation', N'U') IS NULL THEN 0 ELSE 1 END;") == 0 ? [] :
         (await db.QueryAsync<string>("SELECT DISTINCT c.OrgId FROM dash.CreditRoute AS c WHERE c.OrgId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.Reservation AS r WHERE r.OrgId = c.OrgId);")).ToList();
+
+    /// <summary>
+    /// With the Governance Workbench on: each agent whose environment's route today names a line of business other than
+    /// the one whose tracking group holds its owner's Copilot seat. Null when no agent inventory is loaded.
+    /// </summary>
+    async Task<List<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>?> MisroutedByFundingOwnerAsync(ReportContext c)
+    {
+        if (await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL THEN 0 WHEN NOT EXISTS (SELECT 1 FROM dash.AgentInventory WHERE Environment IS NOT NULL) THEN 0 ELSE 1 END;") == 0) return null;
+        var agents = await db.QueryAsync<(string Agent, string Environment, string? Owner, string EnvOrg)>(@"
+DECLARE @today DATE = CAST(GETDATE() AS DATE);
+SELECT ISNULL(ai.AgentName, ai.InventoryAgentId), ai.Environment, ai.OwnerUpn, rt.OrgId
+FROM dash.AgentInventory AS ai
+CROSS APPLY (SELECT TOP (1) x.OrgId, x.Path FROM dash.CreditRoute AS x
+             WHERE x.EnvironmentName = ai.Environment AND x.EffectiveFrom <= @today AND (x.EffectiveTo IS NULL OR x.EffectiveTo >= @today)
+             ORDER BY x.EffectiveFrom DESC, x.RouteId DESC) AS rt
+WHERE rt.Path IN ('Productivity', 'BusinessApplication') AND rt.OrgId IS NOT NULL AND ai.OwnerUpn IS NOT NULL;");
+        var owners = await lines!.LineByUpnAsync();
+        var visible = await VisibleOrgsAsync(c);
+        return agents.Where(a => a.Owner is not null && owners.TryGetValue(a.Owner, out var line) && !string.Equals(line, a.EnvOrg, StringComparison.OrdinalIgnoreCase))
+            .Select(a => (a.Agent, a.Environment, a.Owner, a.EnvOrg, owners[a.Owner!]))
+            .Where(r => visible is null || visible.Contains(r.EnvOrg) || visible.Contains(r.Item5))
+            .OrderBy(r => r.Environment, StringComparer.OrdinalIgnoreCase).ThenBy(r => r.Agent, StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     public async Task<List<CreditCommitment>> CommitmentsAsync()
     {

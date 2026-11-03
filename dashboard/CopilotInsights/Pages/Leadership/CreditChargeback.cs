@@ -96,7 +96,7 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
         {
             var total = g.Sum(l => l.Credits);
             var orgLink = Open("/leadership/reservations");
-            t.Rows.Add([g.First().OrgName is { } on && orgLink is not null ? new Link(on, orgLink) : (object)(g.First().OrgName ?? "(not in the reservation register)"), g.Key, string.Join(", ", g.Select(l => l.CostCenter).Where(c => !string.IsNullOrEmpty(c)).Distinct()),
+            t.Rows.Add([g.First().OrgName is { } on && orgLink is not null ? new Link(on, orgLink) : (object)(g.First().OrgName ?? (data.ByFundingOwner ? "(not a Workbench funding owner)" : "(not in the reservation register)")), g.Key, string.Join(", ", g.Select(l => l.CostCenter).Where(c => !string.IsNullOrEmpty(c)).Distinct()),
                 C(P(g, CreditPaths.Productivity)), C(P(g, CreditPaths.BusinessApplication)), C(P(g, CreditPaths.Innovation)), C(total), M(v.Charge(total))]);
         }
         t.Rows.Add([new HtmlString("<b>Lines of business</b>"), "", "", C(P(lob, CreditPaths.Productivity)), C(P(lob, CreditPaths.BusinessApplication)), C(P(lob, CreditPaths.Innovation)), C(lobCredits), M(v.Charge(lobCredits))]);
@@ -199,7 +199,9 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
             Form("pasteroutes", "<label>Rows<textarea name=\"rows\" rows=\"5\" cols=\"90\" placeholder=\"Retail-Prod,Productivity,LOB-01,CC-100,2026-11-01,finance.retail@contoso.com,BP-Retail\"></textarea></label>" + Button("Add these"));
         Panels.Add(new("Credit routing register", new HtmlString(rt.Render().Value + add + paste),
             $"{routes.Count:#,0} routes over {routes.Select(r => r.EnvironmentName).Distinct(StringComparer.OrdinalIgnoreCase).Count():#,0} environments. The environment is named as the consumption report names it. " +
-            "LoB Productivity and LoB Business Application name the line of business charged (its Org ID in Copilot reservations); Enterprise Shared names none; Innovation may name its sponsor. " +
+            (data.ByFundingOwner
+                ? "LoB Productivity and LoB Business Application name the line of business charged: its funding owner's code in the Governance Workbench (Ownership registry › Funding owners); Enterprise Shared names none; Innovation may name its sponsor. "
+                : "LoB Productivity and LoB Business Application name the line of business charged (its Org ID in Copilot reservations); Enterprise Shared names none; Innovation may name its sponsor. ") +
             "A change is a new row from its date: the environment's open row is ended the day before, so past months keep their route. Every change is in the audit log.", "full"));
 
         var rate = await S.Settings.StringAsync("CreditChargeRate");
