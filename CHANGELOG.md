@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-11-02
+
+The rest of the 3.0.0 plan: one rule set for Copilot seats, Copilot Credits charged to the Workbench's lines of
+business, a reporting view, and Finance's open seat questions as settings, so they no longer hold anything up.
+
+**Install over 3.0.0:** rerun `Install-CopilotInsights.ps1 -GovernanceDatabase <name>` (with `-GrantDatabaseAccess`,
+or the printed command for a DBA) so the Workbench database gets the new view and settings, and deploy the dashboard
+and the worker from this release. No new package. Nothing changes where the Workbench is off.
+
+### Added
+- **One purchase gate and one seat rule set.** The purchase gate is one rule (`SeatPolicy.PurchaseGate`) for the
+  Workbench and for Insights' leader-based register, with its share and baseline as seat settings
+  (`Seats.PurchaseGatePercent`, 95; `Seats.GateBaselineUnassigned`). Leadership › Copilot reservations and Ownership
+  registry › Copilot seats say the same gate, true-down and Finance sentences.
+- **Finance's open seat choices are settings,** each with its default named on the pages: who pays for seats no line
+  of business claims (`Seats.NoLobChargedTo`: a funding owner's code; empty, as before, a row of their own charged to
+  no line of business), the rate per seat (`Seats.RatePerSeatMonth`, a placeholder) and when an increase takes effect
+  (`Seats.IncreaseEffective`). The monthly draft adds no-LOB seats to the owner named.
+- **`rpt.vSeatReservationCurrent`** in the Workbench database: today's seats by line of business with the last
+  certified chargeback, for Power BI and Grafana through its reporting role, `gov_reader`.
+
+### Changed
+- **Leadership › Credit chargeback,** with the Workbench on, charges each environment's credits to a Workbench funding
+  owner: a route's Org ID is the funding owner's code, its name comes from there, a viewer of part of the organization
+  sees the lines their Workbench roles cover, and an agent is misrouted when its environment's line is not the one
+  whose tracking group holds its owner's seat. Off, it keeps the reservation register.
+- **One person list.** The worker's directory read gives a person recorded without an Entra object ID the one
+  Insights records for the same UPN, unless another person already has it.
+- **`Test-FigureLinks.ps1 -ActAs`** checks the seat figures that open Workbench pages, as a test persona.
+
+### Known limits
+- As in 3.0.0, apart from the seat questions, which are now settings.
+
 ## [3.0.0] - 2026-11-02
 
 Copilot Insights and the Governance Workbench are one product. The Workbench, where requests for Copilot workloads are
