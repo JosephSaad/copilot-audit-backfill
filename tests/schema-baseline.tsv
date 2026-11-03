@@ -1,4 +1,4 @@
-# release 3.0.0
+# release 3.0.1
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1297,6 +1297,9 @@ C	copilot	dash.LicenseContract	U	6	RenewalDate	date	0
 C	copilot	dash.LicenseContract	U	7	Note	nvarchar(400)	1	
 C	copilot	dash.LicenseContract	U	8	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.LicenseContract	U	9	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.LineOfBusinessName	U	1	OrgId	nvarchar(64)	0	
+C	copilot	dash.LineOfBusinessName	U	2	Name	nvarchar(200)	0	
+C	copilot	dash.LineOfBusinessName	U	3	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.NonHumanException	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.NonHumanException	U	2	Reason	nvarchar(400)	0	
 C	copilot	dash.NonHumanException	U	3	ConfirmedBy	nvarchar(256)	0	
@@ -1715,6 +1718,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.FlagCase
 G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
+G	copilot	CopilotInsightsApp	DELETE	dash.LineOfBusinessName
 G	copilot	CopilotInsightsApp	DELETE	dash.NonHumanException
 G	copilot	CopilotInsightsApp	DELETE	dash.ProfileGrant
 G	copilot	CopilotInsightsApp	DELETE	dash.QueryCacheShared
@@ -1757,6 +1761,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.FlagCase
 G	copilot	CopilotInsightsApp	INSERT	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
+G	copilot	CopilotInsightsApp	INSERT	dash.LineOfBusinessName
 G	copilot	CopilotInsightsApp	INSERT	dash.NonHumanException
 G	copilot	CopilotInsightsApp	INSERT	dash.NotificationLog
 G	copilot	CopilotInsightsApp	INSERT	dash.ProfileGrant
@@ -1832,6 +1837,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.FlagCase
 G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
+G	copilot	CopilotInsightsApp	UPDATE	dash.LineOfBusinessName
 G	copilot	CopilotInsightsApp	UPDATE	dash.NonHumanException
 G	copilot	CopilotInsightsApp	UPDATE	dash.ProfileGrant
 G	copilot	CopilotInsightsApp	UPDATE	dash.QueryCacheShared
@@ -2022,6 +2028,7 @@ O	copilot	dash.FlaggedInteraction	U
 O	copilot	dash.JobFamilyRule	U
 O	copilot	dash.LicenseAction	U
 O	copilot	dash.LicenseContract	U
+O	copilot	dash.LineOfBusinessName	U
 O	copilot	dash.NonHumanException	U
 O	copilot	dash.NotificationLog	U
 O	copilot	dash.OrgClosure	U
