@@ -178,4 +178,79 @@ public class Release300Tests
         Assert.DoesNotContain(WorkbenchAccess.PagesOpened(PrincipalLoader.PageRoles(Set())), p => p.Contains("settings"));
         Assert.Contains("WorkbenchAccess.DescribeAsync(HttpContext.RequestServices, upn, roles", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
     }
+
+    [Fact]
+    public void Review_the_Workbench_belongs_to_one_tenant_and_its_forms_need_no_tenant()
+    {
+        Assert.Contains("WorkbenchSetup.SelectTenantAsync(ctx, () => next())", Read("dashboard", "CopilotInsights", "Program.cs"));
+        var setup = Read("dashboard", "CopilotInsights", "Workbench", "WorkbenchSetup.cs");
+        Assert.Contains("tenants.Use(ctx.RequestServices.GetRequiredService<WorkbenchState>().Home(tenants));", setup);
+        Assert.Contains("new WorkbenchState(on, cfg[\"Workbench:Tenant\"])", setup);
+        var nav = Read("dashboard", "CopilotInsights", "Workbench", "WorkbenchNav.cs");
+        Assert.Contains("if (!ctx.RequestServices.GetRequiredService<WorkbenchState>().OnFor(tenants)) return [];", nav);
+        Assert.Contains("tenants.Current.Name", nav);                      // the menu cache key names the tenant
+        Assert.Contains("PrincipalLoader.ActAsCookie", nav);               // and the test persona
+        Assert.Contains("LoadAsync(ctx, me, create: false)", nav);         // an Insights page records no one
+        Assert.DoesNotContain("groups = [];", nav);                        // a failure is not kept for two minutes
+    }
+
+    [Fact]
+    public void Review_a_person_is_their_object_ID_or_UPN_and_a_reused_UPN_is_someone_else()
+    {
+        var p = Read("dashboard", "CopilotInsights", "Workbench", "Principal.cs");
+        Assert.Contains("if (oid is null && string.IsNullOrWhiteSpace(upn))", p);
+        Assert.DoesNotContain("viewer.Upn ?? viewer.WindowsName", p);
+        Assert.Contains("objectId is null ? byUpn.FirstOrDefault() : byUpn.FirstOrDefault(x => x.EntraObjectId is null)", p);
+        Assert.Contains("WITH (UPDLOCK, HOLDLOCK)", p);
+        Assert.Contains("Insights:IdentityMap", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "AccessDenied.cshtml"));
+    }
+
+    [Fact]
+    public void Review_Teams_deep_links_open_their_item_and_nothing_else()
+    {
+        var id = Guid.NewGuid();
+        Assert.Equal($"/workbench/Requests/{id}", Governance.Web.Pages.TeamsLaunchModel.Resolve($"/workbench/Requests/{id}"));
+        Assert.Equal($"/workbench/Registry/Seats/{id}", Governance.Web.Pages.TeamsLaunchModel.Resolve($"/workbench/Registry/Seats/{id}"));
+        Assert.Equal($"/workbench/Requests/{id}", Governance.Web.Pages.TeamsLaunchModel.Resolve(id.ToString()));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.TeamsLaunchModel.Resolve("https://example.com/workbench/Start"));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.TeamsLaunchModel.Resolve("//example.com/x"));
+        Assert.Contains("~/workbench.css", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "Teams", "Launch.cshtml"));
+    }
+
+    [Fact]
+    public void Review_a_refused_download_returns_to_its_Workbench_page_only()
+    {
+        Assert.Equal("/workbench/Requests/x?a=1", Governance.Web.Pages.EvidenceModel.Back("/workbench/Requests/x?a=1"));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.EvidenceModel.Back("https://evil.example/workbench/"));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.EvidenceModel.Back("//evil.example"));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.EvidenceModel.Back("/leadership"));
+        Assert.Equal("/workbench/Start", Governance.Web.Pages.EvidenceModel.Back(null));
+    }
+
+    [Fact]
+    public void Review_a_virtual_directory_named_workbench_is_a_clash()
+    {
+        Assert.True(CopilotInsights.Infrastructure.PathBaseLinks.Clashes("/workbench"));
+    }
+
+    [Fact]
+    public void Review_seats_for_every_line_only_where_the_page_shows_the_whole_organization()
+    {
+        Assert.Contains("var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));", Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Reservations.Workbench.cs"));
+    }
+
+    [Fact]
+    public void Review_Workbench_roles_are_refused_on_the_server_while_it_is_off()
+    {
+        Assert.Contains("Roles.All.Contains(r) && (workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
+        Assert.Contains(".Where(r => workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Profiles.cs"));
+    }
+
+    [Fact]
+    public void Review_help_text_never_makes_a_page_wait_for_the_database()
+    {
+        var web = Read("dashboard", "CopilotInsights", "Workbench", "Web.cs");
+        Assert.Contains("_ = Task.Run(async () => { try { await ReloadAsync(); }", web);
+        Assert.DoesNotContain(".GetAwaiter().GetResult();\n            _overrides", web);
+    }
 }

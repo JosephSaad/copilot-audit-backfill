@@ -94,7 +94,8 @@ public class ActAsModel(TestingOptions testing, Db db) : GovPage
 /// <summary>Evidence download: visible only through something the person can see; every download is audited.</summary>
 public class EvidenceModel(EvidenceQueries evidence) : GovPage
 {
-    public async Task<IActionResult> OnGetAsync(Guid id)
+    /// <param name="back">The Workbench page the link was on, to return to with the reason when the file cannot be given.</param>
+    public async Task<IActionResult> OnGetAsync(Guid id, string? back)
     {
         try
         {
@@ -107,9 +108,14 @@ public class EvidenceModel(EvidenceQueries evidence) : GovPage
         catch (DomainException ex)
         {
             FlashError = ex.Message;
-            return Redirect(Request.Headers.Referer.FirstOrDefault() is { Length: > 0 } r && Uri.TryCreate(r, UriKind.Absolute, out var u) && u.Host == Request.Host.Host ? u.PathAndQuery : "/workbench/Start");
+            /* The site sends no referrer, so the page says where it was; only a Workbench address of this site is followed. */
+            return LocalRedirect(Back(back));
         }
     }
+
+    public static string Back(string? back) =>
+        back is { Length: > 0 and < 300 } b && b.StartsWith("/workbench/", StringComparison.OrdinalIgnoreCase) && !b.StartsWith("//", StringComparison.Ordinal)
+            && !b.Contains("\\", StringComparison.Ordinal) && !b.Any(char.IsControl) ? b : "/workbench/Start";
 }
 
 /// <summary>Teams personal tab launcher: frameable only by Teams (CSP frame-ancestors); opens the item in the browser where normal sign-in applies.</summary>
@@ -120,11 +126,12 @@ public class TeamsLaunchModel : PageModel
 
     // Only these Workbench addresses (no open redirect): an item page by its GUID, or a fixed list page.
     private static readonly System.Text.RegularExpressions.Regex ItemPath = new(
-        @"^/(Requests|Registry/Workloads|Registry/FundingOwners|Operations/Events)/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
-        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        @"^/workbench/(Requests|Registry/Workloads|Registry/FundingOwners|Registry/Seats|Operations/Events)/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     private static readonly HashSet<string> Fixed = new(StringComparer.OrdinalIgnoreCase)
     {
         "/workbench/Start", "/workbench/MyWork", "/workbench/Recertification", "/workbench/Exceptions", "/workbench/Operations/Findings", "/workbench/Operations/Events", "/workbench/Operations/Attestations", "/workbench/Operations/Sync",
+        "/workbench/Registry/Commercial", "/workbench/Registry/Discovery", "/workbench/Admin/Integrations",
     };
 
     public void OnGet(string? item)

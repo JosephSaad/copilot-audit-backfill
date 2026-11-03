@@ -141,5 +141,5 @@ public class TextModel(AdminQueries admin, AdminCommands commands, HelpText help
     public async Task OnGetAsync() => Blocks = await admin.TextBlocksAsync();
     public Task<IActionResult> OnPostSaveAsync(string key, string body) => Act(() => commands.SaveTextAsync(Idem, key, body), "Draft saved. The Platform Owner approves it to show it.");
     public Task<IActionResult> OnPostApproveAsync(string key, int version)
-        => Act(async () => { await commands.ApproveTextAsync(Idem, key, version); help.Reload(); }, "Approved. The new wording shows now.");
+        => Act(async () => { await commands.ApproveTextAsync(Idem, key, version); await help.ReloadAsync(); }, "Approved. The new wording shows now.");
 }

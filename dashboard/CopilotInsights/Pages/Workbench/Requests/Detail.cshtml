@@ -431,7 +431,7 @@
         <ul>
             @foreach (var e in d.Evidence)
             {
-                <li>@if (e.Purged) { <span>@e.FileName (content purged)</span> } else { <a href="/workbench/Evidence/@e.PublicId">@e.FileName</a> } <span class="small muted">@Ui.Words(e.EvidenceType) · @Ui.Words(e.LinkType) · @e.UploadedByName · @Ui.Local(e.UploadedUtc)@(e.SourceSystem == "UPLOAD_UNSCANNED" ? " · not scanned" : "")</span><div class="small muted mono">SHA-256 @e.Sha256Hex</div></li>
+                <li>@if (e.Purged) { <span>@e.FileName (content purged)</span> } else { <a href="/workbench/Evidence/@e.PublicId?back=@Uri.EscapeDataString(Model.Request.Path + Model.Request.QueryString)">@e.FileName</a> } <span class="small muted">@Ui.Words(e.EvidenceType) · @Ui.Words(e.LinkType) · @e.UploadedByName · @Ui.Local(e.UploadedUtc)@(e.SourceSystem == "UPLOAD_UNSCANNED" ? " · not scanned" : "")</span><div class="small muted mono">SHA-256 @e.Sha256Hex</div></li>
             }
         </ul>
         <form method="post" asp-page-handler="Upload" enctype="multipart/form-data" class="mt">

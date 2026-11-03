@@ -24,7 +24,8 @@ public sealed partial class ReservationsModel
     {
         /* The warm-up fills Insights' own queries; these are the Workbench's, read for each viewer. */
         if (Warming) return;
-        var whole = Viewer.OrgWide || Viewer.Has(Roles.Licensing);
+        /* As the register's page: every line of business only for a viewer whose page shows the whole organization. */
+        var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
         SeatPosition v;
         SeatLinks links;
         try

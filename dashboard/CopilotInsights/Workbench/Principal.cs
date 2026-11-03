@@ -64,18 +64,26 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
         return set;
     }
 
-    public async Task LoadAsync(HttpContext http, WebPrincipal p)
+    /// <param name="create">Records a person seen for the first time. The menu on Insights' pages only reads (false).</param>
+    public async Task LoadAsync(HttpContext http, WebPrincipal p, bool create = true)
     {
         if (http.User.Identity?.IsAuthenticated != true) return;
         var viewer = await viewers.GetAsync();
-        /* No UPN on record (an account the directory load has not matched): the sign-in name stands in, as on Insights pages. */
-        var upn = viewer.Upn ?? viewer.WindowsName;
+        /* A person is their Entra object ID or their UPN, as the directory records them. A Windows account the directory
+           has not matched yet has neither: it gets no Workbench person (one made from the sign-in name would hold a
+           DOMAIN\name as its address, and split from the real person once the directory matches them). */
+        var upn = viewer.Upn;
         Guid? oid = CopilotInsights.Infrastructure.EntraClaims.IsEntra(http.User) ? CopilotInsights.Infrastructure.EntraClaims.ObjectId(http.User)
-                  : viewer.Upn is null ? null : await viewers.ObjectIdOfAsync(viewer.Upn);
+                  : upn is null ? null : await viewers.ObjectIdOfAsync(upn);
+        if (oid is null && string.IsNullOrWhiteSpace(upn))
+        {
+            log.LogInformation("{Name} is not in the directory yet (no UPN or object ID): no Workbench person.", viewer.Name);
+            return;
+        }
 
         await using var c = await db.OpenAsync(0, true, http.RequestAborted);
-        var person = await FindOrCreateAsync(c, oid, upn, viewer.Name);
-        if (person is null) { log.LogInformation("{Name} has no UPN or object ID the Workbench can record; signed in without Workbench roles.", viewer.Name); return; }
+        var person = await FindOrCreateAsync(c, oid, upn, viewer.Name, create, log);
+        if (person is null) return;
         if (!person.AccountEnabled) { log.LogWarning("Disabled account {PersonId} signed in", person.PersonId); return; }
 
         var real = person;
@@ -159,21 +167,38 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
         return set;
     }
 
-    private static async Task<Person?> FindOrCreateAsync(Microsoft.Data.SqlClient.SqlConnection c, Guid? objectId, string? upn, string name)
+    /// <summary>
+    /// The person by object ID, else by UPN. A UPN row that already belongs to another object ID is someone else (a UPN
+    /// given again to a new hire): never theirs. A first visit records the person, once even when two requests race.
+    /// </summary>
+    internal static async Task<Person?> FindOrCreateAsync(Microsoft.Data.SqlClient.SqlConnection c, Guid? objectId, string? upn, string name, bool create, ILogger log)
     {
         var p = objectId is not null ? await c.QuerySingleOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE EntraObjectId = @objectId", new { objectId }) : null;
         if (p is null && !string.IsNullOrEmpty(upn))
         {
-            p = await c.QueryFirstOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE UserPrincipalName = @upn ORDER BY CASE WHEN EntraObjectId IS NULL THEN 1 ELSE 0 END", new { upn });
-            if (p is not null && p.EntraObjectId is null && objectId is not null)
-                await c.ExecuteAsync("UPDATE sec.Person SET EntraObjectId = @objectId WHERE PersonId = @PersonId", new { objectId, p.PersonId });
+            var byUpn = (await c.QueryAsync<Person>("SELECT * FROM sec.Person WHERE UserPrincipalName = @upn ORDER BY CASE WHEN EntraObjectId IS NULL THEN 1 ELSE 0 END, PersonId", new { upn })).ToList();
+            p = objectId is null ? byUpn.FirstOrDefault() : byUpn.FirstOrDefault(x => x.EntraObjectId is null);
+            if (p is null && objectId is not null && byUpn.Count > 0)
+                log.LogWarning("{Upn} signed in with object ID {ObjectId}, but the Workbench records that UPN for another object ID: recorded as a new person.", upn, objectId);
+            if (p is not null && p.EntraObjectId is null && objectId is not null && create)
+                await c.ExecuteAsync("UPDATE sec.Person SET EntraObjectId = @objectId WHERE PersonId = @PersonId AND EntraObjectId IS NULL", new { objectId, p.PersonId });
         }
-        if (p is null && (objectId is not null || !string.IsNullOrEmpty(upn)))
+        if (p is null && create)
         {
-            await c.ExecuteAsync("INSERT sec.Person (EntraObjectId, UserPrincipalName, DisplayName, Mail, AccountEnabled) VALUES (@objectId, @upn, @name, @upn, 1)", new { objectId, upn, name });
+            /* One insert even when two first requests race: the check and the insert hold the key range. */
+            await c.ExecuteAsync(
+                """
+                SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+                BEGIN TRANSACTION;
+                IF NOT EXISTS (SELECT 1 FROM sec.Person WITH (UPDLOCK, HOLDLOCK)
+                               WHERE (@objectId IS NOT NULL AND EntraObjectId = @objectId) OR (@objectId IS NULL AND UserPrincipalName = @upn))
+                    INSERT sec.Person (EntraObjectId, UserPrincipalName, DisplayName, Mail, AccountEnabled) VALUES (@objectId, @upn, @name, @upn, 1);
+                COMMIT;
+                SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+                """, new { objectId, upn, name });
             p = objectId is not null
                 ? await c.QuerySingleOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE EntraObjectId = @objectId", new { objectId })
-                : await c.QueryFirstOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE UserPrincipalName = @upn", new { upn });
+                : await c.QueryFirstOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE UserPrincipalName = @upn ORDER BY PersonId", new { upn });
         }
         return p;
     }
@@ -184,9 +209,25 @@ public sealed class PrincipalMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext http, PrincipalLoader loader, WebPrincipal principal)
     {
         if (http.User.Identity?.IsAuthenticated == true)
-            await CopilotInsights.Infrastructure.TenantAccessor.SelectAsync(http, () => loader.LoadAsync(http, principal));
+        {
+            /* In the Workbench's own tenant, whatever tenant the site's pages show (WorkbenchState). */
+            var tenants = http.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();
+            tenants.Use(http.RequestServices.GetRequiredService<WorkbenchState>().Home(tenants));
+            await loader.LoadAsync(http, principal);
+            /* Someone the Workbench cannot record (not in the directory yet) reaches only the page that says so. */
+            if (!principal.IsAuthenticated && !IsOpenToAll(http.Request.Path))
+            {
+                http.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+        }
         await next(http);
     }
+
+    static bool IsOpenToAll(PathString path) =>
+        path.StartsWithSegments("/workbench/AccessDenied", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/workbench/Error", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/workbench/Teams/Launch", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record AppRoleRequirement(params string[] AnyOf) : IAuthorizationRequirement;

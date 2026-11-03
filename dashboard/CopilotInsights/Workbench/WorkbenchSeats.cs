@@ -12,9 +12,10 @@ namespace Governance.Web.Infrastructure;
 /// A viewer with the Licensing role, or one whose role covers the whole organization, reads every line of business;
 /// anyone else reads the lines of business their Workbench roles let them see, as the Workbench's own pages do.
 /// </summary>
-public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState state)
+public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState state, CopilotInsights.Infrastructure.TenantAccessor tenants)
 {
-    public bool On => state.On;
+    /// <summary>On, and the page is in the Workbench's tenant: another tenant's pages keep their own register.</summary>
+    public bool On => state.OnFor(tenants);
 
     /// <summary>Reads every line of business: central scope, the seat view only, never a decider.</summary>
     sealed class Reader : ICurrentPrincipal
@@ -94,12 +95,27 @@ public sealed class SeatModelSwitch(WorkbenchState state, CopilotInsights.Infras
 {
     public const string Name = "SeatModel", Governance = "Governance", Leader = "Leader";
 
+    /// <summary>Again every quarter hour: a database that could not be reached when the site started is set once it answers.</summary>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var value = state.On ? Governance : Leader;
+        do { await SetAsync(stoppingToken); }
+        while (!stoppingToken.IsCancellationRequested && await Wait(stoppingToken));
+    }
+
+    static async Task<bool> Wait(CancellationToken ct)
+    {
+        try { await Task.Delay(TimeSpan.FromMinutes(15), ct); return true; }
+        catch (OperationCanceledException) { return false; }
+    }
+
+    async Task SetAsync(CancellationToken stoppingToken)
+    {
+        var home = state.Home(tenants);
         foreach (var t in tenants.All)
         {
             if (stoppingToken.IsCancellationRequested) return;
+            /* Only the Workbench's own tenant takes its seats; every other tenant keeps the register. */
+            var value = state.On && string.Equals(t.Name, home.Name, StringComparison.OrdinalIgnoreCase) ? Governance : Leader;
             tenants.Use(t);
             try
             {

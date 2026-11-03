@@ -40,21 +40,28 @@ public sealed class HelpText(IServiceScopeFactory scopes, ILogger<HelpText> log)
     private Dictionary<string, string> _overrides = new();
     private DateTime _loaded = DateTime.MinValue;
 
+    int _reloading;
+
+    /// <summary>The text for a key now: a reload when due runs in the background, so a page never waits for the database.</summary>
     public string Resolve(string? key, string fallback)
     {
-        if (DateTime.UtcNow - _loaded > TimeSpan.FromMinutes(5)) Reload();
+        if (DateTime.UtcNow - _loaded > TimeSpan.FromMinutes(5) && Interlocked.Exchange(ref _reloading, 1) == 0)
+            _ = Task.Run(async () => { try { await ReloadAsync(); } finally { Interlocked.Exchange(ref _reloading, 0); } });
         return key is not null && _overrides.TryGetValue(key, out var v) ? v : fallback;
     }
 
-    public void Reload()
+    public void Reload() => ReloadAsync().GetAwaiter().GetResult();
+
+    /// <summary>Loads the approved overrides; a failure keeps the defaults until the next try, five minutes on.</summary>
+    public async Task ReloadAsync()
     {
         _loaded = DateTime.UtcNow;
         try
         {
             using var scope = scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<Db>();
-            using var c = db.OpenAsync(0, true, CancellationToken.None).GetAwaiter().GetResult();
-            _overrides = c.Query<(string Key, string Body)>("SELECT TextKey, Body FROM ref.TextBlock WHERE Status = 'ACTIVE'").ToDictionary(x => x.Key, x => x.Body);
+            await using var c = await db.OpenAsync(0, true, CancellationToken.None);
+            _overrides = (await c.QueryAsync<(string Key, string Body)>("SELECT TextKey, Body FROM ref.TextBlock WHERE Status = 'ACTIVE'")).ToDictionary(x => x.Key, x => x.Body);
         }
         catch (Exception ex)
         {

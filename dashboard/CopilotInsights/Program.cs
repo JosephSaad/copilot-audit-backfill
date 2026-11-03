@@ -145,7 +145,8 @@ app.UseRouting();
 app.UseAuthentication();
 Governance.Web.Infrastructure.WorkbenchSetup.UseWorkbench(app);
 app.UseAuthorization();
-app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
+/* A Workbench address is always in the Workbench's own tenant (WorkbenchSetup.SelectTenantAsync). */
+app.Use((ctx, next) => Governance.Web.Infrastructure.WorkbenchSetup.SelectTenantAsync(ctx, () => next()));
 /* The dashboard's level limit, behind every endpoint that is not a page: pages refuse with
    their own message (InsightsPage), the data API with its own; anything else added later is covered here. */
 app.Use(async (ctx, next) =>

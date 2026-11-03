@@ -694,7 +694,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         principal = principal?.Trim();
         if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN, DOMAIN\\Group or an Entra group.");
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
-        var roles = (role ?? []).Where(r => Roles.All.Contains(r)).Distinct().ToList();
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
         if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         var (objectId, groupName) = type == "Group" && !principal.Contains('\\') ? await EntraGroupAsync(principal) : ((Guid?)null, (string?)null);

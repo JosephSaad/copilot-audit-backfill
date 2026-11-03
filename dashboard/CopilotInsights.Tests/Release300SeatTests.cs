@@ -24,11 +24,27 @@ public class Release300SeatTests
     [Fact]
     public void With_the_Workbench_off_there_are_no_seat_queries_and_the_pages_keep_the_register()
     {
-        var off = new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), new WorkbenchState(false));
+        var one = new CopilotInsights.Infrastructure.TenantAccessor(Microsoft.Extensions.Options.Options.Create(new CopilotInsights.Infrastructure.InsightsOptions { ConnectionString = "x" }));
+        var off = new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), new WorkbenchState(false), one);
         Assert.False(off.On);
         Assert.Null(off.Queries(true));
         Assert.Null(off.Queries(false));
-        Assert.True(new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), new WorkbenchState(true)).On);
+        Assert.True(new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), new WorkbenchState(true), one).On);
+    }
+
+    [Fact]
+    public void With_several_tenants_only_the_Workbench_tenant_takes_its_seats()
+    {
+        var o = new CopilotInsights.Infrastructure.InsightsOptions();
+        o.Tenants.Add(new CopilotInsights.Infrastructure.TenantOption { Name = "A", ConnectionString = "a" });
+        o.Tenants.Add(new CopilotInsights.Infrastructure.TenantOption { Name = "B", ConnectionString = "b" });
+        var tenants = new CopilotInsights.Infrastructure.TenantAccessor(Microsoft.Extensions.Options.Options.Create(o));
+        var state = new WorkbenchState(true, "B");
+        tenants.Use(tenants.Find("A")!);
+        Assert.False(new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), state, tenants).On);
+        tenants.Use(tenants.Find("B")!);
+        Assert.True(new WorkbenchSeats(new ServiceCollection().BuildServiceProvider(), state, tenants).On);
+        Assert.Equal("A", new WorkbenchState(true).Home(tenants).Name);   // the first tenant unless Workbench:Tenant names one
     }
 
     [Theory]
@@ -142,7 +158,9 @@ public class Release300SeatTests
         Assert.Equal(("SeatModel", "Governance", "Leader"), (SeatModelSwitch.Name, SeatModelSwitch.Governance, SeatModelSwitch.Leader));
         var setup = Source.Read("Workbench", "WorkbenchSetup.cs");
         Assert.Contains("services.AddHostedService<SeatModelSwitch>();", setup);
-        Assert.Contains("var value = state.On ? Governance : Leader;", Source.Read("Workbench", "WorkbenchSeats.cs"));
+        // Governance for the Workbench's own tenant only; every other tenant keeps the register. Set again every quarter hour.
+        Assert.Contains("var value = state.On && string.Equals(t.Name, home.Name, StringComparison.OrdinalIgnoreCase) ? Governance : Leader;", Source.Read("Workbench", "WorkbenchSeats.cs"));
+        Assert.Contains("TimeSpan.FromMinutes(15)", Source.Read("Workbench", "WorkbenchSeats.cs"));
     }
 
     [Fact]

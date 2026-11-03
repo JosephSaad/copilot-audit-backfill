@@ -169,7 +169,9 @@ ORDER BY g.ProfileId, g.Principal;");
     {
         var wideSet = (wide ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var pages = AdminPages.Format(adminPage);
-        var list = AccessProfiles.Normalize((role ?? []).Select(r => new ProfileRole(r, wideSet.Contains(r), r == Roles.Admin ? pages : null)));
+        /* The Workbench's roles only where it is set up, whatever the form sent. */
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var list = AccessProfiles.Normalize((role ?? []).Where(r => workbenchOn || !Roles.IsWorkbench(r)).Select(r => new ProfileRole(r, wideSet.Contains(r), r == Roles.Admin ? pages : null)));
         if (list.Count == 0) throw new ArgumentException("tick at least one role.");
         if (list.Any(r => r.Role == Roles.Admin) && !Viewer.IsAdmin) throw new ArgumentException("only a full administrator can make a profile that gives Admin.");
         return list;

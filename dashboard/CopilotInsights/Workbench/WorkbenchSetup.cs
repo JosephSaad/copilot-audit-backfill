@@ -35,7 +35,7 @@ public static class WorkbenchSetup
         if (actAs && !env.IsDevelopment())
             throw new InvalidOperationException("Testing:AllowActAs works only in Development. Turn it off.");
 
-        services.AddSingleton(new WorkbenchState(on));
+        services.AddSingleton(new WorkbenchState(on, cfg["Workbench:Tenant"]));
         services.AddSingleton(new TestingOptions(false, actAs && env.IsDevelopment()));
         services.AddScoped<WebPrincipal>();
         /* Copilot seats by line of business for Insights' reservation pages; with the Workbench off they keep the leader-based register. */
@@ -122,6 +122,18 @@ public static class WorkbenchSetup
         });
         app.UseRateLimiter();
     }
+
+    /// <summary>
+    /// In place of the site's tenant choice for a Workbench address: always the Workbench's own tenant, for a form post
+    /// too (its forms name no tenant, and need none).
+    /// </summary>
+    public static Task SelectTenantAsync(HttpContext ctx, Func<Task> next)
+    {
+        if (!IsWorkbenchPath(ctx.Request.Path)) return CopilotInsights.Infrastructure.TenantAccessor.SelectAsync(ctx, next);
+        var tenants = ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();
+        tenants.Use(ctx.RequestServices.GetRequiredService<WorkbenchState>().Home(tenants));
+        return next();
+    }
 }
 
 public static class WorkbenchStatusPages
@@ -148,5 +160,16 @@ public static class WorkbenchStatusPages
     });
 }
 
-/// <summary>Whether the Workbench is set up on this site.</summary>
-public sealed record WorkbenchState(bool On);
+/// <summary>
+/// Whether the Workbench is set up on this site, and the one tenant it belongs to (Workbench:Tenant, else the first):
+/// it has one database, so its pages, its roles and the seats on Insights' pages are that tenant's alone.
+/// </summary>
+public sealed record WorkbenchState(bool On, string? Tenant = null)
+{
+    public CopilotInsights.Infrastructure.TenantOption Home(CopilotInsights.Infrastructure.TenantAccessor tenants) =>
+        tenants.Find(Tenant) ?? tenants.All[0];
+
+    /// <summary>On, and the request is in the Workbench's tenant.</summary>
+    public bool OnFor(CopilotInsights.Infrastructure.TenantAccessor tenants) =>
+        On && string.Equals(tenants.Current.Name, Home(tenants).Name, StringComparison.OrdinalIgnoreCase);
+}

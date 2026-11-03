@@ -65,22 +65,33 @@ public static class WorkbenchNav
     {
         if (!on || ctx.User.Identity?.IsAuthenticated != true) return [];
         if (me.IsAuthenticated) return For(me, on);
+        /* Only in the Workbench's own tenant: its roles are that tenant's grants. */
+        var tenants = ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();
+        if (!ctx.RequestServices.GetRequiredService<WorkbenchState>().OnFor(tenants)) return [];
         var cache = ctx.RequestServices.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
-        var key = "workbench-nav:" + (ctx.User.Identity?.Name ?? CopilotInsights.Infrastructure.EntraClaims.SignInName(ctx.User));
+        /* Per person, tenant and test persona: whatever changes the answer. */
+        var key = string.Join("|", "workbench-nav", tenants.Current.Name, ctx.User.Identity?.Name ?? CopilotInsights.Infrastructure.EntraClaims.SignInName(ctx.User),
+            ctx.Request.Cookies[PrincipalLoader.ActAsCookie] ?? "");
         if (cache.TryGetValue(key, out IReadOnlyList<NavGroup>? known) && known is not null) return known;
-        IReadOnlyList<NavGroup> groups;
         try
         {
-            await ctx.RequestServices.GetRequiredService<PrincipalLoader>().LoadAsync(ctx, me);
-            groups = For(me, on);
+            /* Read only: a visit to an Insights page records no one in the Workbench. */
+            await ctx.RequestServices.GetRequiredService<PrincipalLoader>().LoadAsync(ctx, me, create: false);
+            /* Someone the Workbench has not met yet: the sections their Insights roles open. */
+            var groups = me.IsAuthenticated ? For(me, on) : For(new WebPrincipal
+            {
+                IsAuthenticated = true,
+                AppRoles = PrincipalLoader.PageRoles((await ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.ViewerService>().GetAsync()).Roles),
+            }, on);
+            cache.Set(key, groups, TimeSpan.FromMinutes(2));
+            return groups;
         }
         catch (Exception ex)
         {
+            /* Not kept: the next page tries again. */
             ctx.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(WorkbenchNav)).LogWarning(ex, "The Workbench menu could not be loaded; the page is shown without it.");
-            groups = [];
+            return [];
         }
-        cache.Set(key, groups, TimeSpan.FromMinutes(2));
-        return groups;
     }
 
     /// <summary>The Workbench sections this person may open: none when the Workbench is off or they could not be loaded.</summary>
