@@ -75,6 +75,50 @@
     </form>
 }
 
+@if (Model.ImportOffered)
+{
+    <form method="post" asp-page-handler="Import" class="card mt" id="start-from-insights" data-confirm="Record the rows given a funding owner as their first seat reservations? Each can then change only through a seat reservation request.">
+        <idem />
+        <h2>Start from Insights' reservations <help>Copilot Insights kept its own Copilot reservations by organization leader before the Workbench's lines of business became the seat record. Its rows in effect today are offered here once, as each line of business's first reservation. Nothing is copied until you choose a funding owner for a row and confirm; Insights' register is only read and keeps its rows.</help></h2>
+        <p class="small">Choose the funding owner each row belongs to, or leave a row out. Rows given the same funding owner are added together. A funding owner that already has a seat reservation is skipped: the Workbench records a first reservation once, and later changes go through a seat reservation request.</p>
+        @if (!Model.CanImport) { <div class="alert alert-info" role="note">FinOps records a line of business's first seat reservation: someone with the FinOps role confirms this. <help>The Workbench's FinOps role holds the permission to record first reservations (registry finance).</help></div> }
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Organization", "The organization and its Org ID in the Copilot Insights reservation register.")' />
+                    <partial name="_Th" model='("", "Reserved", "Its reserved seats in effect today, as Insights recorded them.")' />
+                    <partial name="_Th" model='("", "From", "The date its reservation took effect: the first reservation starts on it.")' />
+                    <partial name="_Th" model='("", "Funding owner", "The line of business that takes this reservation. Leave out: not copied.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var (r, i) in Model.ImportRows.Select((r, i) => (r, i)))
+                {
+                    var suggested = Governance.Web.Infrastructure.ReservationImport.Suggest(r, Model.ImportOwners);
+                    var taken = Model.ImportOwners.FirstOrDefault(o => o.PublicId == suggested && o.Reserved);
+                    <tr>
+                        <td data-label="Organization"><strong>@r.Name</strong><div class="small muted mono">@r.OrgId@(r.CostCenter is null ? "" : " · cost center " + r.CostCenter)</div></td>
+                        <td data-label="Reserved" class="num">@Ui.Num(r.Reserved)</td>
+                        <td data-label="From">@Ui.Date(r.From)</td>
+                        <td data-label="Funding owner">
+                            <input type="hidden" name="org" value="@r.OrgId" />
+                            <select name="owner" id="imp@(i)" aria-label="Funding owner for @r.Name">
+                                <option value="">Leave out</option>
+                                @foreach (var o in Model.ImportOwners)
+                                {
+                                    <option value="@o.PublicId" selected="@(o.PublicId == suggested && !o.Reserved)" disabled="@o.Reserved">@o.Name@(o.Name.Contains("(" + o.Code + ")", StringComparison.OrdinalIgnoreCase) ? "" : " (" + o.Code + ")")@(o.Reserved ? ": has a reservation" : "")</option>
+                                }
+                            </select>
+                            @if (taken is not null) { <div class="small muted">Skipped: @taken.Name already has a seat reservation.</div> }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.CanImport) { <button class="btn mt" type="submit">Record these first reservations</button> }
+    </form>
+}
+
 <h2 class="mt">Copilot SKUs <help>Which Microsoft 365 SKUs count. The add-on is the paid seat reserved per LOB. Suites that already include Copilot (for example E7) let the Workbench spot people who pay twice.</help></h2>
 <div class="table-wrap">
     <table class="stack">

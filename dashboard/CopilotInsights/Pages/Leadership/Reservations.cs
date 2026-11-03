@@ -15,19 +15,23 @@ namespace CopilotInsights.Pages.Leadership;
 /// see all, with the tenant's reconciliation and purchase gate. Administrators keep the register, the rate and the
 /// Technology-funded pool here. Counts only: the people are on Licensing › Reservation holders, for the Licensing role.
 /// </summary>
-public sealed class ReservationsModel(PageServices s, ReservationData data, OpsData ops) : InsightsPage(s)
+public sealed partial class ReservationsModel(PageServices s, ReservationData data, OpsData ops, global::Governance.Web.Infrastructure.WorkbenchSeats seats) : InsightsPage(s)
 {
+    /* With the Workbench on, its lines of business are the seat record (Reservations.Workbench.cs). */
+    readonly global::Governance.Web.Infrastructure.WorkbenchSeats _seats = seats;
+
     public override string Title => "Copilot reservations";
     public override string Persona => "Leadership";
     public override string? OwnWindow => "today's licenses";
     public override bool UsesFilters => false;
-    public override string Intro => "Each line of business's reserved Microsoft 365 Copilot seats against the add-on licenses its people hold, and what that bills: reserved, allocated, unused, over, billable and the monthly obligation, by organization.";
+    public override string Intro => _seats.On ? LinesOfBusinessIntro : "Each line of business's reserved Microsoft 365 Copilot seats against the add-on licenses its people hold, and what that bills: reserved, allocated, unused, over, billable and the monthly obligation, by organization.";
 
     static string H(string? s) => WebUtility.HtmlEncode(s ?? "");
 
     protected override async Task BuildAsync()
     {
         ShowDone();
+        if (_seats.On) { await LinesOfBusinessAsync(); return; }
         if (!await data.ReadyAsync())
         {
             Notice = await NotSetUpAsync("Reservations cannot be recorded here yet", "2.6.8", "dash.Reservation", "dash.fnReservationMember");
@@ -259,6 +263,16 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
 
     static readonly string[] TechCategories = ["Executive", "Service", "Test", "Shared", "Migration", "Exception"];
 
+    /// <summary>
+    /// A change to the register, its rate, the purchase gate or the Technology pool: refused with the Workbench on, where
+    /// its lines of business are the seat record and these tables are kept as they are.
+    /// </summary>
+    Task<IActionResult> RegisterChangeAsync(Func<Task<string>> change) => AdminChangeAsync(async () =>
+    {
+        if (_seats.On) throw new ArgumentException(RegisterKept);
+        return await change();
+    });
+
     static string Clip(string? s, int n) => (s ?? "").Trim() is var t && t.Length > n ? t[..n] : (s ?? "").Trim();
     static string? Opt(string? s, int n) => string.IsNullOrWhiteSpace(s) ? null : Clip(s, n);
 
@@ -321,14 +335,14 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
     static string Said(RegisterRow r) => $"{r.Name} ({r.OrgId}): {r.Reserved:#,0} reserved from {r.From:yyyy-MM-dd}{(r.LeaderUpn is null ? ", with no leader" : $", led by {r.LeaderUpn}")}";
 
     public Task<IActionResult> OnPostReserveAsync(string? orgId, string? name, string? leader, string? costCenter, int? reserved, DateTime? from, DateTime? to, string? note) =>
-        AdminChangeAsync(async () =>
+        RegisterChangeAsync(async () =>
         {
             var row = Check(orgId, name, leader, costCenter, reserved, from, to, note);
             var ended = await AddAsync([row]);
             return "Reservation added: " + Said(row) + (ended > 0 ? $"; its row before was ended on {row.From.AddDays(-1):yyyy-MM-dd}." : ".");
         });
 
-    public Task<IActionResult> OnPostEndreserveAsync(int id, DateTime? end) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostEndreserveAsync(int id, DateTime? end) => RegisterChangeAsync(async () =>
     {
         if (end is null) throw new ArgumentException("give the last day the reservation is in effect.");
         var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From)>("SELECT OrgId, Name, Reserved, EffectiveFrom FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
@@ -338,7 +352,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
         return $"Reservation ended: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}, now to {end:yyyy-MM-dd}.";
     });
 
-    public Task<IActionResult> OnPostPasteAsync(string? rows) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostPasteAsync(string? rows) => RegisterChangeAsync(async () =>
     {
         var parsed = ParsePaste(rows);
         var ended = await AddAsync(parsed);
@@ -388,7 +402,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
         return fields;
     }
 
-    public Task<IActionResult> OnPostDelreserveAsync(int id) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostDelreserveAsync(int id) => RegisterChangeAsync(async () =>
     {
         /* The audit log says which reservation went. */
         var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From, DateTime? To)>("SELECT OrgId, Name, Reserved, EffectiveFrom, EffectiveTo FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
@@ -397,7 +411,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
         return $"Reservation removed: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}{(row.To is { } e ? $" to {e:yyyy-MM-dd}" : "")}; month-end snapshots keep what they were.";
     });
 
-    public Task<IActionResult> OnPostRateAsync(DateTime? from, string? rate, string? note) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRateAsync(DateTime? from, string? rate, string? note) => RegisterChangeAsync(async () =>
     {
         if (from is null) throw new ArgumentException("give the date the rate applies from.");
         if (!decimal.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) || r < 0 || r > 100000) throw new ArgumentException("the rate is a number.");
@@ -412,14 +426,14 @@ WHEN NOT MATCHED THEN INSERT (EffectiveFrom, MonthlyRate, Note, UpdatedBy) VALUE
         return $"Rate {r:0.####} a license a month from {from:yyyy-MM-dd}" + (was is { } w && w != r ? $" (was {w:0.####})." : ".");
     });
 
-    public Task<IActionResult> OnPostDelrateAsync(DateTime? from) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostDelrateAsync(DateTime? from) => RegisterChangeAsync(async () =>
     {
         var was = await Db.ScalarAsync<decimal?>("SELECT MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from });
         return was is { } w && await Db.ExecuteAsync("DELETE FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from }) > 0
             ? $"The rate from {from:yyyy-MM-dd} ({w:0.####}) removed." : "That rate was already gone.";
     });
 
-    public Task<IActionResult> OnPostGateAsync(int? baseline, int? percent) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostGateAsync(int? baseline, int? percent) => RegisterChangeAsync(async () =>
     {
         if (baseline is < 0) throw new ArgumentException("the baseline is a whole number of licenses.");
         if (percent is null or < 1 or > 100) throw new ArgumentException("the share is a percentage, 1 to 100.");
@@ -431,7 +445,7 @@ UPDATE dash.Setting SET Value = @p WHERE Name = N'ReservationGatePercent';",
         return baseline is null or 0 ? "Purchase gate turned off." : $"Purchase gate: {percent}% of {baseline:#,0} unassigned licenses.";
     });
 
-    public Task<IActionResult> OnPostTechAsync(string? upn, string? category, string? owner, string? approval, DateTime? from, DateTime? review, string? note) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostTechAsync(string? upn, string? category, string? owner, string? approval, DateTime? from, DateTime? review, string? note) => RegisterChangeAsync(async () =>
     {
         var u = Clip(upn, 256).ToLowerInvariant();
         if (u.Length == 0 || !u.Contains('@')) throw new ArgumentException("give the account's sign-in.");
@@ -446,6 +460,6 @@ WHEN NOT MATCHED THEN INSERT (Upn, Category, Owner, ApprovalRef, EffectiveFrom, 
         return $"{u} is Technology-funded ({category}), owned by {Clip(owner, 256)}.";
     });
 
-    public Task<IActionResult> OnPostDeltechAsync(string? upn) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostDeltechAsync(string? upn) => RegisterChangeAsync(async () =>
         await Db.ExecuteAsync("DELETE FROM dash.TechnologyAllocation WHERE Upn = @upn;", new { upn }) > 0 ? $"{upn} is no longer Technology-funded." : "That account was not in the register.");
 }

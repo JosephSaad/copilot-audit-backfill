@@ -470,6 +470,8 @@ AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    /* With the Workbench''s lines of business as the seat record, the register is kept as it is and nothing is added to it. */
+    IF EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N''SeatModel'' AND Value = N''Governance'') RETURN;
     DECLARE @last INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
     IF @last IS NULL RETURN;
     DECLARE @lastDay DATE = CONVERT(DATE, CAST(@last AS CHAR(8)), 112);
@@ -756,7 +758,8 @@ USING (VALUES
     ('NonHumanGroups',         NULL,     N'AD groups (DOMAIN\Group) whose members are non-human accounts, comma-separated; the directory load reads their members.'),
     ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.'),
     ('ReservationGatePercent', N'95',    N'2.6.8: no more Copilot licenses are bought until this share of the purchase-gate baseline is assigned (Leadership > Copilot reservations).'),
-    ('ReservationGateBaseline', NULL,    N'2.6.8: the unassigned Copilot add-on licenses the purchase gate counts from (1,136 in the policy example); empty: no gate.')
+    ('ReservationGateBaseline', NULL,    N'2.6.8: the unassigned Copilot add-on licenses the purchase gate counts from (1,136 in the policy example); empty: no gate.'),
+    ('SeatModel',              N'Leader', N'The Copilot seat record: Leader (the reservation register on Leadership > Copilot reservations) or Governance (the Workbench''s lines of business). The dashboard sets it when it starts; with Governance the nightly run keeps no reservation snapshot.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
 WHEN MATCHED AND ISNULL(t.Description, N'') <> src.Description THEN UPDATE SET Description = src.Description
