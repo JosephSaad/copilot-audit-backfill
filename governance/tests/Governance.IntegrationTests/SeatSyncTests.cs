@@ -56,10 +56,13 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
           : id == Excl ? new GroupMembersData(new[] { P[9] }, 0)
           : new GroupMembersData(Array.Empty<Guid>(), 0));
 
+        /// <summary>The date of each person's license state in Entra; everyone else has held the seat since January.</summary>
+        public Dictionary<int, DateTime> HeldSince { get; } = new();
+
         public Task<IReadOnlyList<LicensedUserData>> UsersWithSkuAsync(Guid sku, CancellationToken ct)
         {
             LicensedUserData U(int i, Guid? group, string? error = null) => new(P[i], $"p{i + 1}@contoso.example", "CA",
-                new[] { new LicenseStateData(sku, group, error is null ? "Active" : "Error", error, null) });
+                new[] { new LicenseStateData(sku, group, error is null ? "Active" : "Error", error, HeldSince.TryGetValue(i, out var d) ? d : new DateTime(2026, 1, 1)) });
             IReadOnlyList<LicensedUserData> list = sku == AddOn
                 ? new[] { U(0, Lic), U(1, Lic), U(2, Lic), U(3, Lic), U(4, null), U(5, Lic, "CountViolation"), U(6, Lic), U(8, Lic), U(9, Lic) }
                 : new[] { U(8, null) };
@@ -114,7 +117,55 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
         Assert.Equal(new DateTime(2026, 7, 1), await w.ExecuteScalarAsync<DateTime>("SELECT LastActivityDate FROM intg.CopilotActivity WHERE UserPrincipalName = 'p2@contoso.example'"));
     }
 
-    /// <summary>Both tests share the database: the data is arranged once, whichever test runs first.</summary>
+    [Fact]
+    public async Task Stale_Copilot_Insights_activity_is_not_used_and_the_usage_report_is_read_instead()
+    {
+        Assert.False(SeatSyncService.IsStale(new DateTime(2026, 10, 31), new DateTime(2026, 11, 3)));
+        Assert.True(SeatSyncService.IsStale(new DateTime(2026, 10, 30), new DateTime(2026, 11, 3)));
+
+        using var c = db.Admin();
+        await ArrangeAsync(c);
+        // Insights' nightly load stopped on 25 October: read as is, every holder would look inactive since then.
+        var stale = new InsightsActivity(new DateTime(2026, 10, 25), [new InsightsActivityUser("p1@contoso.example", new DateTime(2026, 10, 25))]);
+        var (service, appDb, api) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc), new FakeInsights(stale));
+        await service.RunAsync(null, default);
+        Assert.Equal(1, api.UsageCalls);
+        using var w = await appDb.OpenSystemAsync();
+        var run = await w.QuerySingleAsync<(string Status, string Message)>("SELECT TOP 1 Status, Message FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY SyncRunId DESC");
+        Assert.Equal("SUCCEEDED", run.Status);
+        Assert.Contains("ends 25 Oct 2026, more than 3 days ago", run.Message);
+        // The activity is the usage report's (person 2 last active in July), not Insights'.
+        Assert.Equal(new DateTime(2026, 11, 2), await w.ExecuteScalarAsync<DateTime>("SELECT ReportRefreshDate FROM intg.CopilotActivity WHERE UserPrincipalName = 'p2@contoso.example'"));
+    }
+
+    [Fact]
+    public async Task A_seat_held_for_less_than_the_inactivity_window_is_not_proposed_for_reclaim()
+    {
+        using var c = db.Admin();
+        await ArrangeAsync(c);
+        // Person 4 has no Copilot activity at all. Start them over as a new seat holder, assigned on 30 October.
+        var p4 = await c.ExecuteScalarAsync<int>("SELECT PersonId FROM sec.Person WHERE EntraObjectId = @id", new { id = P[3] });
+        await c.ExecuteAsync("DELETE FROM intg.SeatHolder WHERE MemberObjectId = @id", new { id = P[3] });
+        await c.ExecuteAsync("UPDATE core.SeatReclaim SET Status = 'CANCELLED', ClosedUtc = SYSUTCDATETIME() WHERE PersonId = @p4 AND Status IN ('PROPOSED','RECLAIM')", new { p4 });
+        const string proposedSql = "SELECT COUNT(*) FROM core.SeatReclaim WHERE PersonId = @p4 AND Status = 'PROPOSED'";
+
+        var (service, appDb, api) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+        api.HeldSince[3] = new DateTime(2026, 10, 30);
+        await service.RunAsync(null, default);
+        using var w = await appDb.OpenSystemAsync();
+        Assert.Equal(new DateTime(2026, 11, 3, 12, 0, 0), await w.ExecuteScalarAsync<DateTime>("SELECT MIN(FirstSeenUtc) FROM intg.SeatHolder WHERE MemberObjectId = @id", new { id = P[3] }));
+        Assert.Equal(0, await w.ExecuteScalarAsync<int>(proposedSql, new { p4 }));
+
+        // 60 days on, the seat has been held for the whole window and is still unused: now it is proposed.
+        var (later, _, laterApi) = Build(new DateTime(2027, 1, 10, 12, 0, 0, DateTimeKind.Utc));
+        laterApi.HeldSince[3] = new DateTime(2026, 10, 30);
+        await later.RunAsync(null, default);
+        Assert.Equal(1, await w.ExecuteScalarAsync<int>(proposedSql, new { p4 }));
+        // The first sighting is kept across reads.
+        Assert.Equal(new DateTime(2026, 11, 3, 12, 0, 0), await w.ExecuteScalarAsync<DateTime>("SELECT MIN(FirstSeenUtc) FROM intg.SeatHolder WHERE MemberObjectId = @id", new { id = P[3] }));
+    }
+
+    /// <summary>Every test shares the database: the data is arranged once, whichever test runs first.</summary>
     private async Task<(int A, int B)> ArrangeAsync(SqlConnection c)
     {
         var existing = await c.QueryAsync<int>("SELECT FundingOwnerId FROM core.FundingOwner WHERE Code IN ('SEAT_A','SEAT_B') ORDER BY Code");

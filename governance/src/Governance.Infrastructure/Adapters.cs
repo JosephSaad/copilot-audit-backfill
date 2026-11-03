@@ -65,19 +65,46 @@ public sealed class ServiceNowItsmClient(HttpClient http, IOptions<ItsmOptions> 
     public async Task<ItsmTicketState> GetAsync(string number, CancellationToken ct)
     {
         var table = number.StartsWith("INC", StringComparison.OrdinalIgnoreCase) ? O.IncidentTable : O.TaskTable;
-        using var req = Request(HttpMethod.Get, $"/api/now/table/{table}?sysparm_query=number={Uri.EscapeDataString(number)}&sysparm_limit=1&sysparm_display_value=all");
+        using var req = Request(HttpMethod.Get, $"/api/now/table/{table}?sysparm_query=number={Uri.EscapeDataString(number)}&sysparm_limit=1&sysparm_display_value=all&sysparm_fields={GetFields}");
         using var res = await http.SendAsync(req, ct);
         await Http.EnsureAsync(res, "ITSM", ct);
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
         var rows = doc.RootElement.GetProperty("result");
-        if (rows.GetArrayLength() == 0) throw new InvalidOperationException($"ITSM ticket {number} was not found.");
+        if (rows.GetArrayLength() == 0) throw new ItsmTicketNotFoundException(number);
         return ParseState(rows[0]);
     }
 
+    /// <summary>
+    /// The fields read back. ServiceNow returns a reference such as closed_by as {display_value, link, value} (a name and a
+    /// sys_id), never the person's email, so the closer's email and user name are asked for by dot-walking: SoD2 matches them
+    /// to a person here.
+    /// </summary>
+    public const string GetFields = "number,state,close_notes,closed_at,closed_by,closed_by.email,closed_by.user_name";
+
     public static ItsmTicketState ParseState(JsonElement r)
-        => new(Field(r, "number") ?? "", MapState(Field(r, "state")), Field(r, "closed_by"), Field(r, "close_notes"),
+        => new(Field(r, "number") ?? "", MapState(Field(r, "state")), ClosedBy(r), Field(r, "close_notes"),
             DateTime.TryParse(Field(r, "closed_at"), System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var d) ? d : null);
+
+    /// <summary>
+    /// Who closed the ticket, as an email or user name to match to a person: the dot-walked closed_by.email, then
+    /// closed_by.user_name; else closed_by itself when it is plain text (the local mock ITSM) or carries an email. Never
+    /// the display name or sys_id, which match nobody.
+    /// </summary>
+    private static string? ClosedBy(JsonElement r)
+    {
+        if (NonEmpty(Field(r, "closed_by.email")) is string email) return email;
+        if (NonEmpty(Field(r, "closed_by.user_name")) is string user) return user;
+        if (!r.TryGetProperty("closed_by", out var v)) return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => NonEmpty(v.GetString()),
+            JsonValueKind.Object => NonEmpty(v.Str("email")) ?? NonEmpty(v.Str("user_name")),
+            _ => null,
+        };
+    }
+
+    private static string? NonEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     /// <summary>ServiceNow states: 1 New, 2 In progress, 3 Closed complete, 4 Closed incomplete, 6 Resolved, 7 Closed skipped (and 8 Canceled for incidents).</summary>
     public static string MapState(string? s) => s?.Trim().ToLowerInvariant() switch
@@ -98,7 +125,7 @@ public sealed class ServiceNowItsmClient(HttpClient http, IOptions<ItsmOptions> 
         return v.ValueKind switch
         {
             JsonValueKind.String => v.GetString(),
-            JsonValueKind.Object => name == "closed_by" ? (v.Str("email") ?? v.Str("user_name") ?? v.Str("display_value") ?? v.Str("value")) : (v.Str("value") ?? v.Str("display_value")),
+            JsonValueKind.Object => v.Str("value") ?? v.Str("display_value"),
             _ => v.ToString(),
         };
     }

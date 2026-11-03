@@ -117,7 +117,9 @@
     server only; the other web servers run the site alone.
 
 .PARAMETER WorkerAccount
-    The gMSA the worker runs as (DOMAIN\name$), made a member of app_worker in the governance database.
+    The gMSA the worker runs as (DOMAIN\name$), made a member of app_worker in the governance database and given read
+    on dash.UserDay and bi.DimUser in the Copilot database (with -GrantDatabaseAccess; otherwise the grant is written
+    for a DBA to Grant-WorkbenchWorkerAccess.sql in the site's folder).
 
 .PARAMETER WorkerPackagePath
     The worker to install: a folder holding Governance.Worker.csproj (published with the .NET 10 SDK), a published
@@ -125,8 +127,9 @@
 
 .PARAMETER WorkerSettingsFile
     The worker's settings, made from governance\deploy\appsettings.Worker.Production.sample.json. Needed the first
-    time; omitted, the installed worker's own file is kept. Its connection string and the site's address are filled in
-    when the file leaves them as <...>.
+    time; omitted, the installed worker's own file is kept. Its connection strings (GovernanceWorker, and Insights for
+    the seat read's Copilot activity) are written from -SqlServer, -GovernanceDatabase and -Database on every run; the
+    site's address is filled in when the file leaves it as <...>, or when -SiteUrl is given.
 
 .PARAMETER WorkerPath
     The worker's folder. Default C:\CopilotGovernance\Worker.
@@ -301,14 +304,18 @@ function Resolve-WorkbenchBaseUrl {
 
 function Merge-WorkerSetting {
     <#
-        The worker's settings with its connection string and the site's address filled in where the file leaves them
-        out or as <...>; the address also when -SiteUrl is given. Pure, for the tests.
+        The worker's settings with its two connection strings written from this run's -SqlServer, -GovernanceDatabase
+        and Copilot database every time (a rerun against another server or database must not keep the old ones):
+        GovernanceWorker, and Insights, from which the nightly seat read takes Copilot activity as the site's manual
+        read does. The site's address is filled in where the file leaves it out or as <...>, and also when -SiteUrl is
+        given. Pure, for the tests.
     #>
-    param($Settings, [string] $ConnectionString, [string] $BaseUrl, [bool] $BaseUrlGiven)
+    param($Settings, [string] $ConnectionString, [string] $InsightsConnectionString, [string] $BaseUrl, [bool] $BaseUrlGiven)
     foreach ($s in 'ConnectionStrings', 'Notifications') {
         if (-not $Settings.PSObject.Properties[$s]) { $Settings | Add-Member -NotePropertyName $s -NotePropertyValue ([pscustomobject] @{}) }
     }
-    $fill = @(@($Settings.ConnectionStrings, 'GovernanceWorker', $ConnectionString, $false), @($Settings.Notifications, 'WorkbenchBaseUrl', $BaseUrl, $BaseUrlGiven))
+    $fill = @(@($Settings.ConnectionStrings, 'GovernanceWorker', $ConnectionString, $true), @($Settings.Notifications, 'WorkbenchBaseUrl', $BaseUrl, $BaseUrlGiven))
+    if ($InsightsConnectionString) { $fill += , @($Settings.ConnectionStrings, 'Insights', $InsightsConnectionString, $true) }
     foreach ($f in $fill) {
         $o, $name, $value, $always = $f
         $p = $o.PSObject.Properties[$name]
@@ -316,6 +323,31 @@ function Merge-WorkerSetting {
         elseif ($always -or -not "$($p.Value)" -or "$($p.Value)" -match '<[^>]+>') { $p.Value = $value }
     }
     $Settings
+}
+
+function Get-WorkerInsightsGrant {
+    <#
+        The worker's read on the Copilot database, for the nightly seat read's Copilot activity (dash.UserDay, each
+        person's interactions per day, and bi.DimUser, their UPN): the gMSA's login and user where missing, then SELECT
+        on those two tables only, where they exist. Safe to rerun. Pure, for the tests.
+    #>
+    param([string] $Database, [string] $Account)
+    $a = $Account.Replace("'", "''")
+    @"
+-- The Workbench worker ($Account) reads Copilot activity for the nightly seat read: two tables, read only.
+USE [master];
+IF SUSER_ID(N'$a') IS NULL CREATE LOGIN [$Account] FROM WINDOWS;
+USE [$Database];
+DECLARE @u sysname = (SELECT name FROM sys.database_principals WHERE sid = SUSER_SID(N'$a'));
+IF @u IS NULL BEGIN CREATE USER [$Account] FOR LOGIN [$Account]; SET @u = N'$a'; END;
+IF @u <> N'dbo'
+BEGIN
+    DECLARE @g nvarchar(max) = N'';
+    IF OBJECT_ID(N'dash.UserDay', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON dash.UserDay TO ' + QUOTENAME(@u) + N';';
+    IF OBJECT_ID(N'bi.DimUser', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON bi.DimUser TO ' + QUOTENAME(@u) + N';';
+    EXEC (@g);
+END;
+"@
 }
 
 function Get-LedgerDigestArgument {
@@ -503,8 +535,11 @@ if ($WhatIfPreference) {
         [void] $PSCmdlet.ShouldProcess($settingsPath, "Set ConnectionStrings:Governance to $GovernanceDatabase on $SqlServer and Notifications:WorkbenchBaseUrl to $workbenchUrl")
         [void] $PSCmdlet.ShouldProcess("$SqlServer $GovernanceDatabase",
             $(if ($GrantDatabaseAccess) { "Create or upgrade the governance database, with the site's account in app_web$(if ($WorkerAccount) { " and $WorkerAccount in app_worker" })" } else { 'Show the Deploy-Database.ps1 command for a DBA' }))
+        if ($WorkerAccount) {
+            [void] $PSCmdlet.ShouldProcess("$SqlServer $Database", $(if ($GrantDatabaseAccess) { "Grant $WorkerAccount read on dash.UserDay and bi.DimUser" } else { "Write the grant of read on dash.UserDay and bi.DimUser to $WorkerAccount for a DBA" }))
+        }
         if ($WorkerServer) {
-            [void] $PSCmdlet.ShouldProcess('CopilotGovernanceWorker', "Install the worker from $workerSource into $WorkerPath as a Windows service running as $WorkerAccount")
+            [void] $PSCmdlet.ShouldProcess('CopilotGovernanceWorker', "Install the worker from $workerSource into $WorkerPath as a Windows service running as $WorkerAccount, its connection strings set to $GovernanceDatabase and $Database on $SqlServer")
             [void] $PSCmdlet.ShouldProcess('Copilot Governance ledger digest', $(if ($LedgerDigestPath) { "Schedule daily at $LedgerDigestAt as $WorkerAccount, saving to $LedgerDigestPath" } else { 'Leave as it is (no -LedgerDigestPath)' }))
         }
         Write-Step 'Governance Workbench prerequisites'
@@ -904,6 +939,23 @@ if ($GovernanceDatabase) {
         Write-Host '    Have a DBA create or upgrade it from the source package''s folder, or run this again with -GrantDatabaseAccess:'
         Write-Host "    pwsh -File governance\src\Governance.Database\Deploy-Database.ps1 $(($dbArgs | ForEach-Object { if ($_ -match '[\s$\\]') { "'$_'" } else { $_ } }) -join ' ')"
     }
+    # The worker's read on the Copilot database (its ConnectionStrings:Insights): the nightly seat read takes Copilot
+    # activity from there, as the site's manual read does, not from Microsoft's usage report.
+    if ($WorkerAccount) {
+        $workerGrant = Get-WorkerInsightsGrant -Database $Database -Account $WorkerAccount
+        if ($GrantDatabaseAccess) {
+            $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+            $conn.Open()
+            try { $cmd = $conn.CreateCommand(); $cmd.CommandText = $workerGrant; $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
+            finally { $conn.Dispose() }
+            Write-Host "    $WorkerAccount may read dash.UserDay and bi.DimUser in $Database (Copilot activity for the seat read)."
+        }
+        else {
+            $workerGrantFile = Join-Path $PhysicalPath 'Grant-WorkbenchWorkerAccess.sql'
+            Set-Content $workerGrantFile $workerGrant -Encoding utf8
+            Write-Host "    The worker's read on $Database (dash.UserDay, bi.DimUser) is written to $workerGrantFile. Have a DBA run it, or run this again with -GrantDatabaseAccess."
+        }
+    }
 
     if ($WorkerServer) {
         # The worker, on this server only: the other web servers run the site alone. Its jobs take a SQL lock each
@@ -931,7 +983,8 @@ if ($GovernanceDatabase) {
             # The ledger digest's script goes with the worker, where its scheduled task runs it.
             Copy-Item -LiteralPath (Join-Path $governanceKit 'deploy\Save-LedgerDigest.ps1') -Destination $wApp -Force
             $ws = Merge-WorkerSetting -Settings $workerSettings -BaseUrl $workbenchUrl -BaseUrlGiven ([bool] $SiteUrl) `
-                -ConnectionString "Server=$SqlServer;Database=$GovernanceDatabase;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotGovernance-Worker"
+                -ConnectionString "Server=$SqlServer;Database=$GovernanceDatabase;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotGovernance-Worker" `
+                -InsightsConnectionString "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotGovernance-Worker"
             $ws | ConvertTo-Json -Depth 10 | Set-Content $wSettings -Encoding utf8
             $wArgs = @('-PublishPath', $wApp, '-InstallPath', $WorkerPath, '-SettingsFile', $wSettings, '-GmsaAccount', $WorkerAccount)
             if ($ProxyUrl) { $wArgs += '-ProxyUrl', $ProxyUrl }

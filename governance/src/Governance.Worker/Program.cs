@@ -17,8 +17,11 @@ var cli = CommandLine.Parse(args);
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = cli.HostArgs, ContentRootPath = AppContext.BaseDirectory });
 builder.Services.AddWindowsService(o => o.ServiceName = "CopilotGovernanceWorker");
 
-// config\appsettings.Local.json (git-ignored, written by Deploy-Database.ps1) holds the local connection strings.
-var local = builder.Configuration["Workbench:LocalSettingsPath"] ?? WorkerConfig.FindUpward("config", "appsettings.Local.json");
+// config\appsettings.Local.json (git-ignored, written by Deploy-Database.ps1) holds the local connection strings. It is
+// looked for upward from the program's folder only in Development: in production a stray file above the install folder
+// must never replace the installed settings.
+var local = builder.Configuration["Workbench:LocalSettingsPath"]
+    ?? (builder.Environment.IsDevelopment() ? WorkerConfig.FindUpward("config", "appsettings.Local.json") : null);
 if (local is not null) builder.Configuration.AddJsonFile(local, optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables("CGW_");
 
@@ -40,7 +43,7 @@ if (cli.FakeNow is DateTime fake)
 }
 
 var jobs = new[] { typeof(OutboxDispatcherJob), typeof(SlaTimerJob), typeof(DirectorySyncJob), typeof(EntitlementSyncJob), typeof(AccessReviewImportJob),
-                   typeof(LicensingReadJob), typeof(SeatSyncJob), typeof(ItsmPollerJob), typeof(CampaignSchedulerJob), typeof(DigestJob) };
+                   typeof(LicensingReadJob), typeof(SeatSyncJob), typeof(ItsmPollerJob), typeof(CampaignSchedulerJob), typeof(DigestJob), typeof(RetentionJob) };
 foreach (var j in jobs) builder.Services.AddSingleton(j);
 if (cli.Once is null && !cli.Drain)
     foreach (var j in jobs) builder.Services.AddSingleton(typeof(IHostedService), sp => sp.GetRequiredService(j));

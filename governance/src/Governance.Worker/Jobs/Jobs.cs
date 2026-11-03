@@ -79,8 +79,9 @@ public sealed class DigestJob(IServiceScopeFactory scopes, IOptions<DbOptions> d
 }
 
 /// <summary>
-/// Every 5 minutes: reads the state of open ITSM tickets. A closed fulfillment ticket moves its request to verification
-/// (never to Completed), with the configurer mapped from the ticket's "closed by" (SoD3).
+/// Every 5 minutes: reads the state of open ITSM tickets (<see cref="ItsmPollService"/>). A closed fulfillment ticket
+/// moves its request to verification (never to Completed), with the configurer mapped from the ticket's "closed by"
+/// (SoD3). A ticket that cannot be read is recorded on itself and the poll goes on with the next.
 /// </summary>
 public sealed class ItsmPollerJob(IServiceScopeFactory scopes, IOptions<DbOptions> db, IOptions<WorkerOptions> worker, ILogger<ItsmPollerJob> log)
     : JobBase(scopes, db, worker, log)
@@ -89,31 +90,22 @@ public sealed class ItsmPollerJob(IServiceScopeFactory scopes, IOptions<DbOption
     public override TimeSpan Interval => TimeSpan.FromMinutes(5);
 
     protected override async Task<string?> RunAsync(IServiceProvider s, CancellationToken ct)
-    {
-        var dbx = s.GetRequiredService<Db>();
-        var itsm = s.GetRequiredService<IItsmClient>();
-        var engine = s.GetRequiredService<WorkflowEngine>();
-        var open = (await dbx.InTransactionAsync(u => u.QueryAsync<(long Id, string Number, string State)>(
-            "SELECT ItsmTicketId, ExternalNumber, State FROM wf.ItsmTicket WHERE ExternalNumber IS NOT NULL AND State NOT IN ('CLOSED','CANCELLED')"), ct)).ToList();
-        int moved = 0;
-        foreach (var t in open)
-        {
-            var state = await itsm.GetAsync(t.Number, ct);
-            await dbx.InTransactionAsync(async u =>
-            {
-                await u.ExecuteAsync("UPDATE wf.ItsmTicket SET State = @State, LastPolledUtc = SYSUTCDATETIME(), ClosureNotes = COALESCE(@notes, ClosureNotes), ClosedUtc = CASE WHEN @State IN ('CLOSED','CANCELLED') THEN COALESCE(@ClosedUtc, SYSUTCDATETIME()) END WHERE ItsmTicketId = @Id",
-                    new { state.State, notes = state.ClosureNotes is { Length: > 2000 } n ? n[..2000] : state.ClosureNotes, state.ClosedUtc, t.Id });
-                if (state.State is "CLOSED" or "CANCELLED" && t.State is not ("CLOSED" or "CANCELLED"))
-                {
-                    var configurer = state.ClosedByUpn is null ? null : await u.ScalarAsync<int?>(
-                        "SELECT TOP (1) PersonId FROM sec.Person WHERE UserPrincipalName = @upn OR Mail = @upn ORDER BY CASE WHEN UserPrincipalName = @upn THEN 0 ELSE 1 END", new { upn = state.ClosedByUpn });
-                    await engine.OnTicketClosedAsync(u, t.Id, state.State, configurer, state.ClosureNotes);
-                    moved++;
-                }
-            }, ct);
-        }
-        return $"{open.Count} open tickets polled, {moved} closed.";
-    }
+        => (await s.GetRequiredService<ItsmPollService>().RunAsync(ct)).Message;
+}
+
+/// <summary>
+/// Daily: removes the worker's own bookkeeping older than Retention.WorkerRecordDays (180 unless set) in small batches
+/// (<see cref="RetentionService"/>). Ledger and audit tables are never touched.
+/// </summary>
+public sealed class RetentionJob(IServiceScopeFactory scopes, IOptions<DbOptions> db, IOptions<WorkerOptions> worker, ILogger<RetentionJob> log)
+    : JobBase(scopes, db, worker, log)
+{
+    public override string Name => "Retention";
+    public override TimeSpan Interval => TimeSpan.FromHours(24);
+    public override TimeSpan InitialDelay => TimeSpan.FromMinutes(10);
+
+    protected override async Task<string?> RunAsync(IServiceProvider s, CancellationToken ct)
+        => (await s.GetRequiredService<RetentionService>().RunAsync(ct)).Message;
 }
 
 /// <summary>Outbox handler for ITSM.Create: searches by correlation ID first, so a retry never creates a second ticket (X8).</summary>

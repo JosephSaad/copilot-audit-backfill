@@ -18,6 +18,16 @@ IF COL_LENGTH('intg.AllocationReading', 'ReadUtc') IS NULL
 IF COL_LENGTH('ntf.Delivery', 'Attempts') IS NULL
     ALTER TABLE ntf.Delivery ADD Attempts int NOT NULL CONSTRAINT DF_Delivery_Attempts DEFAULT 1;
 
+-- The last time the ITSM poller could not read a ticket, and why (a deleted ticket is marked NOT_FOUND for review
+-- instead of stopping the poll for every ticket after it).
+IF COL_LENGTH('wf.ItsmTicket', 'PollError') IS NULL ALTER TABLE wf.ItsmTicket ADD PollError nvarchar(400) NULL;
+IF COL_LENGTH('wf.ItsmTicket', 'PollErrorUtc') IS NULL ALTER TABLE wf.ItsmTicket ADD PollErrorUtc datetime2 NULL;
+
+-- How long the worker keeps its own bookkeeping (job runs, sent notices' bodies, delivery records).
+IF NOT EXISTS (SELECT 1 FROM ref.Setting WHERE SettingKey = 'Retention.WorkerRecordDays')
+    INSERT ref.Setting (SettingKey, SettingValue, Description)
+    VALUES ('Retention.WorkerRecordDays', N'180', N'Days the worker keeps job runs and delivery records, and the full text of processed outbox items. Older ones are removed (outbox items keep their key, so nothing is sent twice) by the daily Retention job. Ledger and audit tables are never touched.');
+
 -- The decider recorded on decisions imported from Entra when Entra does not expose the approver to the
 -- catalog reader role (the decision itself was made in My Access, by a person, under Entra's policy).
 IF NOT EXISTS (SELECT 1 FROM sec.Person WHERE UserPrincipalName = N'system:entra-import')
