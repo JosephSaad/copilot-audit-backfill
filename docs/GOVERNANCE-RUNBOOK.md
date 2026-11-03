@@ -84,7 +84,6 @@ people in as Copilot Insights does; its Entra certificate, where it has one, is 
    the person's My work, so nobody loses a task; tell the people concerned if a notice mattered. For an ITSM
    ticket that was never created (the request shows it as *being created*), raise the task by hand in the
    ITSM and tell the intake team.
-   <!-- 3.0.0: no dead-letter replay on Workbench settings › Integrations yet -->
 
 
 

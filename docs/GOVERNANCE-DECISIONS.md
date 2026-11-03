@@ -21,7 +21,7 @@ the Workbench's own decisions from before, with page names updated.
 | | The seat read takes Copilot activity from the dashboard's own records when it can read them, else Microsoft's usage report | It covers every loaded day and never hides names |
 | | From 3.0.0 the governance database follows the dashboard's schema rule: additive only | Reports and the client's data survive every upgrade |
 
-<!-- 3.0.0: seats section pending (how Leadership › Copilot reservations reads core.SeatReservation, and "Start from Insights' reservations") -->
+**Seats (D1).** `core.SeatReservation`, by line of business, is the record. With the Workbench on, Insights' Leadership › Copilot reservations and Licensing › Reservation holders read it; Insights' own register (`dash.Reservation` and its rate and snapshots) keeps its rows and columns but is no longer edited, and its nightly snapshot adds nothing (`dash.Setting` *SeatModel* = `Governance`). Workbench settings › Seat groups offers the register's rows once, as each funding owner's first reservation, recorded by the FinOps lead through the Workbench's own command.
 
 ## Open decisions (architecture section 15.2)
 

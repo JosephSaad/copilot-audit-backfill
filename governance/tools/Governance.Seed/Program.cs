@@ -19,8 +19,8 @@ if (!opts.TryGetValue("database", out var database) || string.IsNullOrWhiteSpace
     return 2;
 }
 var server = opts.GetValueOrDefault("server") ?? "localhost";
-var defaultSettings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-    "OneDrive - Clouds Connected", "Documents", "copilot-governance-workbench", "config", "tenant.test.json");
+// The test tenant's settings, written by governance\setup\Setup-TestTenant.ps1: governance\config\tenant.test.json in this checkout.
+var defaultSettings = Path.Combine(FindGovernanceRoot(AppContext.BaseDirectory), "config", "tenant.test.json");
 var settingsPath = opts.GetValueOrDefault("tenant-settings") ?? defaultSettings;
 var cs = $"Server={server};Database={database};Integrated Security=True;TrustServerCertificate=True;Encrypt=True;Application Name=CopilotGovernance-Seed";
 
@@ -33,3 +33,10 @@ if (opts.ContainsKey("sample-requests"))
     await new SampleRequests(host, seed, Console.Out).RunAsync();
 Console.WriteLine("Done.");
 return 0;
+
+static string FindGovernanceRoot(string start)
+{
+    for (var d = new DirectoryInfo(start); d is not null; d = d.Parent)
+        if (File.Exists(Path.Combine(d.FullName, "CopilotGovernance.sln"))) return d.FullName;
+    return start;
+}

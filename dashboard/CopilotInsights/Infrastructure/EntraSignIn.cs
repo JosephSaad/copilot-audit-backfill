@@ -21,7 +21,7 @@ public static class EntraSignIn
     public const string ChallengeScheme = "InsightsChallenge";
     public const string SignOutPath = "/signout";
 
-    public static void Configure(IServiceCollection services, InsightsOptions options)
+    public static void Configure(IServiceCollection services, InsightsOptions options, bool workbench = false)
     {
         var e = options.Entra;
         if (string.IsNullOrWhiteSpace(e.TenantId) || string.IsNullOrWhiteSpace(e.ClientId))
@@ -38,7 +38,7 @@ public static class EntraSignIn
         auth.AddPolicyScheme(ChallengeScheme, "Entra ID sign-in", p => p.ForwardDefaultSelector = ctx =>
             IsBearer(ctx.Request) || ctx.Request.Path.StartsWithSegments("/api") ? JwtBearerDefaults.AuthenticationScheme : OpenIdConnectDefaults.AuthenticationScheme);
 
-        auth.AddMicrosoftIdentityWebApp(mi =>
+        var web = auth.AddMicrosoftIdentityWebApp(mi =>
             {
                 Identity(mi, e);
                 mi.CallbackPath = string.IsNullOrWhiteSpace(e.CallbackPath) ? "/signin-oidc" : e.CallbackPath;
@@ -58,6 +58,10 @@ public static class EntraSignIn
                 cookie.SlidingExpiration = true;
             },
             OpenIdConnectDefaults.AuthenticationScheme, CookieAuthenticationDefaults.AuthenticationScheme);
+        /* The Governance Workbench's inventory read (Operations › Sync and freshness) calls the Power Platform API as the
+           operator: their token is asked for when they run it (more consent on first use), and kept in this server's
+           memory. Nothing else calls anything as the person. */
+        if (workbench) web.EnableTokenAcquisitionToCallDownstreamApi([]).AddInMemoryTokenCaches();
 
         auth.AddMicrosoftIdentityWebApi(jwt =>
             {

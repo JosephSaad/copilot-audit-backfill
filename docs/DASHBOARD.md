@@ -184,7 +184,7 @@ Which sections a person sees comes from their grants in Admin › Access: **Gove
 
 Pages reached from these, not listed in the navigation: a request (`/workbench/Requests/{id}`), a new request (`/workbench/Requests/New/{journey}`), a funding owner, a workload, a control template, one line of business's seats (`/workbench/Registry/Seats/{id}`), one consumption event, one sync run, a piece of evidence, and the Teams tab's start page. *Act as a test persona* (`/workbench/ActAs`) exists only in Development, with `Testing:AllowActAs` set, for an Insights administrator ([GOVERNANCE-TEST-ENVIRONMENT.md](GOVERNANCE-TEST-ENVIRONMENT.md)).
 
-<!-- 3.0.0: seats section pending (Leadership › Copilot reservations and Licensing › Reservation holders read the Workbench's seats by line of business when it is on) -->
+**The same seats in Insights' own pages.** With the Workbench on, Leadership › Copilot reservations and Licensing › Reservation holders show the Workbench's seats by line of business, each figure opening the Workbench page with the same number. Insights' leader-based register is kept with its rows but no longer edited ([OPERATIONS.md](OPERATIONS.md), Copilot reservations).
 
 ## Who sees what
 

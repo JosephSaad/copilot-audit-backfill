@@ -5,9 +5,9 @@
   "id": "19a68a93-1f6f-4034-9791-97b71816bfdc",
   "developer": {
     "name": "Clouds Connected",
-    "websiteUrl": "https://localhost:5450",
-    "privacyUrl": "https://localhost:5450/Privacy",
-    "termsOfUseUrl": "https://localhost:5450/Terms"
+    "websiteUrl": "https://localhost:7291",
+    "privacyUrl": "https://localhost:7291/Privacy",
+    "termsOfUseUrl": "https://localhost:7291/Terms"
   },
   "name": {
     "short": "Governance Workbench (Test)",
@@ -26,8 +26,8 @@
     {
       "entityId": "launch",
       "name": "Workbench",
-      "contentUrl": "https://localhost:5450/workbench/Teams/Launch?item={subEntityId}",
-      "websiteUrl": "https://localhost:5450/workbench/Start",
+      "contentUrl": "https://localhost:7291/workbench/Teams/Launch?item={subEntityId}",
+      "websiteUrl": "https://localhost:7291/workbench/Start",
       "scopes": [
         "personal"
       ]

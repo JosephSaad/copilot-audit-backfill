@@ -30,7 +30,7 @@ param(
     [Parameter(Mandatory)] [string] $TenantDomain,
     [Parameter(Mandatory)] [string] $AdminUpn,
     [string] $Mailbox = '',
-    [string] $WebBaseUrl = 'http://localhost:5450',
+    [string] $WebBaseUrl = 'http://localhost:5291',
     [string[]] $Steps = @('Certificates', 'Apps', 'Groups', 'AccessPackages', 'Consent', 'Mailbox', 'PowerPlatform', 'Teams', 'Seats'),
     [string] $Suffix = 'Test'
 )

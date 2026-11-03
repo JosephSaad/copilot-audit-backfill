@@ -12,7 +12,7 @@ var insights = builder.Configuration.GetSection(InsightsOptions.Section).Get<Ins
 var entraSignIn = string.Equals(insights.Authentication?.Trim(), SignIn.Entra, StringComparison.OrdinalIgnoreCase);
 /* Windows sign-in, the default. Under IIS the handler defers to IIS Windows authentication; under Kestrel (development)
    it negotiates itself. Or Entra ID, with Insights:Authentication = Entra (EntraSignIn). Every page needs a signed-in user. */
-if (entraSignIn) EntraSignIn.Configure(builder.Services, insights);
+if (entraSignIn) EntraSignIn.Configure(builder.Services, insights, Governance.Web.Infrastructure.WorkbenchSetup.Enabled(builder.Configuration));
 else builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
 builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 /* Grants to Entra groups are checked through Microsoft Graph, whichever way people sign in, once the app registration is set. */

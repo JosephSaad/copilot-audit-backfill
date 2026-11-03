@@ -69,7 +69,7 @@ it.
   seat admin (name another one first, or ask the business owner). People get or lose a seat through the OIM
   role "<LOB> . M365 Copilot License . Role", not here.
 
-<!-- 3.0.0: seats section pending (the dashboard's Leadership › Copilot reservations reading these seats) -->
+The dashboard shows the same seats: Leadership › Copilot reservations, by line of business, with each figure opening the page here that shows it, and Licensing › Reservation holders, the people in each tracking group (for the Licensing role).
 
 ## LOB finance partner
 

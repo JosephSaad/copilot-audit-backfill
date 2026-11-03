@@ -43,7 +43,7 @@ public sealed class NotificationOptions
     public int SmtpPort { get; set; } = 25;
     public string? SmtpFrom { get; set; }
     public int MaxAttempts { get; set; } = 6;
-    public string WorkbenchBaseUrl { get; set; } = "http://localhost:5450";
+    public string WorkbenchBaseUrl { get; set; } = "http://localhost:5291";
     public bool IsRecord => !string.Equals(Mode, "Send", StringComparison.OrdinalIgnoreCase);
 }
 

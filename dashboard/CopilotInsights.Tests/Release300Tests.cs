@@ -152,6 +152,16 @@ public class Release300Tests
     }
 
     [Fact]
+    public void Under_Entra_sign_in_the_Workbench_inventory_read_can_ask_for_the_operator_token()
+    {
+        Assert.Contains("if (workbench) web.EnableTokenAcquisitionToCallDownstreamApi([]).AddInMemoryTokenCaches();", Read("dashboard", "CopilotInsights", "Infrastructure", "EntraSignIn.cs"));
+        Assert.Contains("WorkbenchSetup.Enabled(builder.Configuration)", Read("dashboard", "CopilotInsights", "Program.cs"));
+        // Nothing points at the old standalone Workbench's port.
+        foreach (var f in new[] { "governance/src/Governance.Infrastructure/Plumbing.cs", "governance/src/Governance.Notifications/EmailRenderer.cs", "governance/src/Governance.Worker/appsettings.json" })
+            Assert.DoesNotContain("5450", Read(f.Split('/')));
+    }
+
+    [Fact]
     public void The_seat_read_prefers_Copilot_Insights_activity()
     {
         Assert.Contains("FROM dash.UserDay AS d JOIN bi.DimUser AS u", Governance.Application.Integrations.InsightsActivitySource.Sql);

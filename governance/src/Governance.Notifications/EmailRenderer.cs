@@ -13,7 +13,7 @@ public sealed class DispatchOptions
 {
     public string Mode { get; set; } = "Record";
     public int MaxAttempts { get; set; } = 6;
-    public string WorkbenchBaseUrl { get; set; } = "http://localhost:5450";
+    public string WorkbenchBaseUrl { get; set; } = "http://localhost:5291";
     public bool IsRecord => !string.Equals(Mode, "Send", StringComparison.OrdinalIgnoreCase);
 }
 

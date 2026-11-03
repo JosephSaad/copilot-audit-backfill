@@ -338,7 +338,7 @@ A header line is skipped; a field may be quoted to hold a comma (`"Retail Bankin
 - **Leadership › Copilot reservations** shows each line of business's reserved seats (`core.SeatReservation`), the seats its tracking group holds, the seats over and unused, and the monthly chargeback the FinOps lead certified (`core.SeatChargeSnapshot`). The Licensing role and anyone whose role covers the whole organization see every line of business; others see the lines their Workbench roles cover. A figure opens the Workbench page with the same number, for those whose Workbench roles let them open it.
 - **Licensing › Reservation holders** lists the people holding a seat in one line of business's tracking group, or the seats no line of business claims.
 - **The register is kept, not edited.** `dash.Reservation`, `dash.ReservationRate`, `dash.ReservationSnapshot` and `dash.TechnologyAllocation` keep their rows; their forms are gone from the page and a change sent anyway is refused. When the site starts it sets `dash.Setting` *SeatModel* to `Governance`, and the nightly snapshot then adds nothing. With the Workbench off again, the setting goes back to `Leader` and the page is as before.
-- **Start from Insights' reservations**, once: **Workbench › Admin › Seat groups** lists the register's rows in effect today. Choose the funding owner for each row (one with the same code or name is suggested), or leave it out, and confirm. Each becomes that funding owner's first reservation through the Workbench's own command, audited, and needs the FinOps role. Rows given the same funding owner are added together. A funding owner that already has a reservation is skipped, and the page says so: change it with a seat reservation request. The offer goes once every funding owner has a reservation.
+- **Start from Insights' reservations**, once: **Workbench settings › Seat groups** lists the register's rows in effect today. Choose the funding owner for each row (one with the same code or name is suggested), or leave it out, and confirm. Each becomes that funding owner's first reservation through the Workbench's own command, audited, and needs the FinOps role. Rows given the same funding owner are added together. A funding owner that already has a reservation is skipped, and the page says so: change it with a seat reservation request. The offer goes once every funding owner has a reservation.
 
 ## Copilot Credit chargeback and commitment
 
@@ -672,7 +672,7 @@ The Workbench is off until the site's settings name its database. Off, every `/w
 1. Create the database with `governance\src\Governance.Database\Deploy-Database.ps1 -SqlServer <server> -Database CopilotGovernance -WebPrincipal <the site's account> -WorkerPrincipal <the worker's account>` (add `-ReaderPrincipal` for a reporting account, and `-TrustServerCertificate` only for a test server with a self-signed certificate). It runs every script in `governance\src\Governance.Database\Scripts` in name order; each is safe to rerun and the schema only grows. The site's account gets the `app_web` role, the worker's `app_worker`, the reporting account `gov_reader`; none is a database owner. Run it as an account that owns the database.
 2. Set `ConnectionStrings:Governance` in the site's `appsettings.Production.json`, on every web server, and recycle the app pool. Under IIS the connection uses the app pool's account, so `Integrated Security=True`.
 3. Install the worker on one server and give it `ConnectionStrings:GovernanceWorker` (its own connection to `CopilotGovernance`), the `Tenant` section (tenant, the worker's app registration and certificate subject, the notification mailbox), and `Notifications:WorkbenchBaseUrl`. `governance\deploy\appsettings.Worker.Production.sample.json` lists every setting it reads; `Notifications:Mode` must be `Send` for mail to leave the server (`Record`, the default, only writes what would have been sent). [DEPLOYMENT.md](DEPLOYMENT.md) covers installing the database and the worker service.
-   <!-- 3.0.0: link to DEPLOYMENT.md's governance section (-GovernanceDatabase and the worker service) once it is written -->
+   [DEPLOYMENT.md, step 27](DEPLOYMENT.md#step-27-the-governance-workbench-optional) does both with `Install-CopilotInsights.ps1 -GovernanceDatabase`, `-WorkerServer` and `-WorkerAccount`.
 4. Grant the Workbench roles (below) in Admin › Access, then open `/workbench/Start`. Workbench settings › Intake switch lists the setup steps left before intake can open.
 
 **`Notifications:WorkbenchBaseUrl` is the dashboard's own address**, with its virtual directory if it has one (`https://insights.contoso.com`, or `https://apps.contoso.com/CopilotDashboard`): every link in a notice is that address followed by `/workbench/...`. The default in the worker's `appsettings.json` is a test address; always set it.
@@ -715,7 +715,7 @@ Every change on these pages is written to the Workbench's audit trail. Administr
 | Workbench settings › Intake switch | Opens intake once the setup steps are done (decision rights, funding owners, catalog, templates, commercial inventory, standards, discovery, envelopes), or closes it. Closing stops new submissions only | Admin; Platform Owner (only the Platform Owner opens or closes it) |
 | Workbench settings › Wording | Help text and notice headers. An administrator drafts; the Platform Owner approves; the approved text shows at once | Admin; Platform Owner; Steering |
 
-<!-- 3.0.0: seats section pending (Leadership › Copilot reservations and Licensing › Reservation holders read the Workbench's seats when it is on; "Start from Insights' reservations" on Workbench settings › Seat groups) -->
+With the Workbench on, Leadership › Copilot reservations and Licensing › Reservation holders read these seats, and Insights' own register is kept but no longer edited: see *With the Workbench on* under Copilot reservations above, which also covers *Start from Insights' reservations*.
 
 **Copilot seats, the first time.**
 
@@ -765,7 +765,7 @@ pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer SQLPROD01 -Databas
 - **Schedule the first every 4 hours** (Task Scheduler or a SQL Server Agent PowerShell step), as an account with `GENERATE LEDGER DIGEST` and `VIEW LEDGER CONTENT` on the database and write access to the share. It needs `sqlcmd` on the server.
 - **Run `-Verify` monthly,** after any restore, and when an auditor asks. It checks the database against every digest saved so far, and needs `ALLOW_SNAPSHOT_ISOLATION ON` on the database, which `Deploy-Database.ps1` does not set: a database administrator sets it once.
 
-<!-- 3.0.0: the installer's scheduled task for Save-LedgerDigest.ps1, once DEPLOYMENT.md documents it -->
+The installer registers the first as the task *Copilot Governance ledger digest* when given `-LedgerDigestPath` ([DEPLOYMENT.md, step 27](DEPLOYMENT.md#step-27-the-governance-workbench-optional)): daily at `-LedgerDigestAt` (02:00 unless given), as the worker's account. For every 4 hours, add a repetition to that task in Task Scheduler.
 
 ### Database and test tools
 

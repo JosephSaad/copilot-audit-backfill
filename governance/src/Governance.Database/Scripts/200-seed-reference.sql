@@ -19,7 +19,7 @@ USING (VALUES
     ('Evidence.MaxUploadMb',      N'20',    N'Largest evidence file accepted.'),
     ('Evidence.AllowedTypes',     N'.png,.jpg,.jpeg,.pdf,.csv,.json,.xlsx,.docx,.txt', N'Evidence file types accepted.'),
     ('Evidence.RetentionYears',   N'7',     N'Evidence content is purged after this many years; hash and metadata stay.'),
-    ('Workbench.BaseUrl',         N'http://localhost:5450', N'Address used in notification links.'),
+    ('Workbench.BaseUrl',         N'http://localhost:5291', N'Address used in notification links.'),
     ('Directory.StaleAfterRuns',  N'2',     N'Missed sync runs before the staleness banner shows.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey

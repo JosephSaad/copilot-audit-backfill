@@ -267,7 +267,8 @@ public class Release280Tests
     {
         Assert.Equal(SignIn.Windows, new InsightsOptions().Authentication);
         var program = Read("dashboard", "CopilotInsights", "Program.cs");
-        Assert.Contains("if (entraSignIn) EntraSignIn.Configure(builder.Services, insights);", program);
+        // 3.0.0 passes whether the Governance Workbench is set up, for its operator token.
+        Assert.Contains("if (entraSignIn) EntraSignIn.Configure(builder.Services, insights, ", program);
         Assert.Contains("else builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();", program);
         var e = Assert.Throws<InvalidOperationException>(() => EntraSignIn.Configure(new Microsoft.Extensions.DependencyInjection.ServiceCollection(), new InsightsOptions { Authentication = SignIn.Entra }));
         Assert.Contains("Insights:Entra:TenantId and Insights:Entra:ClientId", e.Message);
