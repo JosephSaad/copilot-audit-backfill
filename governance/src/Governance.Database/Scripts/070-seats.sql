@@ -298,15 +298,18 @@ GO
 
 ------------------------------------------------------------------------------------------------
 -- Today's Copilot seats by line of business, for Power BI and Grafana (gov_reader reads rpt): reserved, assigned,
--- over and unused, and the latest certified chargeback. The seats no line of business claims are one row of their own.
+-- over and unused, and the chargeback of one month for every row: the latest month certified, so a sum of its amounts
+-- is one month's chargeback. The seats no line of business claims are one row of their own.
 ------------------------------------------------------------------------------------------------
 CREATE OR ALTER VIEW rpt.vSeatReservationCurrent
 AS
+WITH certified AS (SELECT MAX(PeriodMonth) AS PeriodMonth FROM core.SeatChargeSnapshot WHERE Status = 'CERTIFIED')
 SELECT p.FundingOwnerId, p.Code, p.Name AS LineOfBusiness, p.TrackingGroup, p.ReservedSeats, p.AssignedSeats, p.OverSeats,
        CASE WHEN p.ReservedSeats > p.AssignedSeats THEN p.ReservedSeats - p.AssignedSeats ELSE 0 END AS UnusedReservedSeats,
-       c.PeriodMonth AS LastCertifiedMonth, c.ChargeSeats AS LastCertifiedChargeSeats, c.Amount AS LastCertifiedAmount, c.Currency
+       m.PeriodMonth AS LastCertifiedMonth, s.ChargeSeats AS LastCertifiedChargeSeats, s.Amount AS LastCertifiedAmount, s.Currency
 FROM rpt.fn_SeatPosition(CAST(SYSUTCDATETIME() AS date)) AS p
-OUTER APPLY (SELECT TOP (1) s.PeriodMonth, s.ChargeSeats, s.Amount, s.Currency FROM core.SeatChargeSnapshot AS s
-             WHERE s.Status = 'CERTIFIED' AND (s.FundingOwnerId = p.FundingOwnerId OR (s.FundingOwnerId IS NULL AND p.FundingOwnerId IS NULL))
-             ORDER BY s.PeriodMonth DESC) AS c;
+CROSS JOIN certified AS m
+LEFT JOIN core.SeatChargeSnapshot AS s
+       ON s.PeriodMonth = m.PeriodMonth AND s.Status = 'CERTIFIED'
+      AND (s.FundingOwnerId = p.FundingOwnerId OR (s.FundingOwnerId IS NULL AND p.FundingOwnerId IS NULL));
 GO

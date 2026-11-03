@@ -39,7 +39,9 @@ public sealed class InsightsActivitySource(string connectionString) : IInsightsA
         await c.OpenAsync(ct);
         /* dash.Person.ObjectId came with the 2.8.0 license tool; an older Insights database has none to give. */
         return (await c.QueryAsync<(string Upn, Guid ObjectId)>(new CommandDefinition(
-            "IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL EXEC (N'SELECT Upn, ObjectId FROM dash.Person WHERE ObjectId IS NOT NULL AND Upn IS NOT NULL');",
+            /* An enabled account, and one object ID for the UPN: a UPN given again to a new hire, with the leaver's row still
+               there, gives none rather than the wrong one. */
+            "IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL EXEC (N'SELECT Upn, MIN(ObjectId) AS ObjectId FROM dash.Person WHERE ObjectId IS NOT NULL AND Upn IS NOT NULL AND AccountEnabled = 1 GROUP BY Upn HAVING COUNT(DISTINCT ObjectId) = 1');",
             commandTimeout: 600, cancellationToken: ct))).ToList();
     }
 

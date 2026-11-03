@@ -26,9 +26,15 @@ public class Release301Tests
     [Fact]
     public void Both_seat_pages_say_the_same_seat_rules()
     {
-        Assert.Contains("SeatPolicy.PurchaseGateSentence(rules, bought, held)", Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Reservations.Workbench.cs"));
-        Assert.Contains("SeatPolicy.PurchaseGateSentence(s.Settings, bought, held)", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "Registry", "Seats.cshtml"));
-        Assert.Contains("Seats.NoLobChargedTo", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "Registry", "Seats.cshtml"));
+        var insights = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Reservations.Workbench.cs");
+        var workbench = Read("dashboard", "CopilotInsights", "Pages", "Workbench", "Registry", "Seats.cshtml");
+        Assert.Contains("SeatPolicy.PurchaseGateSentence(rules, bought, held, admin)", insights);
+        Assert.Contains("SeatPolicy.NoLobSentence(rules, s.NoLobOwnerName, admin)", insights);
+        Assert.Contains("SeatPolicy.PurchaseGateSentence(s.Settings, bought, held, Model.Principal.AppRoles.Contains(AppRoles.Admin))", workbench);
+        Assert.Contains("SeatPolicy.NoLobSentence(s.Settings, s.NoLobOwnerName, Model.Principal.AppRoles.Contains(AppRoles.Admin))", workbench);
+        // Review: the tenant-wide gate only for those who see every line of business, as the tiles beside it.
+        var card = workbench[workbench.IndexOf("Finance's choices", StringComparison.Ordinal)..];
+        Assert.True(card.IndexOf("@if (Model.SeesAll)", StringComparison.Ordinal) < card.IndexOf("PurchaseGateSentence", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -60,5 +66,36 @@ public class Release301Tests
         Assert.Contains("CREATE OR ALTER VIEW rpt.vSeatReservationCurrent", sql);
         Assert.Contains("('Seats.NoLobChargedTo',", sql);
         Assert.Contains("('Seats.PurchaseGatePercent',", sql);
+    }
+
+    [Fact]
+    public void Review_credit_chargeback_speaks_of_the_Workbench_and_survives_its_database()
+    {
+        var page = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "CreditChargeback.cs");
+        Assert.Contains("Routes naming an Org ID that is not a Workbench funding owner", page);
+        Assert.Contains("Line(x.EnvOrg)", page);                             // names, not codes
+        Assert.Contains("catch (Exception ex) when (data.ByFundingOwner", page);
+        var lines = Read("dashboard", "CopilotInsights", "Workbench", "WorkbenchLines.cs");
+        Assert.Contains("SeatAccess.Scope(me)", lines);                     // the seat scope, not every role and delegation
+        Assert.Contains("TimeSpan.FromMinutes(10)", lines);                 // owners' lines kept, not read on each view
+    }
+
+    [Fact]
+    public void Review_a_months_credit_snapshot_keeps_the_names_the_Workbench_had()
+    {
+        var sql = Read("sql", "Create-CopilotOperationsSchema.sql");
+        Assert.Contains("CREATE TABLE dash.LineOfBusinessName", sql);
+        Assert.Contains("CASE WHEN @model = N''Governance'' THEN (SELECT l.Name FROM dash.LineOfBusinessName AS l WHERE l.OrgId = c.OrgId)", sql);
+        Assert.Contains("GRANT INSERT, UPDATE, DELETE ON dash.LineOfBusinessName TO CopilotInsightsApp;", sql);
+        Assert.Contains("if (value == Governance) await CopyLineNamesAsync(stoppingToken);", Read("dashboard", "CopilotInsights", "Workbench", "WorkbenchSeats.cs"));
+    }
+
+    [Fact]
+    public void Review_the_seat_view_sums_to_one_month_and_the_person_link_takes_no_reused_UPN()
+    {
+        var view = Read("governance", "src", "Governance.Database", "Scripts", "070-seats.sql");
+        Assert.Contains("WITH certified AS (SELECT MAX(PeriodMonth) AS PeriodMonth FROM core.SeatChargeSnapshot WHERE Status = 'CERTIFIED')", view);
+        var src = Read("governance", "src", "Governance.Application", "Integrations", "InsightsActivity.cs");
+        Assert.Contains("AccountEnabled = 1 GROUP BY Upn HAVING COUNT(DISTINCT ObjectId) = 1", src);
     }
 }

@@ -29,6 +29,19 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
 
     protected override async Task BuildAsync()
     {
+        /* With the Governance Workbench on, the lines of business are its funding owners: a Workbench database that does
+           not answer gives a reference, not a failed page. */
+        try { await BuildChargebackAsync(); }
+        catch (Exception ex) when (data.ByFundingOwner && ex is Microsoft.Data.SqlClient.SqlException or InvalidOperationException or TimeoutException)
+        {
+            Panels.Clear();
+            Kpis.Clear();
+            Notice = Failure(ex, "reading the Workbench's lines of business for Credit chargeback");
+        }
+    }
+
+    async Task BuildChargebackAsync()
+    {
         ShowDone();
         if (!await data.ReadyAsync())
         {
@@ -144,23 +157,35 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
     {
         var mis = await data.MisroutedAsync(Ctx);
         var t = new Table { Headers = ["Exception", "How many", "What to do"], Numeric = new HashSet<int> { 1 }, Sortable = false,
-            EmptyText = "No exceptions: every environment with credits is routed, every route names a line of business in the register, and no agent is built in one line of business's environment by another's people." };
+            EmptyText = data.ByFundingOwner
+                ? "No exceptions: every environment with credits is routed, every route names a Workbench funding owner, and no agent is built in one line of business's environment by another's people."
+                : "No exceptions: every environment with credits is routed, every route names a line of business in the register, and no agent is built in one line of business's environment by another's people." };
         void Add(string what, int n, string todo) { if (n > 0) t.Rows.Add([what, n, todo]); }
         Add("Environments with credits and no route", unrouted.Count, "Register each one's path and line of business: " + string.Join(", ", unrouted.Select(l => l.EnvironmentName).Take(12)) + (unrouted.Count > 12 ? ", ..." : ""));
         var unknown = await data.UnknownOrgsAsync();
-        Add("Routes naming an Org ID not in the reservation register", unknown.Count, "Add the line of business to Copilot reservations (reserved 0 if it reserves no seats), or correct the Org ID: " + string.Join(", ", unknown));
+        if (data.ByFundingOwner)
+            Add("Routes naming an Org ID that is not a Workbench funding owner", unknown.Count, "Correct the route to the funding owner's code (Ownership registry › Funding owners), or add the funding owner there: " + string.Join(", ", unknown));
+        else
+            Add("Routes naming an Org ID not in the reservation register", unknown.Count, "Add the line of business to Copilot reservations (reserved 0 if it reserves no seats), or correct the Org ID: " + string.Join(", ", unknown));
         if (mis is null)
-            t.Rows.Add(["Agents in another line of business's environment: not checked", "", "The check needs the agent inventory (tools\\Import-AgentWorkbook.ps1) and reservation leaders who cover the agents' owners."]);
+            t.Rows.Add(["Agents in another line of business's environment: not checked", "", data.ByFundingOwner
+                ? "The check needs the agent inventory (tools\\Import-AgentWorkbook.ps1)."
+                : "The check needs the agent inventory (tools\\Import-AgentWorkbook.ps1) and reservation leaders who cover the agents' owners."]);
         else Add("Agents built by one line of business in another's environment", mis.Count, "Move the agent to its own line of business's environment, or confirm the route is right: listed below.");
-        Panels.Add(new("Exceptions", t.Render(), "Raised from this month's credits, the register, the agent inventory and the org chart.", "half"));
+        Panels.Add(new("Exceptions", t.Render(), data.ByFundingOwner ? "Raised from this month's credits, the Workbench's funding owners, the agent inventory and the seat tracking groups." : "Raised from this month's credits, the register, the agent inventory and the org chart.", "half"));
         if (mis is { Count: > 0 })
         {
+            var names = await data.LineNamesAsync();
+            string Line(string code) => names.TryGetValue(code, out var n) ? n : code;
             var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
             var mt = new Table { Headers = named ? ["Agent", "Environment", "Charged to", "Owner", "Owner's line of business"] : ["Agent", "Environment", "Charged to", "Owner's line of business"] };
             foreach (var x in mis)
-                mt.Rows.Add(named ? [x.Agent, x.Environment, x.EnvOrg, x.Owner, x.OwnerOrg] : [x.Agent, x.Environment, x.EnvOrg, x.OwnerOrg]);
+                mt.Rows.Add(named ? [x.Agent, x.Environment, Line(x.EnvOrg), x.Owner, Line(x.OwnerOrg)] : [x.Agent, x.Environment, Line(x.EnvOrg), Line(x.OwnerOrg)]);
             Panels.Add(new("Agents in another line of business's environment", mt.Render(),
-                "From the agent inventory: the environment each agent lives in, and the line of business its owner works in under the reservation register's leaders. Its credits are charged to the environment's line of business." +
+                (data.ByFundingOwner
+                    ? "From the agent inventory: the environment each agent lives in, and the line of business whose seat tracking group holds its owner's Copilot seat. "
+                    : "From the agent inventory: the environment each agent lives in, and the line of business its owner works in under the reservation register's leaders. ") +
+                "Its credits are charged to the environment's line of business." +
                 (named ? "" : " Owners are named for the Agents role."), "half"));
         }
     }

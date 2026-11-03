@@ -337,14 +337,14 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
             "SELECT FundingOwnerId, ReservedSeats, AssignedSeats FROM rpt.fn_SeatPosition(@monthEnd)", new { monthEnd })).ToList();
         /* Seats no line of business claims: to the funding owner Finance named, or a row of their own. */
         var noLobOwner = settings.NoLobChargedTo.Length == 0 ? null
-            : await uow.ScalarAsync<int?>("SELECT FundingOwnerId FROM core.FundingOwner WHERE Code = @code", new { code = settings.NoLobChargedTo });
-        var rows = SeatPolicy.ChargedRows(position, noLobOwner);
+            : await uow.ScalarAsync<int?>("SELECT FundingOwnerId FROM core.FundingOwner WHERE Code = @code AND Status IN ('ACTIVE', 'SUSPENDED')", new { code = settings.NoLobChargedTo });
+        var rows = SeatPolicy.ChargeRows(position, noLobOwner);
         await uow.ExecuteAsync("DELETE FROM core.SeatChargeSnapshot WHERE PeriodMonth = @month AND Status = 'DRAFT'", new { month });
         foreach (var r in rows)
         {
             if (r.FundingOwnerId is null && r.AssignedSeats == 0) continue;
             var reserved = r.FundingOwnerId is null ? 0 : r.ReservedSeats;
-            var (over, charge) = SeatPolicy.Charge(reserved, r.AssignedSeats);
+            var (over, charge) = SeatPolicy.Charge(r);
             await uow.ExecuteAsync(
                 """
                 INSERT core.SeatChargeSnapshot (PeriodMonth, FundingOwnerId, ReservedSeats, AssignedSeats, OverSeats, ChargeSeats, RatePerSeat, Currency, Amount, Status, SyncRunId)

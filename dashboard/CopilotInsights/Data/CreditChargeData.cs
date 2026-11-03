@@ -158,6 +158,9 @@ WHERE r.LeaderUpn IN (SELECT du.UserPrincipalName FROM bi.DimUser AS du {c.Scope
 
     bool Workbench => lines?.On == true;
 
+    /// <summary>Each line of business's name by its Org ID (or, with the Workbench on, its funding owner's code).</summary>
+    public Task<Dictionary<string, string>> LineNamesAsync() => OrgNamesAsync();
+
     async Task<Dictionary<string, string>> OrgNamesAsync() =>
         Workbench ? await lines!.NamesAsync() :
         await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.Reservation', N'U') IS NULL THEN 0 ELSE 1 END;") == 0 ? new(StringComparer.OrdinalIgnoreCase) :

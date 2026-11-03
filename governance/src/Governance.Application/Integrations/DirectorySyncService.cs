@@ -43,10 +43,16 @@ public sealed class DirectorySyncService(Db db, IDirectoryApi directory, Finding
             return 0;
         }
         if (known.Count == 0) return 0;
+        /* Only the people here who lack an object ID, usually a handful: not one statement per person Insights knows. */
+        var missing = (await db.InTransactionAsync(u => u.QueryAsync<string>(
+            "SELECT UserPrincipalName FROM sec.Person WHERE EntraObjectId IS NULL AND IsSynthetic = 0 AND UserPrincipalName IS NOT NULL"), ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidates = known.Where(k => missing.Contains(k.Upn)).ToList();
+        if (candidates.Count == 0) return 0;
         return await db.InTransactionAsync(async uow =>
         {
             var linked = 0;
-            foreach (var k in known)
+            foreach (var k in candidates)
                 linked += await uow.ExecuteAsync(
                     """
                     UPDATE p SET EntraObjectId = @ObjectId

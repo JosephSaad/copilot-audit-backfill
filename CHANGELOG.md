@@ -21,14 +21,16 @@ and the worker from this release. No new package. Nothing changes where the Work
 - **Finance's open seat choices are settings,** each with its default named on the pages: who pays for seats no line
   of business claims (`Seats.NoLobChargedTo`: a funding owner's code; empty, as before, a row of their own charged to
   no line of business), the rate per seat (`Seats.RatePerSeatMonth`, a placeholder) and when an increase takes effect
-  (`Seats.IncreaseEffective`). The monthly draft adds no-LOB seats to the owner named.
+  (`Seats.IncreaseEffective`). The monthly draft charges no-LOB seats to the active funding owner named, as seats
+  above its reservation (a row of its own when it has none); a code that names no active funding owner leaves them a
+  row of their own, and the pages say so.
 - **`rpt.vSeatReservationCurrent`** in the Workbench database: today's seats by line of business with the last
   certified chargeback, for Power BI and Grafana through its reporting role, `gov_reader`.
 
 ### Changed
 - **Leadership › Credit chargeback,** with the Workbench on, charges each environment's credits to a Workbench funding
   owner: a route's Org ID is the funding owner's code, its name comes from there, a viewer of part of the organization
-  sees the lines their Workbench roles cover, and an agent is misrouted when its environment's line is not the one
+  sees the lines the Workbench's seat scope gives them, and an agent is misrouted when its environment's line is not the one
   whose tracking group holds its owner's seat. Off, it keeps the reservation register.
 - **One person list.** The worker's directory read gives a person recorded without an Entra object ID the one
   Insights records for the same UPN, unless another person already has it.

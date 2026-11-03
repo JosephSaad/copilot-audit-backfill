@@ -23,6 +23,8 @@ public static class SeatAccess
 
 public sealed class SeatSummary
 {
+    /// <summary>The active funding owner that pays for seats no line of business claims (Seats.NoLobChargedTo), or null.</summary>
+    public string? NoLobOwnerName { get; init; }
     public int? Purchased { get; init; }
     public int? Consumed { get; init; }
     public DateTime? SkuReadUtc { get; init; }
@@ -219,8 +221,12 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
         var run = await c.QueryFirstOrDefaultAsync<(DateTime? FinishedUtc, string? Status)>(
             "SELECT TOP (1) FinishedUtc, Status FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY StartedUtc DESC");
         var purchased = sku.Enabled;
+        /* Who pays for seats no line of business claims: the active funding owner Finance named, or none. */
+        var noLobOwner = s.NoLobChargedTo.Length == 0 ? null
+            : await c.ExecuteScalarAsync<string?>("SELECT Name FROM core.FundingOwner WHERE Code = @code AND Status IN ('ACTIVE', 'SUSPENDED')", new { code = s.NoLobChargedTo });
         return new SeatSummary
         {
+            NoLobOwnerName = noLobOwner,
             Purchased = purchased, Consumed = sku.Consumed, SkuReadUtc = sku.ReadUtc, ReservedTotal = reserved, BufferSeats = s.BufferSeats,
             PendingIncrease = pending.Values.Sum(),
             Unallocated = purchased is int p ? SeatPolicy.Unallocated(p, reserved, s.BufferSeats, pending.Values.Sum()) : null,

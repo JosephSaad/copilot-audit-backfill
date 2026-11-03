@@ -21,11 +21,11 @@ public sealed partial class ReservationsModel
     const string LinesOfBusinessIntro = "Each line of business's reserved Microsoft 365 Copilot seats, from the Workbench, against the seats its tracking group holds, and the monthly chargeback FinOps certified: reserved, assigned, unused, over and charged.";
 
     /// <summary>The purchase gate, the true-down window and Finance's choices in plain sentences (SeatPolicy).</summary>
-    internal static string SeatRulesHtml(global::Governance.Application.Seats.SeatSettings rules, global::Governance.Application.Queries.SeatSummary s) =>
+    internal static string SeatRulesHtml(global::Governance.Application.Seats.SeatSettings rules, global::Governance.Application.Queries.SeatSummary s, bool admin) =>
         "<ul class=\"sub\">" +
-        $"<li><b>Purchase gate.</b> {E(s.Purchased is int bought && s.Consumed is int held ? global::Governance.Application.Seats.SeatPolicy.PurchaseGateSentence(rules, bought, held) : "Not known until the license read-back has run.")}</li>" +
+        $"<li><b>Purchase gate.</b> {E(s.Purchased is int bought && s.Consumed is int held ? global::Governance.Application.Seats.SeatPolicy.PurchaseGateSentence(rules, bought, held, admin) : "Not known until the license read-back has run.")}</li>" +
         $"<li><b>Decreases</b> take effect at the EA anniversary, {E(s.NextAnniversary.ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture))}, and can be approved from {E(s.WindowOpens.ToString("d MMMM", System.Globalization.CultureInfo.InvariantCulture))}{(s.WindowOpen ? " (open now)" : "")}. Increases can be asked for at any time and take effect {(rules.IncreaseEffective == "NEXT_MONTH" ? "on the first day of the next month" : "on the decision date")}.</li>" +
-        $"<li><b>Seats no line of business claims</b> are {(rules.NoLobChargedTo.Length == 0 ? "charged to no line of business, a row of their own, until Finance names who pays (Seats.NoLobChargedTo)" : $"charged to the funding owner {E(rules.NoLobChargedTo)}")}.</li>" +
+        $"<li>{E(global::Governance.Application.Seats.SeatPolicy.NoLobSentence(rules, s.NoLobOwnerName, admin))}</li>" +
         $"<li><b>Rate:</b> {E(rules.RatePerSeatMonth.ToString("#,0.00", System.Globalization.CultureInfo.InvariantCulture))} {E(rules.Currency)} a seat a month, for every line of business.</li></ul>";
 
     async Task LinesOfBusinessAsync()
@@ -73,7 +73,7 @@ public sealed partial class ReservationsModel
         Panels.Add(new("State", new HtmlString($"<p class=\"res-state\" role=\"status\">{state}</p>"),
             "The leader-based reservation register is kept as it was and no longer read here. Figures open the Workbench's own pages where your Workbench roles let you open them.", "full"));
         /* One rule set: the purchase gate, the true-down window and Finance's choices, as the Workbench applies them. */
-        if (s is not null && v.Settings is { } rules) Panels.Add(new("Seat rules", new HtmlString(SeatRulesHtml(rules, s)),
+        if (s is not null && v.Settings is { } rules) Panels.Add(new("Seat rules", new HtmlString(SeatRulesHtml(rules, s, Viewer.IsAdmin)),
             "The Workbench's seat policy, the one rule set: the same sentences show on Ownership registry › Copilot seats. Its settings are in Workbench settings › Seat groups.", "half"));
 
         Kpis.Add(new("Reserved seats", Num(v.Reserved), $"{Count(v.Charged.Count(), "line of business", "lines of business")}, in effect today", Href: links.Seats));

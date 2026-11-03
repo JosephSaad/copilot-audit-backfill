@@ -41,12 +41,41 @@ public class SeatRuleSetTests
     }
 
     [Fact]
-    public void Seats_no_line_of_business_claims_go_to_the_owner_Finance_named_or_stay_their_own_row()
+    public void Seats_no_line_of_business_claims_are_added_on_to_the_owner_Finance_named()
     {
         IReadOnlyList<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats)> rows = [(1, 10, 8), (2, 5, 7), (null, 0, 3)];
-        Assert.Same(rows, SeatPolicy.ChargedRows(rows, null));
-        var charged = SeatPolicy.ChargedRows(rows, 2);
-        Assert.Equal([(1, 10, 8), (2, 5, 10)], charged.Select(r => (r.FundingOwnerId!.Value, r.ReservedSeats, r.AssignedSeats)));
-        Assert.Same(rows, SeatPolicy.ChargedRows(rows, 99));   // a code that names no line of business with seats: unchanged
+        // None named: every row as it is, the no-LOB row its own.
+        Assert.Equal(3, SeatPolicy.ChargeRows(rows, null).Count);
+        // Named: on top of the owner's reservation, its assigned seats still its tracking group's.
+        var charged = SeatPolicy.ChargeRows(rows, 1);
+        Assert.Equal(2, charged.Count);
+        var one = charged.Single(r => r.FundingOwnerId == 1);
+        Assert.Equal((8, 3), (one.AssignedSeats, one.ExtraSeats));
+        Assert.Equal((3, 13), SeatPolicy.Charge(one));     // 10 reserved + 0 held over + 3 no-LOB seats
+        Assert.Equal((2, 7), SeatPolicy.Charge(charged.Single(r => r.FundingOwnerId == 2)));
+        // Named but holding no seats and no reservation: a row of its own is added, so the seats are still charged.
+        var added = SeatPolicy.ChargeRows(rows, 9);
+        Assert.Equal((0, 0, 3), (added.Single(r => r.FundingOwnerId == 9).ReservedSeats, added.Single(r => r.FundingOwnerId == 9).AssignedSeats, added.Single(r => r.FundingOwnerId == 9).ExtraSeats));
+        Assert.Equal(rows.Sum(r => r.AssignedSeats) - 3 + 3, added.Sum(r => r.AssignedSeats + r.ExtraSeats));   // nothing counted twice
+    }
+
+    [Fact]
+    public void The_no_LOB_sentence_says_what_happens_and_names_the_setting_to_administrators_only()
+    {
+        var none = SeatSettings.Default;
+        Assert.Contains("a row of their own, until Finance names who pays.", SeatPolicy.NoLobSentence(none, null));
+        Assert.Contains("(Seats.NoLobChargedTo)", SeatPolicy.NoLobSentence(none, null, forAdmin: true));
+        var named = none with { NoLobChargedTo = "ES-IT" };
+        Assert.Equal("Seats no line of business claims are charged to Enterprise IT, as seats above its reservation.", SeatPolicy.NoLobSentence(named, "Enterprise IT"));
+        Assert.Contains("is not an active one, so they stay a row of their own", SeatPolicy.NoLobSentence(named, null));
+        Assert.DoesNotContain("ES-IT", SeatPolicy.NoLobSentence(named, null));
+        Assert.DoesNotContain("Seats.", SeatPolicy.PurchaseGateSentence(none, 100, 50));
+    }
+
+    [Fact]
+    public void A_baseline_is_read_as_an_administrator_writes_it()
+    {
+        Assert.Equal(1136, SeatSettings.From(new Dictionary<string, string> { ["Seats.GateBaselineUnassigned"] = "1,136" }).GateBaselineUnassigned);
+        Assert.Equal(0, SeatSettings.From(new Dictionary<string, string> { ["Seats.GateBaselineUnassigned"] = "-5" }).GateBaselineUnassigned);
     }
 }
