@@ -38,6 +38,9 @@ public static class WorkbenchSetup
         services.AddSingleton(new WorkbenchState(on));
         services.AddSingleton(new TestingOptions(false, actAs && env.IsDevelopment()));
         services.AddScoped<WebPrincipal>();
+        /* Copilot seats by line of business for Insights' reservation pages; with the Workbench off they keep the leader-based register. */
+        services.AddScoped<WorkbenchSeats>();
+        services.AddHostedService<SeatModelSwitch>();
 
         /* The page rules, by the role the Workbench page asks for (Policies). Registered either way, so the pages
            compile into one site; with the Workbench off, no request reaches them. */
@@ -94,6 +97,7 @@ public static class WorkbenchSetup
         services.AddScoped<AdminQueries>();
         services.AddScoped<AccessQueries>();
         services.AddScoped<SeatQueries>();
+        services.AddScoped<ReservationImport>();
         services.AddSingleton<HelpText>();
     }
 
