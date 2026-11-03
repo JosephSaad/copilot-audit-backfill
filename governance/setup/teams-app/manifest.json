@@ -1,0 +1,85 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "1.0.0",
+  "id": "19a68a93-1f6f-4034-9791-97b71816bfdc",
+  "developer": {
+    "name": "Clouds Connected",
+    "websiteUrl": "https://localhost:7291",
+    "privacyUrl": "https://localhost:7291/Privacy",
+    "termsOfUseUrl": "https://localhost:7291/Terms"
+  },
+  "name": {
+    "short": "Governance Workbench (Test)",
+    "full": "Copilot Governance Workbench (Test)"
+  },
+  "description": {
+    "short": "Tasks and decisions for Copilot consumption governance.",
+    "full": "Notices from the Copilot Governance Workbench: tasks assigned to you, returned requests, decisions and recertification. Every decision happens in the Workbench, never in Teams."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#2563EB",
+  "staticTabs": [
+    {
+      "entityId": "launch",
+      "name": "Workbench",
+      "contentUrl": "https://localhost:7291/workbench/Teams/Launch?item={subEntityId}",
+      "websiteUrl": "https://localhost:7291/workbench/Start",
+      "scopes": [
+        "personal"
+      ]
+    }
+  ],
+  "permissions": [
+    "identity"
+  ],
+  "validDomains": [
+    "localhost"
+  ],
+  "webApplicationInfo": {
+    "id": "19a68a93-1f6f-4034-9791-97b71816bfdc",
+    "resource": "api://19a68a93-1f6f-4034-9791-97b71816bfdc"
+  },
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        {
+          "name": "TeamsActivity.Send.User",
+          "type": "Application"
+        }
+      ]
+    }
+  },
+  "activities": {
+    "activityTypes": [
+      {
+        "description": "A task was assigned to you",
+        "type": "taskAssigned",
+        "templateText": "{actor} assigned you {taskTitle}"
+      },
+      {
+        "description": "Your request was returned",
+        "type": "requestReturned",
+        "templateText": "Request {requestNumber} was returned to you"
+      },
+      {
+        "description": "A decision was recorded",
+        "type": "decisionRecorded",
+        "templateText": "Decision on {requestNumber}: {outcome}"
+      },
+      {
+        "description": "Verification failed",
+        "type": "verificationFailed",
+        "templateText": "Verification failed on {requestNumber}"
+      },
+      {
+        "description": "Recertification due",
+        "type": "recertificationDue",
+        "templateText": "Recertification due for {workloadName}"
+      }
+    ]
+  }
+}

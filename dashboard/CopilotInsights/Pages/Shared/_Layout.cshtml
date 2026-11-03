@@ -1,17 +1,25 @@
 @inject CopilotInsights.Infrastructure.TenantAccessor Tenants
+@inject global::Governance.Web.Infrastructure.WorkbenchState Workbench
+@inject global::Governance.Web.Infrastructure.WebPrincipal WorkbenchMe
+@inject global::Governance.Web.Infrastructure.TestingOptions WorkbenchTesting
 @{
     var page = Model as InsightsPage;
-    var viewer = page?.Viewer;
     var path = Context.Request.Path.Value?.TrimEnd('/') ?? "";
     if (path == "") path = "/";
+    /* A Workbench page (Pages/Workbench) is not an InsightsPage: the same header, menu and look, with its own body. */
+    var wb = global::Governance.Web.Infrastructure.WorkbenchSetup.IsWorkbenchPath(Context.Request.Path);
+    var viewer = page?.Viewer ?? (wb && Context.User.Identity?.IsAuthenticated == true
+        ? await Context.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.ViewerService>().GetAsync() : null);
+    string Href(NavPage p) => page?.Ctx is null || p.Admin || global::Governance.Web.Infrastructure.WorkbenchSetup.IsWorkbenchPath(p.Path) ? p.Path : page.Ctx.Url(p.Path);
 }
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@InsightsPage.BrowserTitle(page?.Title)</title>
+    <title>@InsightsPage.BrowserTitle(page?.Title ?? ViewData["Title"] as string)</title>
     <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
+    @if (wb) { <link rel="stylesheet" href="~/workbench.css" asp-append-version="true" /> }
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
 <body>
@@ -48,7 +56,7 @@
        each with what it answers; the box at the top finds a report. Without script every section is open. *@
     <nav class="side" aria-label="Reports">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
-        @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports); }
+        @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).Concat(await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On)).ToList(); }
         @if (groups.Count > 0)
         {
             <input type="search" class="find" id="nav-find" placeholder="Find a report (press /)" aria-label="Find a report" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" />
@@ -70,7 +78,7 @@
                 <div class="glinks" id="nav-mine-links">
                     @foreach (var p in mine)
                     {
-                        var href = page?.Ctx is null ? p.Path : page.Ctx.Url(p.Path);
+                        var href = Href(p);
                         <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
                     }
                 </div>
@@ -85,7 +93,7 @@
                 <div class="glinks" id="@(id)-links">
                     @foreach (var p in g.Pages)
                     {
-                        var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
+                        var href = Href(p);
                         <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
                     }
                     <button type="button" class="gabout" aria-haspopup="dialog" aria-expanded="false" aria-controls="@(id)-panel">About these reports</button>
@@ -98,7 +106,7 @@
                         <ul>
                             @foreach (var p in sub.Pages)
                             {
-                                var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
+                                var href = Href(p);
                                 <li><a class="@(path == p.Path ? "on" : "")" href="@href"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small>@if (p.Role is not null) { <em>@p.Role role</em> }</span></a></li>
                             }
                         </ul>
@@ -109,24 +117,53 @@
         </div>
     </nav>
     <main id="main" tabindex="-1">
-        @RenderBody()
+        @if (wb)
+        {
+            @* The Workbench's pages: who is acting (Development "act as"), what the last action did, then the page. *@
+            <div class="wb">
+                @if (WorkbenchMe.ActingAs)
+                {
+                    <div class="actas-banner" role="status">
+                        <span>Test mode: acting as <strong>@WorkbenchMe.DisplayName</strong> (signed in as @WorkbenchMe.RealDisplayName). Every action is recorded with both names.</span>
+                        <form method="post" asp-page="/Workbench/ActAs" asp-page-handler="Stop" class="inline"><input type="hidden" name="__idem" value="@Guid.NewGuid()" /><button class="btn btn-small btn-light" type="submit">Stop acting</button></form>
+                    </div>
+                }
+                else if (WorkbenchTesting.AllowActAs && WorkbenchMe.CanActAs)
+                {
+                    <p class="actas-offer"><a href="/workbench/ActAs">Act as a test persona</a></p>
+                }
+                @if (TempData["Flash"] is string ok)
+                {
+                    <div class="alert alert-ok" role="status"><span aria-hidden="true">✓</span> <span class="sr-only">Success:</span> @ok</div>
+                }
+                @if (TempData["FlashError"] is string err)
+                {
+                    <div class="alert alert-bad" role="alert"><strong>Not done.</strong> @err</div>
+                }
+                @RenderBody()
+            </div>
+        }
+        else
+        {
+            @RenderBody()
+        }
         @{
             /* 2.4.10: the report before this one in its section and the one after, at the foot of the page, among those
                this person can open. By the end of a report the list is a long way up, and on a phone it is folded away. */
             var (before, after, sect) = Nav.Beside(groups, path);
         }
-        @if (sect is not null && page is { Denied: null } && (before ?? after) is not null)
+        @if (sect is not null && (page is { Denied: null } || wb) && (before ?? after) is not null)
         {
             <nav class="pager" aria-label="More in @sect.Persona">
                 @if (before is not null)
                 {
-                    <a class="prev" href="@(page.Ctx is null ? before.Path : page.Ctx.Url(before.Path))">
+                    <a class="prev" href="@Href(before)">
                         <span class="dir">Previous in @sect.Persona</span><b>@before.Title</b><span class="what">@NavText.What(before)</span>
                     </a>
                 }
                 @if (after is not null)
                 {
-                    <a class="next" href="@(page.Ctx is null ? after.Path : page.Ctx.Url(after.Path))">
+                    <a class="next" href="@Href(after)">
                         <span class="dir">Next in @sect.Persona</span><b>@after.Title</b><span class="what">@NavText.What(after)</span>
                     </a>
                 }
@@ -136,5 +173,6 @@
 </div>
 <div id="tip" role="tooltip" hidden></div>
 <script src="~/site.js" asp-append-version="true"></script>
+@if (wb) { <script src="~/workbench.js" asp-append-version="true"></script> }
 </body>
 </html>

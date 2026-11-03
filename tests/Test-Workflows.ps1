@@ -93,6 +93,14 @@ foreach ($wf in 'ci.yml', 'release.yml') {
 # The modules are the operator's to install; the release carries none of them.
 Assert-That (-not $jobs.Contains('bundle') -and (Get-Content -Raw -LiteralPath (Join-Path $root '.github' 'workflows' 'release.yml')) -notmatch 'offline-win-x64') `
     'and builds no offline zip of bundled modules (2.6.5)'
+# The Workbench worker ships beside the site, built and checked the same way, for Install-CopilotInsights.ps1 -WorkerServer.
+Assert-That ($jobs['dashboard'] -match 'dotnet publish governance/src/Governance\.Worker/Governance\.Worker\.csproj -c Release -o "publish/CopilotGovernanceWorker"' -and
+             $jobs['dashboard'] -match 'copilot-governance-worker-\$env:GITHUB_REF_NAME' -and $jobs['dashboard'] -match 'dotnet test governance/tests/Governance\.UnitTests') `
+    'the release tests the Workbench and publishes its worker as copilot-governance-worker-vX.Y.Z.zip'
+Assert-That ($jobs['publish'] -match 'sha256sum "\$\{WORKER\}\.zip" > "\$\{WORKER\}\.zip\.sha256"' -and $jobs['publish'] -match 'sha256sum -c "\$\{\{ steps\.build\.outputs\.worker \}\}\.zip\.sha256"' -and
+             $jobs['publish'] -match '"\$\{WORKER\}\.zip" \\\n\s+"\$\{WORKER\}\.zip\.sha256" \\') `
+    'and attaches it to the release with its checksum, read back first'
+Assert-That ($jobs['publish'] -match "--exclude='publish/'" -and $jobs['publish'] -match "--exclude='bin/' --exclude='obj/'") 'the source zip leaves out build output'
 
 # ---------------------------------------------------------------------------
 Write-Host "`n4. A downloaded module is checked before it runs" -ForegroundColor Cyan

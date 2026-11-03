@@ -11,7 +11,17 @@ public static class Roles
     public const string Admin = "Admin", Organization = "Organization", Adoption = "Adoption", Licensing = "Licensing",
         Security = "Security", Compliance = "Compliance", Agents = "Agents", Enablement = "Enablement";
 
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement];
+    /// <summary>
+    /// The Governance Workbench's page roles. They open its central pages; they show no usage data, so they never let
+    /// anyone past the dashboard's level limit and never widen to the whole organization.
+    /// </summary>
+    public const string Governance = "Governance", GovernanceOperator = "GovernanceOperator", GovernanceAuditor = "GovernanceAuditor";
+
+    public static readonly string[] Workbench = [Governance, GovernanceOperator, GovernanceAuditor];
+
+    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor];
+
+    public static bool IsWorkbench(string role) => Workbench.Contains(role, StringComparer.OrdinalIgnoreCase);
 
     public static readonly Dictionary<string, string> Describe = new()
     {
@@ -23,6 +33,9 @@ public static class Roles
         [Compliance] = "The Compliance section, and in it who accessed which sensitivity-labeled or blocked resources.",
         [Agents] = "The Agents section, and in it the named people using each agent.",
         [Enablement] = "The Enablement section, and in it the named champions and people who may need support.",
+        [Governance] = "The Governance Workbench's central pages: the queues, the whole registry, consumption events and findings, and its reports. Shows no usage data.",
+        [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
+        [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
     };
 }
 
@@ -92,7 +105,7 @@ public static class AccessRules
 {
     /// <summary>A persona role, whose section "across the whole organization" can widen: not Admin, not Organization.</summary>
     public static bool IsPersona(string role) =>
-        Roles.All.Contains(role, StringComparer.OrdinalIgnoreCase)
+        Roles.All.Contains(role, StringComparer.OrdinalIgnoreCase) && !Roles.IsWorkbench(role)
         && !string.Equals(role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Roles.Organization, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Level 1 or 2 below the configured top, or granted Organization. Admin alone is not enough.</summary>
@@ -109,7 +122,7 @@ public static class AccessRules
     public static bool MayUseDashboard(int? level, IReadOnlySet<string> roles, int maxLevel) =>
         maxLevel <= 0
         || level is { } l && l >= 1 && l <= maxLevel
-        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase));
+        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !Roles.IsWorkbench(r));
 
     /// <summary>
     /// The SID comparison: the directory records no SID for the person, or records exactly the SID in the
@@ -322,6 +335,9 @@ EXEC sys.sp_executesql @sql;");
         }
         return held;
     }
+
+    /// <summary>The Entra object ID the directory records for this UPN (the Workbench finds its person by it).</summary>
+    public Task<Guid?> ObjectIdOfAsync(string upn) => PersonObjectIdAsync(upn);
 
     async Task<Guid?> PersonObjectIdAsync(string upn)
     {

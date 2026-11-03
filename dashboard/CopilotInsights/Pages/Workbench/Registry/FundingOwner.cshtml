@@ -1,0 +1,168 @@
+@page "/workbench/Registry/FundingOwners/{id:guid}"
+@model Governance.Web.Pages.Registry.FundingOwnerModel
+@{
+    var d = Model.D;
+    var o = d.Owner;
+    ViewData["Title"] = o.Name;
+    var allDone = d.Checklist.All(c => c.Done);
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/FundingOwners">Funding owners</a> › @o.Code</div>
+        <h1>@o.Name</h1>
+        <p class="lead">@(o.OwnerType == "LOB" ? "Line of business" : "Enterprise Shared unit")@(o.IsCriticalShared ? ", critical shared service" : "") · @Ui.Pill(o.Status) · business owner @(d.BusinessOwnerName ?? "not named")@(d.ParentName is null ? "" : " · part of " + d.ParentName)</p>
+    </div>
+    <div class="page-actions">
+        @if (Model.CanFinance)
+        {
+            <a class="btn btn-ghost" href="/workbench/Registry/FundingOwners/Edit/@o.PublicId">Edit</a>
+        }
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <h2>Activation checklist <help k="fo.checklist">A funding owner moves from Draft to Active only when all seven hold (section 5.2), so routine approvals never depend on one person or on unvalidated cost centers.</help></h2>
+        @if (o.Status == "DRAFT" && Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Activate"><idem /><button class="btn" type="submit" disabled="@(!allDone)">Activate</button></form>
+        }
+    </div>
+    <ul class="checklist">
+        @foreach (var c in d.Checklist)
+        {
+            <li><span class="mark @(c.Done ? "mark-ok" : "mark-no")" aria-hidden="true">@(c.Done ? "✓" : c.No.ToString())</span><div><div>@c.Text <span class="sr-only">@(c.Done ? "done" : "not done")</span></div><div class="small muted">@c.Detail</div></div></li>
+        }
+    </ul>
+    <div class="btn-row mt">
+        @if (Model.IsBusinessOwner || Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Flag" asp-route-flag="recipients" asp-route-value="@(!o.NotificationRecipientsConfirmed)"><idem /><button class="btn btn-small btn-ghost" type="submit">@(o.NotificationRecipientsConfirmed ? "Withdraw recipients confirmation" : "Confirm notification recipients")</button></form>
+        }
+        @if (Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Flag" asp-route-flag="attribution" asp-route-value="@(!o.AttributionTested)"><idem /><button class="btn btn-small btn-ghost" type="submit">@(o.AttributionTested ? "Mark attribution untested" : $"Mark attribution tested ({d.AttributedPeople} people match)")</button></form>
+        }
+    </div>
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <h2>Cost centers <help>Finance units mapped to this owner, versioned with effective dates; moving one does not rewrite history (H3).</help></h2>
+        @if (d.CostCenters.Count == 0) { <p class="muted">None yet. Add them on <a href="/workbench/Registry/CostCenters">Cost centers</a>.</p> }
+        <ul>@foreach (var c in d.CostCenters) { <li>@c.Code — @c.Name @if (c.ValidatedByFinance) { @Ui.Pill("VALIDATED", "ok") } else { @Ui.Pill("NOT_VALIDATED", "warn") } @if (c.EffectiveTo is not null) { <span class="muted small">ended @Ui.Date(c.EffectiveTo)</span> }</li> }</ul>
+    </div>
+    <div class="card">
+        <h2>Envelopes <help>The internal budget per service and period, in Copilot Credits. Not a Microsoft setting: Microsoft enforcement stays in the admin centers (A4).</help></h2>
+        @if (d.Envelopes.Count == 0) { <p class="muted">None yet. FinOps prepares them on <a href="/workbench/Registry/Envelopes">Envelopes</a>.</p> }
+        <ul>
+            @foreach (var e in d.Envelopes)
+            {
+                <li>
+                    <strong>@e.ServiceName</strong>: @Ui.Num(e.Amount) @Units.Label(e.Unit), @Ui.Date(e.PeriodStart) to @Ui.Date(e.PeriodEnd) @Ui.Pill(e.Status)
+                    <div class="small muted">@Ui.Num(e.Committed) committed, @Ui.Num(e.Amount - e.Committed) headroom</div>
+                    @if (e.Status == "DRAFT" && Model.IsBusinessOwner)
+                    {
+                        <form method="post" asp-page-handler="ApproveEnvelope" asp-route-envelope="@e.PublicId" class="btn-row">
+                            <idem />
+                            <input name="reason" placeholder="Reason (needed to decline)" aria-label="Reason" maxlength="2000" />
+                            <button class="btn btn-small btn-ok" type="submit" name="approve" value="true">Approve</button>
+                            <button class="btn btn-small btn-ghost" type="submit" name="approve" value="false">Decline</button>
+                        </form>
+                    }
+                </li>
+            }
+        </ul>
+    </div>
+</div>
+
+<div class="card">
+    <h2>People and roles <help>LOB roles are assigned by the business owner or the Platform Owner, with an effective period, and reviewed every year. A leaver or a role holder who changes cost center raises a vacancy finding (N20).</help></h2>
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Person <help>Who holds the role for this funding owner.</help></th><th scope="col">Role <help>What they do for this funding owner.</help></th><th scope="col">From <help>The first day it applies.</help></th><th scope="col">Until <help>The last day it applies.</help></th><th scope="col">Source <help>Assigned here, synced from an Entra group, or seeded.</help></th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+            <tbody>
+            @foreach (var r in d.Roles)
+            {
+                <tr>
+                    <td>@r.PersonName<div class="small muted">@r.Upn</div></td>
+                    <td>@r.RoleName @if ((r.RoleCode is "LOB_BUSINESS_OWNER" or "SHARED_SERVICE_OWNER")) { @(r.AcceptedUtc is null ? Ui.Pill("NOT_ACCEPTED", "warn") : Ui.Pill("ACCEPTED", "ok")) }</td>
+                    <td>@Ui.Date(r.EffectiveFrom)</td>
+                    <td>@(r.EffectiveTo is null ? "Open" : Ui.Date(r.EffectiveTo))</td>
+                    <td>@Ui.Words(r.Source)</td>
+                    <td>@if (Model.CanAssignLob && (r.EffectiveTo is null || r.EffectiveTo >= DateTime.UtcNow.Date) && r.RoleCode is not ("LOB_BUSINESS_OWNER" or "SHARED_SERVICE_OWNER")) { <form method="post" asp-page-handler="EndRole" asp-route-role="@r.PublicId"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.CanAssignLob)
+    {
+        <form method="post" asp-page-handler="Role" class="form-grid mt">
+            <idem />
+            <div class="field"><label for="rp">Person <help>Who holds the role for this funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="rr">Role <help>Delegated approvers need a delegation too (below) to approve; the role alone lets them see this funding owner.</help></label><select id="rr" name="roleCode">@foreach (var r in Model.LobRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
+            <div class="field"><label for="rt">Until (optional) <help>The last day the role applies. Leave empty for open-ended; roles are still reviewed each year.</help></label><input id="rt" type="date" name="effectiveTo" /></div>
+            <div class="field"><span class="label">&nbsp;</span><button class="btn btn-ghost" type="submit">Assign role</button></div>
+        </form>
+    }
+</div>
+
+<div class="card">
+    <h2>Delegations <help>The business owner delegates routine approval (B5) to named approvers, within chosen envelopes and up to a credit limit per request. Checked and stored on every decision (SoD7).</help></h2>
+    @if (d.Delegations.Count == 0) { <p class="muted">No delegation yet. At least two delegated approvers are needed for activation.</p> }
+    <ul>
+        @foreach (var x in d.Delegations)
+        {
+            <li>@x.DelegateName @Ui.Pill(x.Status) <span class="small muted">from @x.GrantedByName · up to @(x.MaxCreditsPerRequest is null ? "the envelope's headroom" : Ui.Num(x.MaxCreditsPerRequest) + " credits a request") · @Ui.Date(x.EffectiveFrom)@(x.EffectiveTo is null ? "" : " to " + Ui.Date(x.EffectiveTo)) · @(x.Envelopes ?? "no envelopes")</span>
+                @if (x.Status == "ACTIVE" && (Model.IsBusinessOwner || Model.CanFinance)) { <form method="post" asp-page-handler="Revoke" asp-route-delegation="@x.PublicId" class="inline"><idem /><button class="btn btn-small btn-ghost" type="submit">Revoke</button></form> }</li>
+        }
+    </ul>
+    @if (Model.IsBusinessOwner)
+    {
+        <form method="post" asp-page-handler="Delegate" class="form-grid mt">
+            <idem />
+            <div class="field"><label for="dp">Delegate to <help>The person who may approve routine requests for this funding owner. Never their own request.</help></label><select id="dp" name="delegatePersonId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="dm">Most credits per request <help>Above this, the request comes to you.</help></label><input id="dm" type="number" name="maxCredits" min="0" step="1" /></div>
+            <div class="field"><label for="df">From <help>The first day it applies.</help></label><input id="df" type="date" name="from" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" required /></div>
+            <div class="field"><label for="dt">Until <help>The last day it applies.</help></label><input id="dt" type="date" name="to" value="@DateTime.UtcNow.AddYears(1).ToString("yyyy-MM-dd")" /></div>
+            <fieldset class="full"><legend>Envelopes covered <help>The budgets the delegate may approve against. None selected means all of this funding owner's envelopes.</help></legend><div class="checks">@foreach (var e in d.Envelopes.Where(e => e.Status is "ACTIVE" or "DRAFT")) { <label class="check"><input type="checkbox" name="envelopes" value="@e.EnvelopeId" /> @e.ServiceName, @Ui.Date(e.PeriodStart) to @Ui.Date(e.PeriodEnd)</label> }</div></fieldset>
+            <div class="field full"><label for="dn">Notes <help>Why, or any limits agreed.</help></label><input id="dn" name="notes" maxlength="1000" /></div>
+            <div class="field"><button class="btn btn-ghost" type="submit">Grant delegation</button></div>
+        </form>
+    }
+</div>
+
+<div class="grid grid-2">
+    <div class="card">
+        <h2>Attribution rules <help>Which people belong to this funding owner, from their Entra division, cost center or department (employeeOrgData). Overrides are dated, per person.</help></h2>
+        <ul>@foreach (var a in d.Attribution) { <li>@(a.MatchDivision is null ? "" : "Division " + a.MatchDivision + " ")@(a.MatchCostCenter is null ? "" : "Cost center " + a.MatchCostCenter + " ")@(a.MatchDepartment is null ? "" : "Department " + a.MatchDepartment) <span class="small muted">priority @a.Priority · from @Ui.Date(a.EffectiveFrom)@(a.EffectiveTo is null ? "" : " to " + Ui.Date(a.EffectiveTo))</span>
+            @if (Model.CanFinance && a.EffectiveTo is null) { <form method="post" asp-page-handler="EndRule" asp-route-ruleId="@a.AttributionRuleId" class="inline"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form> }</li> }</ul>
+        @if (Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Rule" class="form-grid">
+                <idem />
+                <div class="field"><label for="ad">Division <help>The Entra division value that maps people to this funding owner.</help></label><input id="ad" name="division" maxlength="200" /></div>
+                <div class="field"><label for="ac">Cost center <help>The Entra cost center value that maps people to this funding owner.</help></label><input id="ac" name="costCenter" maxlength="100" /></div>
+                <div class="field"><label for="ap">Department <help>The Entra department value that maps people to this funding owner.</help></label><input id="ap" name="department" maxlength="200" /></div>
+                <div class="field"><label for="ar">Priority <help>Lower wins when several rules match one person.</help></label><input id="ar" type="number" name="priority" value="100" /></div>
+                <div class="field"><button class="btn btn-ghost" type="submit">Add rule</button></div>
+            </form>
+        }
+    </div>
+    <div class="card">
+        <h2>Access packages <help>One Entra access package per service tier for this funding owner (OD4). Employees request them in My Access (J1); the Workbench records and verifies the assignments.</help></h2>
+        @if (d.AccessPackages.Count == 0) { <p class="muted">None mapped. The worker maps the packages it finds in the governed catalog; Admin › Integrations shows the sync.</p> }
+        <ul>@foreach (var p in d.AccessPackages) { <li>@p.DisplayName <span class="small muted">@p.ServiceName · @p.Tier</span></li> }</ul>
+        @if (Model.CanFinance && o.Status is "ACTIVE" or "DRAFT")
+        {
+            <h3>Suspend or retire</h3>
+            <form method="post" asp-page-handler="Status" class="btn-row" data-confirm="Change this funding owner's status?">
+                <idem />
+                <select name="status" aria-label="New status"><option value="SUSPENDED">Suspend</option><option value="RETIRED">Retire</option></select>
+                <input name="reason" placeholder="Reason" aria-label="Reason" required maxlength="500" />
+                <button class="btn btn-small btn-danger" type="submit">Apply</button>
+            </form>
+        }
+    </div>
+</div>

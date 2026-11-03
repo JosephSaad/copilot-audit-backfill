@@ -30,6 +30,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [A slow nightly run](#a-slow-nightly-run)
 - [More than one tenant](#more-than-one-tenant)
 - [Upgrades and renewals](#upgrades-and-renewals)
+- [Governance Workbench](#governance-workbench)
 - [Every Admin page and maintenance task](#every-admin-page-and-maintenance-task)
 
 ## Every day
@@ -78,6 +79,7 @@ The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` a
 | Compliance | Named people who worked with labeled content; one person's full record (works in privacy mode) |
 | Agents | Named users of an agent |
 | Enablement | Named champions and engagement segments |
+| Governance, GovernanceOperator, GovernanceAuditor | Pages of the Governance Workbench (3.0.0), when it is turned on: see [Governance Workbench](#governance-workbench). No usage data |
 
 **Grant or remove a role.** Admin › Access › *Grant a role*: a person (their UPN, or `DOMAIN\user`) or an AD group (`DOMAIN\Group`), the roles (tick as many as they need), and why. Grant to groups where you can: membership is read from each sign-in, so it follows AD with no change here. Power BI's *Organization* role honors the same grants from the next nightly directory load, which records each `DOMAIN\` grant's members (a person's own UPN, from 2.4.12). The grants list has one row per person or group with all their roles, and a small × box beside each role that removes it, after asking. *Remove all*, at the end of the roles, removes every role that person or group holds (2.6.3). To clear several at once, tick their rows (*Select all on this page* ticks every row shown) and choose *Remove every role from the selected* under the table. Both ask first, and the audit log records who was cleared and the roles each held. Someone cleared keeps what their level and their AD groups give them. The Adoption, Licensing (with Forecasting), Security, Compliance, Agents and Enablement sections are hidden from anyone without their role, whole-organization viewers included, so grant executives the roles whose sections they should see.
 
@@ -330,6 +332,13 @@ A header line is skipped; a field may be quoted to hold a comma (`"Retail Bankin
 **The Technology-funded register.** Approved executive, service, test, shared, migration and exception accounts: sign-in, category, accountable owner, approval reference, from and review dates. Their licenses are counted once in the Technology pool, never in a line of business. Accounts the dashboard reads as non-human that are not in the register are listed as an exception; one past its review date too.
 
 **Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it; from 2.7.0 only once the licenses reach two days past the month end (a license change can reach Purview a day late), only when a reservation is in effect that day, and not after a load the delete guard refused: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
+
+**With the Workbench on** (3.0.0, `ConnectionStrings:Governance` set), the Workbench's lines of business are the seat record:
+
+- **Leadership › Copilot reservations** shows each line of business's reserved seats (`core.SeatReservation`), the seats its tracking group holds, the seats over and unused, and the monthly chargeback the FinOps lead certified (`core.SeatChargeSnapshot`). The Licensing role and anyone whose role covers the whole organization see every line of business; others see the lines their Workbench roles cover. A figure opens the Workbench page with the same number, for those whose Workbench roles let them open it.
+- **Licensing › Reservation holders** lists the people holding a seat in one line of business's tracking group, or the seats no line of business claims.
+- **The register is kept, not edited.** `dash.Reservation`, `dash.ReservationRate`, `dash.ReservationSnapshot` and `dash.TechnologyAllocation` keep their rows; their forms are gone from the page and a change sent anyway is refused. When the site starts it sets `dash.Setting` *SeatModel* to `Governance`, and the nightly snapshot then adds nothing. With the Workbench off again, the setting goes back to `Leader` and the page is as before.
+- **Start from Insights' reservations**, once: **Workbench settings › Seat groups** lists the register's rows in effect today. Choose the funding owner for each row (one with the same code or name is suggested), or leave it out, and confirm. Each becomes that funding owner's first reservation through the Workbench's own command, audited, and needs the FinOps role. Rows given the same funding owner are added together. A funding owner that already has a reservation is skipped, and the page says so: change it with a seat reservation request. The offer goes once every funding owner has a reservation.
 
 ## Copilot Credit chargeback and commitment
 
@@ -649,6 +658,122 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 **The audit app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded next to the old one to the app of every tenant in the settings (you sign in to each), and its thumbprint in the settings. Remove the old certificate from the apps after the next good run. A run without `-RegisterApp` keeps the certificate it has until it expires (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed).
 
 **Exchange Online.** If the dashboard sends with a mailbox password, move it to OAuth (Admin › Email) before Microsoft turns SMTP AUTH passwords off for your tenant.
+
+## Governance Workbench
+
+The Governance Workbench (3.0.0) is the record of who owns and funds each Copilot workload, who approved each change under which decision right, and what evidence shows the approved setting is in place: requests and approvals routed by a RACI matrix, a registry of funding owners, workloads, envelopes, services and control templates, Copilot seats per line of business with their chargeback, consumption events, drift findings, recertification, exceptions and retirement. It reads from Microsoft 365, Entra and the Power Platform and never writes to them. [GOVERNANCE-USER-GUIDE.md](GOVERNANCE-USER-GUIDE.md) says where each role starts; [GOVERNANCE-RUNBOOK.md](GOVERNANCE-RUNBOOK.md) what to do when something fails; [GOVERNANCE-DECISIONS.md](GOVERNANCE-DECISIONS.md) why it is built the way it is; [GOVERNANCE-TEST-ENVIRONMENT.md](GOVERNANCE-TEST-ENVIRONMENT.md) how to run it on one PC.
+
+It has three parts: its pages, served by this dashboard under `/workbench/...`; its own database, `CopilotGovernance`, beside the Copilot database on the same SQL Server (2022 or later: it uses ledger tables, temporal tables and row-level security); and a worker, a Windows service named `CopilotGovernanceWorker` that runs ten background jobs. The PowerShell nightly run is not part of it and does not change.
+
+### Turning it on
+
+The Workbench is off until the site's settings name its database. Off, every `/workbench` address answers 404 and nothing else in the dashboard changes, so 3.0.0 can be installed without it.
+
+1. Create the database with `governance\src\Governance.Database\Deploy-Database.ps1 -SqlServer <server> -Database CopilotGovernance -WebPrincipal <the site's account> -WorkerPrincipal <the worker's account>` (add `-ReaderPrincipal` for a reporting account, and `-TrustServerCertificate` only for a test server with a self-signed certificate). It runs every script in `governance\src\Governance.Database\Scripts` in name order; each is safe to rerun and the schema only grows. The site's account gets the `app_web` role, the worker's `app_worker`, the reporting account `gov_reader`; none is a database owner. Run it as an account that owns the database.
+2. Set `ConnectionStrings:Governance` in the site's `appsettings.Production.json`, on every web server, and recycle the app pool. Under IIS the connection uses the app pool's account, so `Integrated Security=True`.
+3. Install the worker on one server and give it `ConnectionStrings:GovernanceWorker` (its own connection to `CopilotGovernance`), the `Tenant` section (tenant, the worker's app registration and certificate subject, the notification mailbox), and `Notifications:WorkbenchBaseUrl`. `governance\deploy\appsettings.Worker.Production.sample.json` lists every setting it reads; `Notifications:Mode` must be `Send` for mail to leave the server (`Record`, the default, only writes what would have been sent). [DEPLOYMENT.md](DEPLOYMENT.md) covers installing the database and the worker service.
+   [DEPLOYMENT.md, step 27](DEPLOYMENT.md#step-27-the-governance-workbench-optional) does both with `Install-CopilotInsights.ps1 -GovernanceDatabase`, `-WorkerServer` and `-WorkerAccount`.
+4. Grant the Workbench roles (below) in Admin › Access, then open `/workbench/Start`. Workbench settings › Intake switch lists the setup steps left before intake can open.
+
+**`Notifications:WorkbenchBaseUrl` is the dashboard's own address**, with its virtual directory if it has one (`https://insights.contoso.com`, or `https://apps.contoso.com/CopilotDashboard`): every link in a notice is that address followed by `/workbench/...`. The default in the worker's `appsettings.json` is a test address; always set it.
+
+**Copilot activity for the seat read.** The seat read takes each person's last Copilot activity from this dashboard's own records (`dash.UserDay` and `bi.DimUser` in the Copilot database) when it can read them: give the worker `ConnectionStrings:Insights`, a connection to the Copilot database with read access to those two objects. It then covers every day the pipeline has loaded and never sees hidden names. Without it, the worker reads Microsoft's Copilot usage report (`Reports.Read.All`), which hides names unless *Display concealed user, group, and site names in all reports* is turned off in the Microsoft 365 admin center (Settings › Org settings › Reports). *Read seats now* on the dashboard uses the dashboard's own connection to the Copilot database.
+
+**With several web servers** (2.7.6), set `ConnectionStrings:Governance` on every one. Run the worker on one server. If a second copy runs anyway, each job except the outbox dispatcher takes a SQL application lock (`sp_getapplock`), so the second copy waits; the outbox dispatcher claims rows one at a time, so two copies never send the same notice. `Worker:DisabledJobs` (a comma list of job names) turns jobs off on one server.
+
+### Who opens which pages
+
+Sign-in is the dashboard's own: Windows, or Microsoft Entra ID where the site is set up for it ([ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md)). Which Workbench pages a person may open comes from their grants in Admin › Access, given to people, AD groups or Entra groups like any other role, or through an access profile. Three starter profiles are offered in Admin › Access profiles: *Governance team*, *Governance operator* and *Governance auditor*.
+
+| Role | Pages it opens |
+|---|---|
+| None (anyone who may use the dashboard) | Ownership and approvals: Start, My work, Requests, Report a consumption problem, Recertification, Exceptions, Retirement, Your Workbench roles. Ownership registry: Funding owners, Workloads, Envelopes, Services, Control templates. They see their own requests and what their Workbench roles allow |
+| Governance | The above, plus Approval queues (Intake, Classification, Specialist reviews, Decisions, Fulfillment and verification), the whole registry (also Cost centers, Commercial, Discovery), Consumption events, Drift and findings, Governance KPIs, Audit trail, Seat chargeback |
+| GovernanceOperator | Everything Governance opens, plus Sync and freshness (running reads) and Attestations |
+| GovernanceAuditor | Governance KPIs, Audit trail and Seat chargeback, read only, beside the pages everyone has |
+| Admin | The approval queues, the whole registry, consumption events and findings, and every Workbench settings page. Not the reports or the operator pages: grant those roles as well where an administrator needs them |
+
+- **These roles open no usage data.** They give no Insights report, do not let anyone past the dashboard's level limit (Admin › Access › *Who can open the dashboard*), and never widen to the whole organization.
+- **The work people do is given inside the Workbench, not in Admin › Access.** RACI positions (Platform Owner, Steering, intake, operators, architects, FinOps and the others) are assigned on Workbench settings › Workbench roles; roles for one line of business (business owner, delegated approvers, finance partner, LOB seat admin) on that funding owner's page; delegations by the business owner. They decide what a person may approve or record on the pages they can open. **Copilot seats** in the registry shows to whoever holds a seat role: FinOps, the Platform Owner and auditors see every line of business, the line of business's own roles only theirs.
+- **The Platform Owner and Steering** also reach five settings pages without Admin: RACI, Intake switch, Workbench roles, Wording and Seat groups.
+- **Admin › Access › Check someone's access** shows both: the Workbench pages their grants open, and their Workbench roles and delegations.
+- **A refused page** says *This page is not available to you* and names who grants what.
+
+### Workbench settings
+
+Every change on these pages is written to the Workbench's audit trail. Administrators configure; they never approve business decisions or change decision records.
+
+| Page | What it is for | Who may open it |
+|---|---|---|
+| Workbench settings › RACI | The active 19-activity matrix and the 12-row view generated from it; drafting a new version. A version activates only when every activity has exactly one A or A/R, and only after the Platform Owner and Steering, two different people, approve it | Admin; Platform Owner; Steering |
+| Workbench settings › Workflows | Each journey's stages, who acts at each, the service level and what follows each outcome. Read only: a request stays on the version it was submitted under | Admin |
+| Workbench settings › SLAs and escalation | How long each stage may take, the escalation ladders, holidays and the business time zone. Reminders go at 50 and 80 percent of the time; at 100 percent a task escalates one level. Calibrate during the first weeks of use | Admin |
+| Workbench settings › Notifications | Which notices (N01 to N22) go to whom, by email and Teams, and quiet hours. Email is the notice of record; nobody approves by email or chat | Admin |
+| Workbench settings › Workbench roles | Who holds each central role, with its dates; syncing a role from an Entra group. Every assignment is reviewed each year. Roles for one line of business are on its funding owner's page | Admin; Platform Owner; Steering |
+| Workbench settings › Seat groups | The Copilot seat groups (the shared license group, one tracking group per line of business with its OIM role, exclusion, Copilot Chat only and other groups), the Copilot SKUs, and the seat settings in use. A change ends the old row and starts a new one, so history is kept | Admin; Platform Owner; Steering |
+| Workbench settings › Integrations | The last run of every worker job and integration, the outbox and dead letters, and how fresh each source is. Read only | Admin |
+| Workbench settings › Intake switch | Opens intake once the setup steps are done (decision rights, funding owners, catalog, templates, commercial inventory, standards, discovery, envelopes), or closes it. Closing stops new submissions only | Admin; Platform Owner (only the Platform Owner opens or closes it) |
+| Workbench settings › Wording | Help text and notice headers. An administrator drafts; the Platform Owner approves; the approved text shows at once | Admin; Platform Owner; Steering |
+
+With the Workbench on, Leadership › Copilot reservations and Licensing › Reservation holders read these seats, and Insights' own register is kept but no longer edited: see *With the Workbench on* under Copilot reservations above, which also covers *Start from Insights' reservations*.
+
+**Copilot seats, the first time.**
+
+1. Workbench settings › Seat groups: add the shared license group (purpose License), then one tracking group per line of business with its line of business and its OIM role name (for example "Retail . M365 Copilot License . Role"). Add the other Copilot groups as Exclusion, Copilot Chat only, Managers or Other, unconfirmed until their owners confirm them: an unconfirmed exclusion group raises no findings.
+2. Add the Copilot add-on SKU (part number `Microsoft_365_Copilot`) as *Copilot add-on*, and any suite that includes Copilot (E7) as *Includes Copilot*.
+3. Check the seat settings with Finance: the EA anniversary, the true-down window, the operational buffer, the one rate per seat and its currency, when increases take effect, the chargeback year and the inactivity days. The page shows them; until it can change them, a database administrator updates them in `ref.Setting`.
+4. FinOps records each line of business's first reservation on its Copilot seats page. Later changes are seat reservation requests.
+5. The business owner (or the Platform Owner) names each line of business's first seat admin on the same page; seat admins name the others.
+
+### Worker jobs
+
+Each job runs on its own timer from when the worker starts (the first runs a few seconds to a few minutes after start, in the order below). Each run is recorded in `intg.JobRun`, and Workbench settings › Integrations shows the last one. Two failures in a row send notice N19 to Workbench administrators and Platform Operations. Errors are written to the worker's log; the page shows only a short note.
+
+| Job (name for `--once`) | Runs | What it reads and does |
+|---|---|---|
+| Outbox dispatcher (`OutboxDispatcher`) | Every 5 seconds, on every worker | Delivers the notices (email, Teams activity, Teams channel) and ITSM commands each change wrote to the outbox. Gives up after `Notifications:MaxAttempts` (6) and records the message as a dead letter |
+| SLA timer (`SlaTimer`) | Every minute | Reminders at 50 and 80 percent of each task's SLA, escalation at 100 percent, and closes returned requests after 10 business days |
+| Directory sync (`DirectorySync`) | Every 15 minutes | Entra users by Graph delta (cost center, division, manager, account status), membership of governed groups, central roles synced from Entra groups; leavers and role holders who moved raise vacancy findings (N20) |
+| Entitlement sync (`EntitlementSync`) | Every 15 minutes | Entra access package assignments and requests for the governed catalog, recorded as decisions from Entra; assignments without an active envelope raise N15 |
+| Access review import (`AccessReviewImport`) | Every 24 hours | Entra access review decisions, as recertification evidence |
+| Licensing read (`LicensingRead`) | Every 24 hours | Power Platform licensing per governed environment (allocation, tenant-pool rule, billing policy), then drift findings against the approved posture (N10). Skipped when the worker has no Power Platform reader role (`Tenant:PowerPlatformReader`) |
+| Copilot seat read (`SeatSync`) | Every 24 hours, and *Read seats now* on Sync and freshness | Copilot SKUs bought and assigned, the seat groups and their members, each person's license state, and Copilot activity (see above). Then seat findings, reclaim proposals for seats inactive for `Seats.InactiveDays` (and held at least that long: a new seat gets the same time to be used), and, in the first week of a month, the draft chargeback for the month before. A refused or hidden usage report is a note on the run, not a failure; no seat is proposed for reclaim that run |
+| ITSM poller (`ItsmPoller`) | Every 5 minutes | The state of each open ITSM ticket. A closed fulfillment ticket moves its request to verification, never straight to completed. A ticket that cannot be read keeps the reason on itself (`wf.ItsmTicket.PollError`) and the poll goes on with the next; a ticket the ITSM no longer has shows as `NOT_FOUND` on its request for an operator to check, and is still polled in case it comes back. The run fails only when no ticket at all can be read |
+| Campaign scheduler (`CampaignScheduler`) | Every hour; the work is daily, and each notice is sent once | Recertification campaigns, monthly re-attestation (N22), exception expiry (N13 at 30, 7 and 1 days), commercial renewals (N18 at 90, 60 and 30 days), inventory older than 7 days (N21) |
+| Digest builder (`DigestBuilder`) | Every 15 minutes | One email a day per person, from 07:00 in the business time zone (a person can choose another hour), with the items they are informed of (N17) |
+| Retention (`Retention`) | Every 24 hours, first 10 minutes after start | The worker's own bookkeeping older than `Retention.WorkerRecordDays` in `ref.Setting` (180 days; never under 30): job runs (each job's latest run and latest success are kept), delivery records of finished notices, and the text of processed outbox items, which keep their row and key so nothing is sent twice. Items set aside as dead letters are kept whole. 5,000 rows at a time. Ledger and audit tables are never touched |
+
+**Run a job again now.** There is no button for it on the dashboard. On the worker's server, as the worker's account, run the worker once with the job's name, then check Workbench settings › Integrations:
+
+```powershell
+.\Governance.Worker.exe --once SeatSync              # several: --once DirectorySync,EntitlementSync
+.\Governance.Worker.exe --drain                       # deliver every notice due now, then stop
+```
+
+The jobs are safe to rerun: a notice is never sent twice (each has a de-duplication key) and a second ITSM ticket is never created (the adapter searches by correlation ID first). A job another worker is running is skipped, and the line says so.
+
+**Read by an operator.** The Power Platform inventory (environments, Copilot Studio agents and agent flows) accepts only a signed-in person's token, so an operator runs it from Governance operations › Sync and freshness, at least weekly and before every verification. It needs the operator's own Microsoft Entra sign-in; on a site that does not request that token, the page says so and nothing is read.
+
+### The ledger digest
+
+Decisions, evidence metadata, attestations, verifications and the audit trail are ledger tables: rows can be added, never changed or deleted, and SQL Server keeps a hash of them. A digest of that hash, kept outside the database on write-once storage, lets an auditor prove that nobody, database administrators included, changed those rows afterwards. SQL Server on premises keeps digests by itself only in Azure immutable storage, so a script saves them to a share:
+
+```powershell
+pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer SQLPROD01 -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$
+pwsh -File governance\deploy\Save-LedgerDigest.ps1 -SqlServer SQLPROD01 -Database CopilotGovernance -DigestPath \\worm01\CgwLedger$ -Verify
+```
+
+- **Schedule the first every 4 hours** (Task Scheduler or a SQL Server Agent PowerShell step), as an account with `GENERATE LEDGER DIGEST` and `VIEW LEDGER CONTENT` on the database and write access to the share. It needs `sqlcmd` on the server.
+- **Run `-Verify` monthly,** after any restore, and when an auditor asks. It checks the database against every digest saved so far, and needs `ALLOW_SNAPSHOT_ISOLATION ON` on the database, which `Deploy-Database.ps1` does not set: a database administrator sets it once.
+
+The installer registers the first as the task *Copilot Governance ledger digest* when given `-LedgerDigestPath` ([DEPLOYMENT.md, step 27](DEPLOYMENT.md#step-27-the-governance-workbench-optional)): daily at `-LedgerDigestAt` (02:00 unless given), as the worker's account. For every 4 hours, add a repetition to that task in Task Scheduler.
+
+### Database and test tools
+
+- **Upgrade** by running `Deploy-Database.ps1` again with the new release's scripts. Every script is safe to rerun and only adds; from 3.0.0 the governance database follows the same rule as the Copilot database: nothing is dropped, renamed or narrowed.
+- **Row-level security** shows each line of business only its own rows; central roles see all. Each connection the site opens carries the person and whether they hold a central role, read only, and the database filters by them.
+- **Reporting tools** connect as an account in `gov_reader` and read the `rpt` views.
+- **Test tools**, not for production: `governance\setup\Setup-TestTenant.ps1` sets up a test tenant, `governance\tools\Governance.Seed` seeds a demo institution, `governance\tools\Governance.MockItsm` is a local ITSM stand-in on port 5470. [GOVERNANCE-TEST-ENVIRONMENT.md](GOVERNANCE-TEST-ENVIRONMENT.md) uses all three.
 
 ## Every Admin page and maintenance task
 

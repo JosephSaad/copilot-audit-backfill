@@ -1,0 +1,20 @@
+{
+  "value": [
+    {
+      "reportRefreshDate": "2026-10-27",
+      "reportPeriod": 90,
+      "userPrincipalName": "avery@contoso.example",
+      "displayName": "Avery Howard",
+      "lastActivityDate": "2026-10-26",
+      "copilotChatLastActivityDate": "2026-10-26",
+      "microsoftTeamsCopilotLastActivityDate": "2026-10-20"
+    },
+    {
+      "reportRefreshDate": "2026-10-27",
+      "reportPeriod": 90,
+      "userPrincipalName": "devon@contoso.example",
+      "displayName": "Devon Torres",
+      "lastActivityDate": ""
+    }
+  ]
+}

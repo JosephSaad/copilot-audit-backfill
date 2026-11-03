@@ -48,7 +48,7 @@ AUDIT_JS = r"""
   for (const e of document.querySelectorAll(sel)) {
     if (!visible(e)) continue;
     const s = getComputedStyle(e);
-    if (e.scrollWidth > e.clientWidth + 2 && e.clientWidth > 0 && (s.overflowX === 'hidden' || s.overflowX === 'clip' || s.textOverflow === 'ellipsis'))
+    if (e.scrollWidth > e.clientWidth + 2 && e.clientWidth > 1 && (s.overflowX === 'hidden' || s.overflowX === 'clip' || s.textOverflow === 'ellipsis'))
       issues.push({kind: 'clipped', el: name(e), text: txt(e), hover: hasHover(e), detail: `${e.scrollWidth}px of text in ${e.clientWidth}px`});
     const box = e.closest('.kpi, .panel, td, th, .card, form.inline, .page-head');
     if (box && box !== e) {
@@ -142,6 +142,9 @@ def pages():
         return os.environ['AUDIT_PAGES'].split(',')
     src = open(os.path.join(REPO, 'dashboard', 'CopilotInsights', 'Pages', 'Nav.cs'), encoding='utf-8').read()
     paths = sorted(set(re.findall(r'new\("[^"]+", "(/[^"]*)"', src)))
+    # The Governance Workbench's pages, from its menu (when the site has it set up; otherwise they answer 404).
+    wb = open(os.path.join(REPO, 'dashboard', 'CopilotInsights', 'Workbench', 'WorkbenchNav.cs'), encoding='utf-8').read()
+    paths += sorted(set('/workbench' + p for p in re.findall(r'new\("[^"]+", \$"\{P\}(/[^"]*)"', wb)))
     return ['/?home=1'] + [p for p in paths] + EXTRA
 
 

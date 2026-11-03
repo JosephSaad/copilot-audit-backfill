@@ -37,6 +37,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..' '..' '..')).Path
 . (Join-Path $root 'tests' 'SchemaCompatibility.ps1')
 $baselinePath = Join-Path $root 'tests' 'schema-baseline.tsv'
+$governancePath = Join-Path $root 'tests' 'schema-baseline-governance.tsv'
 $release = [regex]::Match([System.IO.File]::ReadAllText((Join-Path $root 'CHANGELOG.md')), '(?m)^## \[(\d+\.\d+\.\d+)\]').Groups[1].Value
 if (-not $release) { throw 'CHANGELOG.md names no release.' }
 
@@ -82,6 +83,34 @@ if (Test-Path -LiteralPath $baselinePath) {
     $added = @($now | Where-Object { $_ -cnotin $old.Lines }).Count
     Write-Host "Compatible with $($old.Release): $added line(s) added or widened, nothing taken away."
 }
+
+<# The Governance Workbench's database, a baseline of its own: installed by its Deploy-Database.ps1 (Windows sign-in to
+   SQL Server only), read the same way, held to the same rules. #>
+$governanceDatabase = "${Database}Gov"
+$gov = $null
+if ($SqlCredential) { Write-Warning 'The Workbench database is installed with Windows sign-in only: its baseline was not taken. Run this again without -SqlCredential.' }
+else {
+    Remove-Database $governanceDatabase
+    try {
+        Write-Host "Installing the Workbench's database into $governanceDatabase..."
+        $deploy = & pwsh -NoProfile -File (Join-Path $root 'governance' 'src' 'Governance.Database' 'Deploy-Database.ps1') -SqlServer $SqlServer -Database $governanceDatabase -TrustServerCertificate 2>&1
+        if ($LASTEXITCODE) { $deploy | Select-Object -Last 10 | ForEach-Object { Write-Host "  $_" }; throw 'The Workbench database did not install.' }
+        [string[]] $gov = @(Get-SchemaSnapshot -ConnectionString (New-ConnString $governanceDatabase) -Database governance)
+        [array]::Sort($gov, [StringComparer]::Ordinal)
+    }
+    finally { Remove-Database $governanceDatabase }
+    if (Test-Path -LiteralPath $governancePath) {
+        $oldGov = Read-SchemaBaseline -Path $governancePath
+        $govBreaks = @(Compare-SchemaSnapshot -Baseline $oldGov.Lines -Current $gov)
+        if ($govBreaks.Count) {
+            Write-Host "This checkout breaks the Workbench database of $($oldGov.Release) in $($govBreaks.Count) place(s):" -ForegroundColor Red
+            $govBreaks | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+            Write-Host 'Nothing was written. Keep what was there and add beside it.' -ForegroundColor Red
+            exit 1
+        }
+        Write-Host "Workbench database compatible with $($oldGov.Release): $(@($gov | Where-Object { $_ -cnotin $oldGov.Lines }).Count) line(s) added or widened, nothing taken away."
+    }
+}
 if ($Check) { return }
 
 $header = @(
@@ -92,3 +121,13 @@ $header = @(
 )
 [System.IO.File]::WriteAllText($baselinePath, (($header + $now) -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
 Write-Host "Wrote $($now.Count) lines to tests/schema-baseline.tsv for release $release." -ForegroundColor Green
+if ($gov) {
+    $govHeader = @(
+        "# release $release"
+        '# The shape of the Governance Workbench''s database (its own, beside the Copilot one) as this release installs it.'
+        '# The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.'
+        '# Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.'
+    )
+    [System.IO.File]::WriteAllText($governancePath, (($govHeader + $gov) -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Host "Wrote $($gov.Count) lines to tests/schema-baseline-governance.tsv for release $release." -ForegroundColor Green
+}

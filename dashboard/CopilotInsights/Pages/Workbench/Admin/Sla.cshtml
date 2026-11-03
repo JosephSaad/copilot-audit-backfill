@@ -1,0 +1,43 @@
+@page "/workbench/Admin/Sla"
+@model Governance.Web.Pages.Admin.SlaModel
+@inject Governance.Application.Data.Db Db
+@{
+    ViewData["Title"] = "SLAs and escalation";
+    var name = await Lookups.NamesAsync(Db);
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Workbench settings</div>
+        <h1>Service levels and escalation</h1>
+        <p class="lead">Proposed defaults from the operating model; calibrate them during the six-week validation. Reminders go out at 50 and 80 percent of the time; at 100 percent a task escalates one level up its ladder. Business-day levels skip weekends and institutional holidays.</p>
+    </div>
+</div>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Service level <help>A named turnaround used by one or more stages.</help></th><th scope="col">Duration <help>How long the task may take before it escalates.</help></th><th scope="col">Calendar <help>Business days, or around the clock for operational events with after-hours coverage (OD7).</help></th><th scope="col">Reminders <help>Reminders go out at these points of the duration, then the task escalates at 100 percent.</help></th><th scope="col"><span class="sr-only">Change</span></th></tr></thead>
+        <tbody>
+        @foreach (var p in Model.Policies)
+        {
+            <tr>
+                <td><strong>@p.Name</strong></td>
+                <td>@p.Duration @(p.Unit == "H" ? "hours" : p.Unit == "BD" ? "business days" : "days")</td>
+                <td>@Ui.Words(p.Calendar)</td>
+                <td>@p.RemindAtPct1% and @p.RemindAtPct2%</td>
+                <td>@if (Model.Principal.HasCentral(Roles.PlatformOwner)) { <form method="post" asp-route-code="@p.SlaPolicyCode" class="btn-row"><idem /><input type="number" name="duration" value="@p.Duration" min="0" max="90" aria-label="New duration for @p.Name" /><button class="btn btn-small btn-ghost" type="submit">Change</button></form> }</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<h2 class="mt">Escalation ladders</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Ladder <help>Who a late task goes to, one level at a time.</help></th><th scope="col">Level <help>1 is the first escalation, at 100 percent of the service level.</help></th><th scope="col">Goes to <help>The role that receives the escalated task.</help></th><th scope="col">Scope <help>Whether that role is looked up for the request's funding owner or centrally.</help></th></tr></thead>
+        <tbody>
+        @foreach (var l in Model.Ladders)
+        {
+            <tr><td>@Ui.Words(l.LadderCode)</td><td>@l.Level</td><td>@name(l.RoleCode)</td><td>@(l.ScopeKind == "TENANT" ? "Central" : "The request's funding owner")</td></tr>
+        }
+        </tbody>
+    </table>
+</div>

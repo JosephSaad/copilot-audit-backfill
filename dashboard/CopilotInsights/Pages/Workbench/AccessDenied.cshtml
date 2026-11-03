@@ -1,0 +1,14 @@
+@page "/workbench/AccessDenied"
+@model AccessDeniedModel
+@{
+    ViewData["Title"] = "Not available to you";
+}
+<div class="card">
+    <h1>This page is not available to you</h1>
+    @if (!Model.Principal.IsAuthenticated)
+    {
+        <p>The Workbench knows people by the user principal name or Entra object ID the directory records, and has neither for your account yet. It is recorded at the next directory load; an administrator can also map your sign-in name to your UPN (Insights:IdentityMap).</p>
+    }
+    <p>Your roles do not include this part of the Workbench. The central pages need the Governance, GovernanceOperator or GovernanceAuditor role, and the settings pages the Admin role: an administrator grants them in Admin › Access. Work for a line of business (approvals, seat admin) is given by its business owner or the Platform Owner. <a href="/workbench/Me">See the roles you hold.</a></p>
+    <p><a class="btn" href="/workbench/Start">Back to Start</a></p>
+</div>

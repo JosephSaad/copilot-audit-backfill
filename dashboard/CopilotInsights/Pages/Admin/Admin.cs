@@ -438,7 +438,9 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         /* Admin can be limited to some of the Admin pages. Only a full administrator gives, limits or removes
            Admin, so someone limited to this page cannot make themselves, or anyone, more than they are. */
         var hasPages = await HasPagesAsync();
-        var offered = Roles.All.Where(r => Viewer.IsAdmin || r != Roles.Admin).ToList();
+        /* The Workbench's roles only where the Workbench is set up. */
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var offered = Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))).ToList();
         var pagePicker = !Viewer.IsAdmin || !hasPages ? "" :
             "<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
             string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"/> {E(ap.Title)}</label>")) + "</fieldset>";
@@ -598,6 +600,9 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
             var adminGrants = held.Where(x => x.Grant.Role == Roles.Admin).Select(x => x.Grant.Pages).ToList();
             if (hasPages && adminGrants.Count > 0)
                 body.Append($"<p>Their Admin role covers: {E(adminGrants.Any(pg => !AdminPages.Limits(pg)) ? AdminPages.Names(null) : AdminPages.Names(string.Join(",", adminGrants.SelectMany(AdminPages.Parse))))}.</p>");
+            /* The Governance Workbench, when it is set up: the pages these roles open there, and its own roles. */
+            if (HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On)
+                body.Append(await global::Governance.Web.Infrastructure.WorkbenchAccess.DescribeAsync(HttpContext.RequestServices, upn, roles, HttpContext.RequestAborted));
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
 
@@ -689,7 +694,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         principal = principal?.Trim();
         if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN, DOMAIN\\Group or an Entra group.");
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
-        var roles = (role ?? []).Where(r => Roles.All.Contains(r)).Distinct().ToList();
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
         if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         var (objectId, groupName) = type == "Group" && !principal.Contains('\\') ? await EntraGroupAsync(principal) : ((Guid?)null, (string?)null);

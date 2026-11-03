@@ -1,0 +1,1484 @@
+# release 3.0.0
+# The shape of the Governance Workbench's database (its own, beside the Copilot one) as this release installs it.
+# The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
+# Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
+C	governance	aud.AuditLog	U	1	AuditId	bigint	0	I
+C	governance	aud.AuditLog	U	10	Outcome	varchar(20)	0	
+C	governance	aud.AuditLog	U	11	ledger_start_transaction_id	bigint	0	
+C	governance	aud.AuditLog	U	12	ledger_start_sequence_number	bigint	0	
+C	governance	aud.AuditLog	U	2	Utc	datetime2(7)	0	
+C	governance	aud.AuditLog	U	3	PersonId	int	1	
+C	governance	aud.AuditLog	U	4	ActingAsPersonId	int	1	
+C	governance	aud.AuditLog	U	5	Action	varchar(60)	0	
+C	governance	aud.AuditLog	U	6	EntityType	varchar(40)	1	
+C	governance	aud.AuditLog	U	7	EntityId	nvarchar(100)	1	
+C	governance	aud.AuditLog	U	8	Detail	nvarchar(2000)	1	
+C	governance	aud.AuditLog	U	9	CorrelationId	varchar(64)	1	
+C	governance	aud.AuditLog_Ledger	V	1	AuditId	bigint	0	I
+C	governance	aud.AuditLog_Ledger	V	10	Outcome	varchar(20)	0	
+C	governance	aud.AuditLog_Ledger	V	11	ledger_transaction_id	bigint	0	
+C	governance	aud.AuditLog_Ledger	V	12	ledger_sequence_number	bigint	0	
+C	governance	aud.AuditLog_Ledger	V	13	ledger_operation_type	int	0	
+C	governance	aud.AuditLog_Ledger	V	14	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	aud.AuditLog_Ledger	V	2	Utc	datetime2(7)	0	
+C	governance	aud.AuditLog_Ledger	V	3	PersonId	int	1	
+C	governance	aud.AuditLog_Ledger	V	4	ActingAsPersonId	int	1	
+C	governance	aud.AuditLog_Ledger	V	5	Action	varchar(60)	0	
+C	governance	aud.AuditLog_Ledger	V	6	EntityType	varchar(40)	1	
+C	governance	aud.AuditLog_Ledger	V	7	EntityId	nvarchar(100)	1	
+C	governance	aud.AuditLog_Ledger	V	8	Detail	nvarchar(2000)	1	
+C	governance	aud.AuditLog_Ledger	V	9	CorrelationId	varchar(64)	1	
+C	governance	core.ApprovedPattern	U	1	PatternId	int	0	I
+C	governance	core.ApprovedPattern	U	10	Tiers	nvarchar(100)	0	
+C	governance	core.ApprovedPattern	U	11	MaxCreditsPerMonth	decimal(18,2)	1	
+C	governance	core.ApprovedPattern	U	12	IsActive	bit	0	D
+C	governance	core.ApprovedPattern	U	13	Description	nvarchar(1000)	1	
+C	governance	core.ApprovedPattern	U	2	Code	varchar(40)	0	
+C	governance	core.ApprovedPattern	U	3	Name	nvarchar(200)	0	
+C	governance	core.ApprovedPattern	U	4	ServiceId	int	0	
+C	governance	core.ApprovedPattern	U	5	Audiences	nvarchar(200)	0	
+C	governance	core.ApprovedPattern	U	6	MaxDataClass	varchar(20)	0	
+C	governance	core.ApprovedPattern	U	7	ActionScopes	nvarchar(200)	0	
+C	governance	core.ApprovedPattern	U	8	LifecycleStages	nvarchar(100)	0	
+C	governance	core.ApprovedPattern	U	9	TriggerTypes	nvarchar(200)	0	
+C	governance	core.ApprovedPosture	U	1	PostureId	int	0	I
+C	governance	core.ApprovedPosture	U	10	GroupRuleLocksTenantPool	bit	0	D
+C	governance	core.ApprovedPosture	U	11	DecisionId	bigint	1	
+C	governance	core.ApprovedPosture	U	12	EffectiveFrom	date	0	
+C	governance	core.ApprovedPosture	U	13	EffectiveTo	date	1	
+C	governance	core.ApprovedPosture	U	14	SysStart	datetime2(7)	0	
+C	governance	core.ApprovedPosture	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.ApprovedPosture	U	2	WorkloadId	int	0	
+C	governance	core.ApprovedPosture	U	3	FundingOwnerId	int	0	
+C	governance	core.ApprovedPosture	U	4	EnvironmentId	nvarchar(100)	0	
+C	governance	core.ApprovedPosture	U	5	AllocationCredits	decimal(18,2)	0	
+C	governance	core.ApprovedPosture	U	6	TenantPoolEnabled	bit	0	
+C	governance	core.ApprovedPosture	U	7	PaygLinked	bit	0	
+C	governance	core.ApprovedPosture	U	8	BillingPolicyId	nvarchar(100)	1	
+C	governance	core.ApprovedPosture	U	9	AgentLimitCredits	decimal(18,2)	1	
+C	governance	core.ApprovedPostureHistory	U	1	PostureId	int	0	
+C	governance	core.ApprovedPostureHistory	U	10	GroupRuleLocksTenantPool	bit	0	
+C	governance	core.ApprovedPostureHistory	U	11	DecisionId	bigint	1	
+C	governance	core.ApprovedPostureHistory	U	12	EffectiveFrom	date	0	
+C	governance	core.ApprovedPostureHistory	U	13	EffectiveTo	date	1	
+C	governance	core.ApprovedPostureHistory	U	14	SysStart	datetime2(7)	0	
+C	governance	core.ApprovedPostureHistory	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.ApprovedPostureHistory	U	2	WorkloadId	int	0	
+C	governance	core.ApprovedPostureHistory	U	3	FundingOwnerId	int	0	
+C	governance	core.ApprovedPostureHistory	U	4	EnvironmentId	nvarchar(100)	0	
+C	governance	core.ApprovedPostureHistory	U	5	AllocationCredits	decimal(18,2)	0	
+C	governance	core.ApprovedPostureHistory	U	6	TenantPoolEnabled	bit	0	
+C	governance	core.ApprovedPostureHistory	U	7	PaygLinked	bit	0	
+C	governance	core.ApprovedPostureHistory	U	8	BillingPolicyId	nvarchar(100)	1	
+C	governance	core.ApprovedPostureHistory	U	9	AgentLimitCredits	decimal(18,2)	1	
+C	governance	core.AttributionOverride	U	1	AttributionOverrideId	int	0	I
+C	governance	core.AttributionOverride	U	10	SysEnd	datetime2(7)	0	
+C	governance	core.AttributionOverride	U	2	PersonId	int	0	
+C	governance	core.AttributionOverride	U	3	FundingOwnerId	int	0	
+C	governance	core.AttributionOverride	U	4	CostCenterId	int	1	
+C	governance	core.AttributionOverride	U	5	Reason	nvarchar(400)	0	
+C	governance	core.AttributionOverride	U	6	EffectiveFrom	date	0	
+C	governance	core.AttributionOverride	U	7	EffectiveTo	date	1	
+C	governance	core.AttributionOverride	U	8	CreatedByPersonId	int	0	
+C	governance	core.AttributionOverride	U	9	SysStart	datetime2(7)	0	
+C	governance	core.AttributionOverrideHistory	U	1	AttributionOverrideId	int	0	
+C	governance	core.AttributionOverrideHistory	U	10	SysEnd	datetime2(7)	0	
+C	governance	core.AttributionOverrideHistory	U	2	PersonId	int	0	
+C	governance	core.AttributionOverrideHistory	U	3	FundingOwnerId	int	0	
+C	governance	core.AttributionOverrideHistory	U	4	CostCenterId	int	1	
+C	governance	core.AttributionOverrideHistory	U	5	Reason	nvarchar(400)	0	
+C	governance	core.AttributionOverrideHistory	U	6	EffectiveFrom	date	0	
+C	governance	core.AttributionOverrideHistory	U	7	EffectiveTo	date	1	
+C	governance	core.AttributionOverrideHistory	U	8	CreatedByPersonId	int	0	
+C	governance	core.AttributionOverrideHistory	U	9	SysStart	datetime2(7)	0	
+C	governance	core.AttributionRule	U	1	AttributionRuleId	int	0	I
+C	governance	core.AttributionRule	U	10	SysEnd	datetime2(7)	0	
+C	governance	core.AttributionRule	U	2	FundingOwnerId	int	0	
+C	governance	core.AttributionRule	U	3	MatchDivision	nvarchar(200)	1	
+C	governance	core.AttributionRule	U	4	MatchCostCenter	nvarchar(100)	1	
+C	governance	core.AttributionRule	U	5	MatchDepartment	nvarchar(200)	1	
+C	governance	core.AttributionRule	U	6	Priority	int	0	D
+C	governance	core.AttributionRule	U	7	EffectiveFrom	date	0	
+C	governance	core.AttributionRule	U	8	EffectiveTo	date	1	
+C	governance	core.AttributionRule	U	9	SysStart	datetime2(7)	0	
+C	governance	core.AttributionRuleHistory	U	1	AttributionRuleId	int	0	
+C	governance	core.AttributionRuleHistory	U	10	SysEnd	datetime2(7)	0	
+C	governance	core.AttributionRuleHistory	U	2	FundingOwnerId	int	0	
+C	governance	core.AttributionRuleHistory	U	3	MatchDivision	nvarchar(200)	1	
+C	governance	core.AttributionRuleHistory	U	4	MatchCostCenter	nvarchar(100)	1	
+C	governance	core.AttributionRuleHistory	U	5	MatchDepartment	nvarchar(200)	1	
+C	governance	core.AttributionRuleHistory	U	6	Priority	int	0	
+C	governance	core.AttributionRuleHistory	U	7	EffectiveFrom	date	0	
+C	governance	core.AttributionRuleHistory	U	8	EffectiveTo	date	1	
+C	governance	core.AttributionRuleHistory	U	9	SysStart	datetime2(7)	0	
+C	governance	core.CommercialItem	U	1	CommercialItemId	int	0	I
+C	governance	core.CommercialItem	U	10	AutoRenew	bit	0	D
+C	governance	core.CommercialItem	U	11	BillingScope	nvarchar(400)	1	
+C	governance	core.CommercialItem	U	12	ContractRef	nvarchar(200)	1	
+C	governance	core.CommercialItem	U	13	PurchaseAuthorityPersonId	int	1	
+C	governance	core.CommercialItem	U	14	ReconciledToContract	bit	0	D
+C	governance	core.CommercialItem	U	15	Notes	nvarchar(2000)	1	
+C	governance	core.CommercialItem	U	16	RowVer	timestamp	0	
+C	governance	core.CommercialItem	U	17	SysStart	datetime2(7)	0	
+C	governance	core.CommercialItem	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.CommercialItem	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.CommercialItem	U	3	ItemType	varchar(20)	0	
+C	governance	core.CommercialItem	U	4	Name	nvarchar(200)	0	
+C	governance	core.CommercialItem	U	5	Quantity	decimal(18,2)	1	
+C	governance	core.CommercialItem	U	6	Unit	varchar(20)	1	
+C	governance	core.CommercialItem	U	7	StartOn	date	1	
+C	governance	core.CommercialItem	U	8	EndOn	date	1	
+C	governance	core.CommercialItem	U	9	RenewalOn	date	1	
+C	governance	core.CommercialItemHistory	U	1	CommercialItemId	int	0	
+C	governance	core.CommercialItemHistory	U	10	AutoRenew	bit	0	
+C	governance	core.CommercialItemHistory	U	11	BillingScope	nvarchar(400)	1	
+C	governance	core.CommercialItemHistory	U	12	ContractRef	nvarchar(200)	1	
+C	governance	core.CommercialItemHistory	U	13	PurchaseAuthorityPersonId	int	1	
+C	governance	core.CommercialItemHistory	U	14	ReconciledToContract	bit	0	
+C	governance	core.CommercialItemHistory	U	15	Notes	nvarchar(2000)	1	
+C	governance	core.CommercialItemHistory	U	16	RowVer	timestamp	0	
+C	governance	core.CommercialItemHistory	U	17	SysStart	datetime2(7)	0	
+C	governance	core.CommercialItemHistory	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.CommercialItemHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.CommercialItemHistory	U	3	ItemType	varchar(20)	0	
+C	governance	core.CommercialItemHistory	U	4	Name	nvarchar(200)	0	
+C	governance	core.CommercialItemHistory	U	5	Quantity	decimal(18,2)	1	
+C	governance	core.CommercialItemHistory	U	6	Unit	varchar(20)	1	
+C	governance	core.CommercialItemHistory	U	7	StartOn	date	1	
+C	governance	core.CommercialItemHistory	U	8	EndOn	date	1	
+C	governance	core.CommercialItemHistory	U	9	RenewalOn	date	1	
+C	governance	core.ControlCheck	U	1	ControlCheckId	int	0	I
+C	governance	core.ControlCheck	U	2	TemplateId	int	0	
+C	governance	core.ControlCheck	U	3	CheckCode	varchar(40)	0	
+C	governance	core.ControlCheck	U	4	Description	nvarchar(1000)	0	
+C	governance	core.ControlCheck	U	5	Method	varchar(20)	0	
+C	governance	core.ControlCheck	U	6	SettingKey	varchar(100)	1	
+C	governance	core.ControlCheck	U	7	IsDenyCase	bit	0	D
+C	governance	core.ControlCheck	U	8	CaveatCode	varchar(10)	1	
+C	governance	core.ControlCheck	U	9	SortOrder	int	0	
+C	governance	core.ControlTemplate	U	1	TemplateId	int	0	I
+C	governance	core.ControlTemplate	U	10	CreatedByPersonId	int	1	
+C	governance	core.ControlTemplate	U	11	PlatformOwnerApprovalPersonId	int	1	
+C	governance	core.ControlTemplate	U	12	SteeringApprovalPersonId	int	1	
+C	governance	core.ControlTemplate	U	13	ActivatedUtc	datetime2(7)	1	
+C	governance	core.ControlTemplate	U	14	RowVer	timestamp	0	
+C	governance	core.ControlTemplate	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.ControlTemplate	U	3	ServiceId	int	0	
+C	governance	core.ControlTemplate	U	4	VersionNo	int	0	
+C	governance	core.ControlTemplate	U	5	Status	varchar(20)	0	
+C	governance	core.ControlTemplate	U	6	SettingsJson	nvarchar(max)	0	
+C	governance	core.ControlTemplate	U	7	PermittedExceptions	nvarchar(1000)	1	
+C	governance	core.ControlTemplate	U	8	OperatorRoles	nvarchar(400)	0	
+C	governance	core.ControlTemplate	U	9	Notes	nvarchar(2000)	1	
+C	governance	core.CostCenter	U	1	CostCenterId	int	0	I
+C	governance	core.CostCenter	U	10	EffectiveTo	date	1	
+C	governance	core.CostCenter	U	11	RowVer	timestamp	0	
+C	governance	core.CostCenter	U	12	SysStart	datetime2(7)	0	
+C	governance	core.CostCenter	U	13	SysEnd	datetime2(7)	0	
+C	governance	core.CostCenter	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.CostCenter	U	3	Code	nvarchar(100)	0	
+C	governance	core.CostCenter	U	4	Name	nvarchar(200)	0	
+C	governance	core.CostCenter	U	5	FinanceNode	nvarchar(100)	1	
+C	governance	core.CostCenter	U	6	FundingOwnerId	int	0	
+C	governance	core.CostCenter	U	7	ValidatedByFinance	bit	0	D
+C	governance	core.CostCenter	U	8	ValidatedByPersonId	int	1	
+C	governance	core.CostCenter	U	9	EffectiveFrom	date	0	
+C	governance	core.CostCenterHistory	U	1	CostCenterId	int	0	
+C	governance	core.CostCenterHistory	U	10	EffectiveTo	date	1	
+C	governance	core.CostCenterHistory	U	11	RowVer	timestamp	0	
+C	governance	core.CostCenterHistory	U	12	SysStart	datetime2(7)	0	
+C	governance	core.CostCenterHistory	U	13	SysEnd	datetime2(7)	0	
+C	governance	core.CostCenterHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.CostCenterHistory	U	3	Code	nvarchar(100)	0	
+C	governance	core.CostCenterHistory	U	4	Name	nvarchar(200)	0	
+C	governance	core.CostCenterHistory	U	5	FinanceNode	nvarchar(100)	1	
+C	governance	core.CostCenterHistory	U	6	FundingOwnerId	int	0	
+C	governance	core.CostCenterHistory	U	7	ValidatedByFinance	bit	0	
+C	governance	core.CostCenterHistory	U	8	ValidatedByPersonId	int	1	
+C	governance	core.CostCenterHistory	U	9	EffectiveFrom	date	0	
+C	governance	core.EnvelopeCommitment	U	1	CommitmentId	int	0	I
+C	governance	core.EnvelopeCommitment	U	2	EnvelopeId	int	0	
+C	governance	core.EnvelopeCommitment	U	3	FundingOwnerId	int	0	
+C	governance	core.EnvelopeCommitment	U	4	RequestId	bigint	1	
+C	governance	core.EnvelopeCommitment	U	5	WorkloadId	int	1	
+C	governance	core.EnvelopeCommitment	U	6	Amount	decimal(18,2)	0	
+C	governance	core.EnvelopeCommitment	U	7	Unit	varchar(20)	0	
+C	governance	core.EnvelopeCommitment	U	8	Status	varchar(20)	0	
+C	governance	core.EnvelopeCommitment	U	9	CreatedUtc	datetime2(7)	0	D
+C	governance	core.EnvironmentClass	U	1	EnvironmentClassCode	varchar(30)	0	
+C	governance	core.EnvironmentClass	U	2	Name	nvarchar(100)	0	
+C	governance	core.EnvironmentClass	U	3	Purpose	nvarchar(400)	0	
+C	governance	core.EnvironmentClass	U	4	DefaultAgentLimitCredits	decimal(18,2)	0	
+C	governance	core.EnvironmentClass	U	5	NotificationThresholdPct	int	0	
+C	governance	core.EnvironmentClass	U	6	TenantPoolAllowed	bit	0	
+C	governance	core.EnvironmentClass	U	7	PaygAllowed	bit	0	
+C	governance	core.EnvironmentClass	U	8	DefaultAllocationCredits	decimal(18,2)	0	
+C	governance	core.FundingEnvelope	U	1	EnvelopeId	int	0	I
+C	governance	core.FundingEnvelope	U	10	ApprovedDecisionId	bigint	1	
+C	governance	core.FundingEnvelope	U	11	RowVer	timestamp	0	
+C	governance	core.FundingEnvelope	U	12	SysStart	datetime2(7)	0	
+C	governance	core.FundingEnvelope	U	13	SysEnd	datetime2(7)	0	
+C	governance	core.FundingEnvelope	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.FundingEnvelope	U	3	FundingOwnerId	int	0	
+C	governance	core.FundingEnvelope	U	4	ServiceId	int	0	
+C	governance	core.FundingEnvelope	U	5	PeriodStart	date	0	
+C	governance	core.FundingEnvelope	U	6	PeriodEnd	date	0	
+C	governance	core.FundingEnvelope	U	7	Amount	decimal(18,2)	0	
+C	governance	core.FundingEnvelope	U	8	Unit	varchar(20)	0	
+C	governance	core.FundingEnvelope	U	9	Status	varchar(20)	0	
+C	governance	core.FundingEnvelopeHistory	U	1	EnvelopeId	int	0	
+C	governance	core.FundingEnvelopeHistory	U	10	ApprovedDecisionId	bigint	1	
+C	governance	core.FundingEnvelopeHistory	U	11	RowVer	timestamp	0	
+C	governance	core.FundingEnvelopeHistory	U	12	SysStart	datetime2(7)	0	
+C	governance	core.FundingEnvelopeHistory	U	13	SysEnd	datetime2(7)	0	
+C	governance	core.FundingEnvelopeHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.FundingEnvelopeHistory	U	3	FundingOwnerId	int	0	
+C	governance	core.FundingEnvelopeHistory	U	4	ServiceId	int	0	
+C	governance	core.FundingEnvelopeHistory	U	5	PeriodStart	date	0	
+C	governance	core.FundingEnvelopeHistory	U	6	PeriodEnd	date	0	
+C	governance	core.FundingEnvelopeHistory	U	7	Amount	decimal(18,2)	0	
+C	governance	core.FundingEnvelopeHistory	U	8	Unit	varchar(20)	0	
+C	governance	core.FundingEnvelopeHistory	U	9	Status	varchar(20)	0	
+C	governance	core.FundingOwner	U	1	FundingOwnerId	int	0	I
+C	governance	core.FundingOwner	U	10	Status	varchar(20)	0	
+C	governance	core.FundingOwner	U	11	IsCriticalShared	bit	0	D
+C	governance	core.FundingOwner	U	12	NotificationRecipientsConfirmed	bit	0	D
+C	governance	core.FundingOwner	U	13	AttributionTested	bit	0	D
+C	governance	core.FundingOwner	U	14	EffectiveFrom	date	0	
+C	governance	core.FundingOwner	U	15	EffectiveTo	date	1	
+C	governance	core.FundingOwner	U	16	RowVer	timestamp	0	
+C	governance	core.FundingOwner	U	17	SysStart	datetime2(7)	0	
+C	governance	core.FundingOwner	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.FundingOwner	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.FundingOwner	U	3	Code	varchar(32)	0	
+C	governance	core.FundingOwner	U	4	Name	nvarchar(200)	0	
+C	governance	core.FundingOwner	U	5	OwnerType	varchar(20)	0	
+C	governance	core.FundingOwner	U	6	ParentFundingOwnerId	int	1	
+C	governance	core.FundingOwner	U	7	BusinessOwnerPersonId	int	1	
+C	governance	core.FundingOwner	U	8	FinancePartnerPersonId	int	1	
+C	governance	core.FundingOwner	U	9	FinanceNode	nvarchar(100)	1	
+C	governance	core.FundingOwnerHistory	U	1	FundingOwnerId	int	0	
+C	governance	core.FundingOwnerHistory	U	10	Status	varchar(20)	0	
+C	governance	core.FundingOwnerHistory	U	11	IsCriticalShared	bit	0	
+C	governance	core.FundingOwnerHistory	U	12	NotificationRecipientsConfirmed	bit	0	
+C	governance	core.FundingOwnerHistory	U	13	AttributionTested	bit	0	
+C	governance	core.FundingOwnerHistory	U	14	EffectiveFrom	date	0	
+C	governance	core.FundingOwnerHistory	U	15	EffectiveTo	date	1	
+C	governance	core.FundingOwnerHistory	U	16	RowVer	timestamp	0	
+C	governance	core.FundingOwnerHistory	U	17	SysStart	datetime2(7)	0	
+C	governance	core.FundingOwnerHistory	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.FundingOwnerHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.FundingOwnerHistory	U	3	Code	varchar(32)	0	
+C	governance	core.FundingOwnerHistory	U	4	Name	nvarchar(200)	0	
+C	governance	core.FundingOwnerHistory	U	5	OwnerType	varchar(20)	0	
+C	governance	core.FundingOwnerHistory	U	6	ParentFundingOwnerId	int	1	
+C	governance	core.FundingOwnerHistory	U	7	BusinessOwnerPersonId	int	1	
+C	governance	core.FundingOwnerHistory	U	8	FinancePartnerPersonId	int	1	
+C	governance	core.FundingOwnerHistory	U	9	FinanceNode	nvarchar(100)	1	
+C	governance	core.LicenseDetermination	U	1	LicenseDeterminationId	int	0	I
+C	governance	core.LicenseDetermination	U	2	Scenario	nvarchar(400)	0	
+C	governance	core.LicenseDetermination	U	3	ServiceId	int	1	
+C	governance	core.LicenseDetermination	U	4	Determination	nvarchar(2000)	0	
+C	governance	core.LicenseDetermination	U	5	IncludedInLicense	bit	0	
+C	governance	core.LicenseDetermination	U	6	DeterminedByPersonId	int	0	
+C	governance	core.LicenseDetermination	U	7	DeterminedOn	date	0	
+C	governance	core.LicenseDetermination	U	8	SourceRef	nvarchar(400)	1	
+C	governance	core.SeatChargeSnapshot	U	1	SnapshotId	bigint	0	I
+C	governance	core.SeatChargeSnapshot	U	10	Currency	char(3)	0	
+C	governance	core.SeatChargeSnapshot	U	11	Amount	decimal(18,2)	0	
+C	governance	core.SeatChargeSnapshot	U	12	Status	varchar(20)	0	
+C	governance	core.SeatChargeSnapshot	U	13	SyncRunId	bigint	1	
+C	governance	core.SeatChargeSnapshot	U	14	TakenUtc	datetime2(7)	0	D
+C	governance	core.SeatChargeSnapshot	U	15	CertifiedByPersonId	int	1	
+C	governance	core.SeatChargeSnapshot	U	16	CertifiedUtc	datetime2(7)	1	
+C	governance	core.SeatChargeSnapshot	U	17	RowVer	timestamp	0	
+C	governance	core.SeatChargeSnapshot	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.SeatChargeSnapshot	U	3	PeriodMonth	date	0	
+C	governance	core.SeatChargeSnapshot	U	4	FundingOwnerId	int	1	
+C	governance	core.SeatChargeSnapshot	U	5	ReservedSeats	int	0	
+C	governance	core.SeatChargeSnapshot	U	6	AssignedSeats	int	0	
+C	governance	core.SeatChargeSnapshot	U	7	OverSeats	int	0	
+C	governance	core.SeatChargeSnapshot	U	8	ChargeSeats	int	0	
+C	governance	core.SeatChargeSnapshot	U	9	RatePerSeat	decimal(18,2)	0	
+C	governance	core.SeatGroup	U	1	SeatGroupId	int	0	I
+C	governance	core.SeatGroup	U	10	Notes	nvarchar(1000)	1	
+C	governance	core.SeatGroup	U	11	EffectiveFrom	date	0	
+C	governance	core.SeatGroup	U	12	EffectiveTo	date	1	
+C	governance	core.SeatGroup	U	13	RowVer	timestamp	0	
+C	governance	core.SeatGroup	U	14	SysStart	datetime2(7)	0	
+C	governance	core.SeatGroup	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.SeatGroup	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.SeatGroup	U	3	EntraGroupId	uniqueidentifier	1	
+C	governance	core.SeatGroup	U	4	DisplayName	nvarchar(256)	0	
+C	governance	core.SeatGroup	U	5	Purpose	varchar(20)	0	
+C	governance	core.SeatGroup	U	6	FundingOwnerId	int	1	
+C	governance	core.SeatGroup	U	7	OimRoleName	nvarchar(300)	1	
+C	governance	core.SeatGroup	U	8	Source	varchar(20)	0	D
+C	governance	core.SeatGroup	U	9	PurposeConfirmed	bit	0	D
+C	governance	core.SeatGroupHistory	U	1	SeatGroupId	int	0	
+C	governance	core.SeatGroupHistory	U	10	Notes	nvarchar(1000)	1	
+C	governance	core.SeatGroupHistory	U	11	EffectiveFrom	date	0	
+C	governance	core.SeatGroupHistory	U	12	EffectiveTo	date	1	
+C	governance	core.SeatGroupHistory	U	13	RowVer	timestamp	0	
+C	governance	core.SeatGroupHistory	U	14	SysStart	datetime2(7)	0	
+C	governance	core.SeatGroupHistory	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.SeatGroupHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.SeatGroupHistory	U	3	EntraGroupId	uniqueidentifier	1	
+C	governance	core.SeatGroupHistory	U	4	DisplayName	nvarchar(256)	0	
+C	governance	core.SeatGroupHistory	U	5	Purpose	varchar(20)	0	
+C	governance	core.SeatGroupHistory	U	6	FundingOwnerId	int	1	
+C	governance	core.SeatGroupHistory	U	7	OimRoleName	nvarchar(300)	1	
+C	governance	core.SeatGroupHistory	U	8	Source	varchar(20)	0	
+C	governance	core.SeatGroupHistory	U	9	PurposeConfirmed	bit	0	
+C	governance	core.SeatReclaim	U	1	SeatReclaimId	int	0	I
+C	governance	core.SeatReclaim	U	10	DecidedUtc	datetime2(7)	1	
+C	governance	core.SeatReclaim	U	11	TicketRef	nvarchar(100)	1	
+C	governance	core.SeatReclaim	U	12	CreatedUtc	datetime2(7)	0	D
+C	governance	core.SeatReclaim	U	13	ClosedUtc	datetime2(7)	1	
+C	governance	core.SeatReclaim	U	14	RowVer	timestamp	0	
+C	governance	core.SeatReclaim	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.SeatReclaim	U	3	FundingOwnerId	int	1	
+C	governance	core.SeatReclaim	U	4	PersonId	int	0	
+C	governance	core.SeatReclaim	U	5	LastActivityDate	date	1	
+C	governance	core.SeatReclaim	U	6	InactiveDays	int	1	
+C	governance	core.SeatReclaim	U	7	Status	varchar(20)	0	
+C	governance	core.SeatReclaim	U	8	Reason	nvarchar(1000)	1	
+C	governance	core.SeatReclaim	U	9	DecidedByPersonId	int	1	
+C	governance	core.SeatReservation	U	1	SeatReservationId	int	0	I
+C	governance	core.SeatReservation	U	10	DecisionId	bigint	1	
+C	governance	core.SeatReservation	U	11	ApprovedByPersonId	int	1	
+C	governance	core.SeatReservation	U	12	FlexPoolReview	nvarchar(1000)	1	
+C	governance	core.SeatReservation	U	13	Notes	nvarchar(1000)	1	
+C	governance	core.SeatReservation	U	14	CreatedByPersonId	int	1	
+C	governance	core.SeatReservation	U	15	CreatedUtc	datetime2(7)	0	D
+C	governance	core.SeatReservation	U	16	RowVer	timestamp	0	
+C	governance	core.SeatReservation	U	17	SysStart	datetime2(7)	0	
+C	governance	core.SeatReservation	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.SeatReservation	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.SeatReservation	U	3	FundingOwnerId	int	0	
+C	governance	core.SeatReservation	U	4	Seats	int	0	
+C	governance	core.SeatReservation	U	5	PreviousSeats	int	1	
+C	governance	core.SeatReservation	U	6	ChangeKind	varchar(20)	0	
+C	governance	core.SeatReservation	U	7	EffectiveFrom	date	0	
+C	governance	core.SeatReservation	U	8	EffectiveTo	date	1	
+C	governance	core.SeatReservation	U	9	RequestId	bigint	1	
+C	governance	core.SeatReservationHistory	U	1	SeatReservationId	int	0	
+C	governance	core.SeatReservationHistory	U	10	DecisionId	bigint	1	
+C	governance	core.SeatReservationHistory	U	11	ApprovedByPersonId	int	1	
+C	governance	core.SeatReservationHistory	U	12	FlexPoolReview	nvarchar(1000)	1	
+C	governance	core.SeatReservationHistory	U	13	Notes	nvarchar(1000)	1	
+C	governance	core.SeatReservationHistory	U	14	CreatedByPersonId	int	1	
+C	governance	core.SeatReservationHistory	U	15	CreatedUtc	datetime2(7)	0	
+C	governance	core.SeatReservationHistory	U	16	RowVer	timestamp	0	
+C	governance	core.SeatReservationHistory	U	17	SysStart	datetime2(7)	0	
+C	governance	core.SeatReservationHistory	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.SeatReservationHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.SeatReservationHistory	U	3	FundingOwnerId	int	0	
+C	governance	core.SeatReservationHistory	U	4	Seats	int	0	
+C	governance	core.SeatReservationHistory	U	5	PreviousSeats	int	1	
+C	governance	core.SeatReservationHistory	U	6	ChangeKind	varchar(20)	0	
+C	governance	core.SeatReservationHistory	U	7	EffectiveFrom	date	0	
+C	governance	core.SeatReservationHistory	U	8	EffectiveTo	date	1	
+C	governance	core.SeatReservationHistory	U	9	RequestId	bigint	1	
+C	governance	core.SeatSku	U	1	SkuId	uniqueidentifier	0	
+C	governance	core.SeatSku	U	2	SkuPartNumber	varchar(100)	0	
+C	governance	core.SeatSku	U	3	Name	nvarchar(200)	0	
+C	governance	core.SeatSku	U	4	Kind	varchar(20)	0	
+C	governance	core.SeatSku	U	5	IsActive	bit	0	D
+C	governance	core.SeatSku	U	6	Notes	nvarchar(1000)	1	
+C	governance	core.Service	U	1	ServiceId	int	0	I
+C	governance	core.Service	U	10	Audiences	nvarchar(400)	0	
+C	governance	core.Service	U	11	DataClasses	nvarchar(400)	0	
+C	governance	core.Service	U	12	AccessTiers	nvarchar(200)	0	
+C	governance	core.Service	U	13	OperationalOwnerPersonId	int	1	
+C	governance	core.Service	U	14	ReviewOn	date	1	
+C	governance	core.Service	U	15	Description	nvarchar(2000)	1	
+C	governance	core.Service	U	16	RowVer	timestamp	0	
+C	governance	core.Service	U	17	SysStart	datetime2(7)	0	
+C	governance	core.Service	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.Service	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.Service	U	3	Code	varchar(40)	0	
+C	governance	core.Service	U	4	Name	nvarchar(200)	0	
+C	governance	core.Service	U	5	Harness	nvarchar(100)	1	
+C	governance	core.Service	U	6	RouteType	varchar(20)	0	
+C	governance	core.Service	U	7	TenantAvailability	varchar(20)	0	
+C	governance	core.Service	U	8	InstitutionalStatus	varchar(20)	0	
+C	governance	core.Service	U	9	IsCustomerFacing	bit	0	D
+C	governance	core.ServiceHistory	U	1	ServiceId	int	0	
+C	governance	core.ServiceHistory	U	10	Audiences	nvarchar(400)	0	
+C	governance	core.ServiceHistory	U	11	DataClasses	nvarchar(400)	0	
+C	governance	core.ServiceHistory	U	12	AccessTiers	nvarchar(200)	0	
+C	governance	core.ServiceHistory	U	13	OperationalOwnerPersonId	int	1	
+C	governance	core.ServiceHistory	U	14	ReviewOn	date	1	
+C	governance	core.ServiceHistory	U	15	Description	nvarchar(2000)	1	
+C	governance	core.ServiceHistory	U	16	RowVer	timestamp	0	
+C	governance	core.ServiceHistory	U	17	SysStart	datetime2(7)	0	
+C	governance	core.ServiceHistory	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.ServiceHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.ServiceHistory	U	3	Code	varchar(40)	0	
+C	governance	core.ServiceHistory	U	4	Name	nvarchar(200)	0	
+C	governance	core.ServiceHistory	U	5	Harness	nvarchar(100)	1	
+C	governance	core.ServiceHistory	U	6	RouteType	varchar(20)	0	
+C	governance	core.ServiceHistory	U	7	TenantAvailability	varchar(20)	0	
+C	governance	core.ServiceHistory	U	8	InstitutionalStatus	varchar(20)	0	
+C	governance	core.ServiceHistory	U	9	IsCustomerFacing	bit	0	
+C	governance	core.Workload	U	1	WorkloadId	int	0	I
+C	governance	core.Workload	U	10	Criticality	varchar(20)	1	
+C	governance	core.Workload	U	11	TriggerType	varchar(30)	1	
+C	governance	core.Workload	U	12	DataBoundary	nvarchar(400)	1	
+C	governance	core.Workload	U	13	DataClass	varchar(20)	1	
+C	governance	core.Workload	U	14	Audience	nvarchar(400)	1	
+C	governance	core.Workload	U	15	EnvironmentClassCode	varchar(30)	1	
+C	governance	core.Workload	U	16	ProductOwnerPersonId	int	1	
+C	governance	core.Workload	U	17	SponsorPersonId	int	1	
+C	governance	core.Workload	U	18	SupportContact	nvarchar(200)	1	
+C	governance	core.Workload	U	19	State	varchar(20)	0	
+C	governance	core.Workload	U	2	PublicId	uniqueidentifier	0	D
+C	governance	core.Workload	U	20	ExpiresOn	date	1	
+C	governance	core.Workload	U	21	NextReviewOn	date	1	
+C	governance	core.Workload	U	22	ComplianceCaseRef	nvarchar(200)	1	
+C	governance	core.Workload	U	23	RowVer	timestamp	0	
+C	governance	core.Workload	U	24	SysStart	datetime2(7)	0	
+C	governance	core.Workload	U	25	SysEnd	datetime2(7)	0	
+C	governance	core.Workload	U	3	Name	nvarchar(200)	0	
+C	governance	core.Workload	U	4	WorkloadType	varchar(30)	0	
+C	governance	core.Workload	U	5	FundingOwnerId	int	0	
+C	governance	core.Workload	U	6	CostCenterId	int	1	
+C	governance	core.Workload	U	7	SolutionClass	varchar(30)	1	
+C	governance	core.Workload	U	8	LifecycleStage	varchar(20)	1	
+C	governance	core.Workload	U	9	ServiceId	int	1	
+C	governance	core.WorkloadBinding	U	1	BindingId	int	0	I
+C	governance	core.WorkloadBinding	U	10	SysStart	datetime2(7)	0	
+C	governance	core.WorkloadBinding	U	11	SysEnd	datetime2(7)	0	
+C	governance	core.WorkloadBinding	U	2	WorkloadId	int	0	
+C	governance	core.WorkloadBinding	U	3	FundingOwnerId	int	0	
+C	governance	core.WorkloadBinding	U	4	ObjectType	varchar(30)	0	
+C	governance	core.WorkloadBinding	U	5	ExternalId	nvarchar(200)	0	
+C	governance	core.WorkloadBinding	U	6	DisplayName	nvarchar(400)	1	
+C	governance	core.WorkloadBinding	U	7	EffectiveFrom	date	0	
+C	governance	core.WorkloadBinding	U	8	EffectiveTo	date	1	
+C	governance	core.WorkloadBinding	U	9	RowVer	timestamp	0	
+C	governance	core.WorkloadBindingHistory	U	1	BindingId	int	0	
+C	governance	core.WorkloadBindingHistory	U	10	SysStart	datetime2(7)	0	
+C	governance	core.WorkloadBindingHistory	U	11	SysEnd	datetime2(7)	0	
+C	governance	core.WorkloadBindingHistory	U	2	WorkloadId	int	0	
+C	governance	core.WorkloadBindingHistory	U	3	FundingOwnerId	int	0	
+C	governance	core.WorkloadBindingHistory	U	4	ObjectType	varchar(30)	0	
+C	governance	core.WorkloadBindingHistory	U	5	ExternalId	nvarchar(200)	0	
+C	governance	core.WorkloadBindingHistory	U	6	DisplayName	nvarchar(400)	1	
+C	governance	core.WorkloadBindingHistory	U	7	EffectiveFrom	date	0	
+C	governance	core.WorkloadBindingHistory	U	8	EffectiveTo	date	1	
+C	governance	core.WorkloadBindingHistory	U	9	RowVer	timestamp	0	
+C	governance	core.WorkloadHistory	U	1	WorkloadId	int	0	
+C	governance	core.WorkloadHistory	U	10	Criticality	varchar(20)	1	
+C	governance	core.WorkloadHistory	U	11	TriggerType	varchar(30)	1	
+C	governance	core.WorkloadHistory	U	12	DataBoundary	nvarchar(400)	1	
+C	governance	core.WorkloadHistory	U	13	DataClass	varchar(20)	1	
+C	governance	core.WorkloadHistory	U	14	Audience	nvarchar(400)	1	
+C	governance	core.WorkloadHistory	U	15	EnvironmentClassCode	varchar(30)	1	
+C	governance	core.WorkloadHistory	U	16	ProductOwnerPersonId	int	1	
+C	governance	core.WorkloadHistory	U	17	SponsorPersonId	int	1	
+C	governance	core.WorkloadHistory	U	18	SupportContact	nvarchar(200)	1	
+C	governance	core.WorkloadHistory	U	19	State	varchar(20)	0	
+C	governance	core.WorkloadHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	core.WorkloadHistory	U	20	ExpiresOn	date	1	
+C	governance	core.WorkloadHistory	U	21	NextReviewOn	date	1	
+C	governance	core.WorkloadHistory	U	22	ComplianceCaseRef	nvarchar(200)	1	
+C	governance	core.WorkloadHistory	U	23	RowVer	timestamp	0	
+C	governance	core.WorkloadHistory	U	24	SysStart	datetime2(7)	0	
+C	governance	core.WorkloadHistory	U	25	SysEnd	datetime2(7)	0	
+C	governance	core.WorkloadHistory	U	3	Name	nvarchar(200)	0	
+C	governance	core.WorkloadHistory	U	4	WorkloadType	varchar(30)	0	
+C	governance	core.WorkloadHistory	U	5	FundingOwnerId	int	0	
+C	governance	core.WorkloadHistory	U	6	CostCenterId	int	1	
+C	governance	core.WorkloadHistory	U	7	SolutionClass	varchar(30)	1	
+C	governance	core.WorkloadHistory	U	8	LifecycleStage	varchar(20)	1	
+C	governance	core.WorkloadHistory	U	9	ServiceId	int	1	
+C	governance	core.WorkloadMeter	U	1	WorkloadMeterId	int	0	I
+C	governance	core.WorkloadMeter	U	2	WorkloadId	int	0	
+C	governance	core.WorkloadMeter	U	3	MeterCode	varchar(40)	0	
+C	governance	core.WorkloadMeter	U	4	Description	nvarchar(400)	1	
+C	governance	evd.Attestation	U	1	AttestationId	bigint	0	I
+C	governance	evd.Attestation	U	10	MatchesTemplate	bit	0	
+C	governance	evd.Attestation	U	11	Differences	nvarchar(2000)	1	
+C	governance	evd.Attestation	U	12	AttestedByPersonId	int	0	
+C	governance	evd.Attestation	U	13	AttestedUtc	datetime2(7)	0	
+C	governance	evd.Attestation	U	14	Reason	varchar(20)	0	
+C	governance	evd.Attestation	U	15	ledger_start_transaction_id	bigint	0	
+C	governance	evd.Attestation	U	16	ledger_start_sequence_number	bigint	0	
+C	governance	evd.Attestation	U	2	PublicId	uniqueidentifier	0	
+C	governance	evd.Attestation	U	3	FundingOwnerId	int	1	
+C	governance	evd.Attestation	U	4	WorkloadId	int	1	
+C	governance	evd.Attestation	U	5	BindingId	int	1	
+C	governance	evd.Attestation	U	6	TemplateId	int	1	
+C	governance	evd.Attestation	U	7	RequestId	bigint	1	
+C	governance	evd.Attestation	U	8	Subject	nvarchar(400)	0	
+C	governance	evd.Attestation	U	9	AttestedJson	nvarchar(max)	0	
+C	governance	evd.Attestation_Ledger	V	1	AttestationId	bigint	0	I
+C	governance	evd.Attestation_Ledger	V	10	MatchesTemplate	bit	0	
+C	governance	evd.Attestation_Ledger	V	11	Differences	nvarchar(2000)	1	
+C	governance	evd.Attestation_Ledger	V	12	AttestedByPersonId	int	0	
+C	governance	evd.Attestation_Ledger	V	13	AttestedUtc	datetime2(7)	0	
+C	governance	evd.Attestation_Ledger	V	14	Reason	varchar(20)	0	
+C	governance	evd.Attestation_Ledger	V	15	ledger_transaction_id	bigint	0	
+C	governance	evd.Attestation_Ledger	V	16	ledger_sequence_number	bigint	0	
+C	governance	evd.Attestation_Ledger	V	17	ledger_operation_type	int	0	
+C	governance	evd.Attestation_Ledger	V	18	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	evd.Attestation_Ledger	V	2	PublicId	uniqueidentifier	0	
+C	governance	evd.Attestation_Ledger	V	3	FundingOwnerId	int	1	
+C	governance	evd.Attestation_Ledger	V	4	WorkloadId	int	1	
+C	governance	evd.Attestation_Ledger	V	5	BindingId	int	1	
+C	governance	evd.Attestation_Ledger	V	6	TemplateId	int	1	
+C	governance	evd.Attestation_Ledger	V	7	RequestId	bigint	1	
+C	governance	evd.Attestation_Ledger	V	8	Subject	nvarchar(400)	0	
+C	governance	evd.Attestation_Ledger	V	9	AttestedJson	nvarchar(max)	0	
+C	governance	evd.EvidenceContent	U	1	ContentId	bigint	0	I
+C	governance	evd.EvidenceContent	U	2	Bytes	varbinary(max)	1	
+C	governance	evd.EvidenceContent	U	3	PurgedUtc	datetime2(7)	1	
+C	governance	evd.EvidenceItem	U	1	EvidenceId	bigint	0	I
+C	governance	evd.EvidenceItem	U	10	Description	nvarchar(1000)	1	
+C	governance	evd.EvidenceItem	U	11	SourceSystem	varchar(40)	0	
+C	governance	evd.EvidenceItem	U	12	UploadedByPersonId	int	0	
+C	governance	evd.EvidenceItem	U	13	UploadedUtc	datetime2(7)	0	
+C	governance	evd.EvidenceItem	U	14	ledger_start_transaction_id	bigint	0	
+C	governance	evd.EvidenceItem	U	15	ledger_start_sequence_number	bigint	0	
+C	governance	evd.EvidenceItem	U	2	PublicId	uniqueidentifier	0	
+C	governance	evd.EvidenceItem	U	3	ContentId	bigint	1	
+C	governance	evd.EvidenceItem	U	4	FundingOwnerId	int	1	
+C	governance	evd.EvidenceItem	U	5	EvidenceType	varchar(40)	0	
+C	governance	evd.EvidenceItem	U	6	FileName	nvarchar(260)	1	
+C	governance	evd.EvidenceItem	U	7	ContentType	varchar(100)	1	
+C	governance	evd.EvidenceItem	U	8	SizeBytes	bigint	1	
+C	governance	evd.EvidenceItem	U	9	Sha256	binary(32)	1	
+C	governance	evd.EvidenceItem_Ledger	V	1	EvidenceId	bigint	0	I
+C	governance	evd.EvidenceItem_Ledger	V	10	Description	nvarchar(1000)	1	
+C	governance	evd.EvidenceItem_Ledger	V	11	SourceSystem	varchar(40)	0	
+C	governance	evd.EvidenceItem_Ledger	V	12	UploadedByPersonId	int	0	
+C	governance	evd.EvidenceItem_Ledger	V	13	UploadedUtc	datetime2(7)	0	
+C	governance	evd.EvidenceItem_Ledger	V	14	ledger_transaction_id	bigint	0	
+C	governance	evd.EvidenceItem_Ledger	V	15	ledger_sequence_number	bigint	0	
+C	governance	evd.EvidenceItem_Ledger	V	16	ledger_operation_type	int	0	
+C	governance	evd.EvidenceItem_Ledger	V	17	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	evd.EvidenceItem_Ledger	V	2	PublicId	uniqueidentifier	0	
+C	governance	evd.EvidenceItem_Ledger	V	3	ContentId	bigint	1	
+C	governance	evd.EvidenceItem_Ledger	V	4	FundingOwnerId	int	1	
+C	governance	evd.EvidenceItem_Ledger	V	5	EvidenceType	varchar(40)	0	
+C	governance	evd.EvidenceItem_Ledger	V	6	FileName	nvarchar(260)	1	
+C	governance	evd.EvidenceItem_Ledger	V	7	ContentType	varchar(100)	1	
+C	governance	evd.EvidenceItem_Ledger	V	8	SizeBytes	bigint	1	
+C	governance	evd.EvidenceItem_Ledger	V	9	Sha256	binary(32)	1	
+C	governance	evd.EvidenceLink	U	1	EvidenceId	bigint	0	
+C	governance	evd.EvidenceLink	U	2	LinkType	varchar(20)	0	
+C	governance	evd.EvidenceLink	U	3	LinkId	bigint	0	
+C	governance	evd.EvidenceLink	U	4	LinkedUtc	datetime2(7)	0	
+C	governance	evd.EvidenceLink	U	5	LinkedByPersonId	int	0	
+C	governance	evd.EvidenceLink	U	6	ledger_start_transaction_id	bigint	0	
+C	governance	evd.EvidenceLink	U	7	ledger_start_sequence_number	bigint	0	
+C	governance	evd.EvidenceLink_Ledger	V	1	EvidenceId	bigint	0	
+C	governance	evd.EvidenceLink_Ledger	V	2	LinkType	varchar(20)	0	
+C	governance	evd.EvidenceLink_Ledger	V	3	LinkId	bigint	0	
+C	governance	evd.EvidenceLink_Ledger	V	4	LinkedUtc	datetime2(7)	0	
+C	governance	evd.EvidenceLink_Ledger	V	5	LinkedByPersonId	int	0	
+C	governance	evd.EvidenceLink_Ledger	V	6	ledger_transaction_id	bigint	0	
+C	governance	evd.EvidenceLink_Ledger	V	7	ledger_sequence_number	bigint	0	
+C	governance	evd.EvidenceLink_Ledger	V	8	ledger_operation_type	int	0	
+C	governance	evd.EvidenceLink_Ledger	V	9	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	evd.Verification	U	1	VerificationId	bigint	0	I
+C	governance	evd.Verification	U	10	ChecksJson	nvarchar(max)	0	
+C	governance	evd.Verification	U	11	ConfigurationVersion	nvarchar(100)	1	
+C	governance	evd.Verification	U	12	VerifiedUtc	datetime2(7)	0	
+C	governance	evd.Verification	U	13	ledger_start_transaction_id	bigint	0	
+C	governance	evd.Verification	U	14	ledger_start_sequence_number	bigint	0	
+C	governance	evd.Verification	U	2	PublicId	uniqueidentifier	0	
+C	governance	evd.Verification	U	3	RequestId	bigint	0	
+C	governance	evd.Verification	U	4	FundingOwnerId	int	1	
+C	governance	evd.Verification	U	5	TemplateId	int	1	
+C	governance	evd.Verification	U	6	ConfiguredByPersonId	int	1	
+C	governance	evd.Verification	U	7	VerifierPersonId	int	0	
+C	governance	evd.Verification	U	8	Method	varchar(20)	0	
+C	governance	evd.Verification	U	9	Result	varchar(10)	0	
+C	governance	evd.Verification_Ledger	V	1	VerificationId	bigint	0	I
+C	governance	evd.Verification_Ledger	V	10	ChecksJson	nvarchar(max)	0	
+C	governance	evd.Verification_Ledger	V	11	ConfigurationVersion	nvarchar(100)	1	
+C	governance	evd.Verification_Ledger	V	12	VerifiedUtc	datetime2(7)	0	
+C	governance	evd.Verification_Ledger	V	13	ledger_transaction_id	bigint	0	
+C	governance	evd.Verification_Ledger	V	14	ledger_sequence_number	bigint	0	
+C	governance	evd.Verification_Ledger	V	15	ledger_operation_type	int	0	
+C	governance	evd.Verification_Ledger	V	16	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	evd.Verification_Ledger	V	2	PublicId	uniqueidentifier	0	
+C	governance	evd.Verification_Ledger	V	3	RequestId	bigint	0	
+C	governance	evd.Verification_Ledger	V	4	FundingOwnerId	int	1	
+C	governance	evd.Verification_Ledger	V	5	TemplateId	int	1	
+C	governance	evd.Verification_Ledger	V	6	ConfiguredByPersonId	int	1	
+C	governance	evd.Verification_Ledger	V	7	VerifierPersonId	int	0	
+C	governance	evd.Verification_Ledger	V	8	Method	varchar(20)	0	
+C	governance	evd.Verification_Ledger	V	9	Result	varchar(10)	0	
+C	governance	intg.AccessPackageMap	U	1	AccessPackageId	uniqueidentifier	0	
+C	governance	intg.AccessPackageMap	U	2	DisplayName	nvarchar(256)	0	
+C	governance	intg.AccessPackageMap	U	3	FundingOwnerId	int	0	
+C	governance	intg.AccessPackageMap	U	4	ServiceId	int	0	
+C	governance	intg.AccessPackageMap	U	5	Tier	nvarchar(50)	0	
+C	governance	intg.AccessPackageMap	U	6	PolicyGroupId	uniqueidentifier	1	
+C	governance	intg.AccessPackageMap	U	7	CatalogId	uniqueidentifier	1	
+C	governance	intg.AccessReviewDecision	U	1	DecisionKey	nvarchar(200)	0	
+C	governance	intg.AccessReviewDecision	U	10	SyncRunId	bigint	0	
+C	governance	intg.AccessReviewDecision	U	2	ReviewDefinitionId	nvarchar(100)	0	
+C	governance	intg.AccessReviewDecision	U	3	InstanceId	nvarchar(100)	0	
+C	governance	intg.AccessReviewDecision	U	4	PrincipalObjectId	uniqueidentifier	1	
+C	governance	intg.AccessReviewDecision	U	5	Decision	varchar(30)	0	
+C	governance	intg.AccessReviewDecision	U	6	ReviewedByObjectId	uniqueidentifier	1	
+C	governance	intg.AccessReviewDecision	U	7	ReviewedUtc	datetime2(7)	1	
+C	governance	intg.AccessReviewDecision	U	8	Justification	nvarchar(1000)	1	
+C	governance	intg.AccessReviewDecision	U	9	CampaignId	int	1	
+C	governance	intg.AllocationReading	U	1	AllocationReadingId	bigint	0	I
+C	governance	intg.AllocationReading	U	10	RawJson	nvarchar(max)	1	
+C	governance	intg.AllocationReading	U	11	ReadUtc	datetime2(7)	1	D
+C	governance	intg.AllocationReading	U	2	SyncRunId	bigint	0	
+C	governance	intg.AllocationReading	U	3	EnvironmentId	nvarchar(200)	0	
+C	governance	intg.AllocationReading	U	4	AllocatedCredits	decimal(18,2)	1	
+C	governance	intg.AllocationReading	U	5	TenantPoolEnabled	bit	1	
+C	governance	intg.AllocationReading	U	6	BillingPolicyId	nvarchar(200)	1	
+C	governance	intg.AllocationReading	U	7	PaygLinked	bit	1	
+C	governance	intg.AllocationReading	U	8	ConsumedCredits	decimal(18,2)	1	
+C	governance	intg.AllocationReading	U	9	TenantPoolLockedByGroupRule	bit	1	
+C	governance	intg.CopilotActivity	U	1	UserPrincipalName	nvarchar(256)	0	
+C	governance	intg.CopilotActivity	U	2	LastActivityDate	date	1	
+C	governance	intg.CopilotActivity	U	3	ReportRefreshDate	date	1	
+C	governance	intg.CopilotActivity	U	4	LastSeenRunId	bigint	0	
+C	governance	intg.DeltaToken	U	1	TokenKey	varchar(100)	0	
+C	governance	intg.DeltaToken	U	2	DeltaLink	nvarchar(max)	0	
+C	governance	intg.DeltaToken	U	3	UpdatedUtc	datetime2(7)	0	D
+C	governance	intg.EntitlementAssignment	U	1	AssignmentId	uniqueidentifier	0	
+C	governance	intg.EntitlementAssignment	U	10	Justification	nvarchar(1000)	1	
+C	governance	intg.EntitlementAssignment	U	11	DecisionId	bigint	1	
+C	governance	intg.EntitlementAssignment	U	12	LastSeenRunId	bigint	0	
+C	governance	intg.EntitlementAssignment	U	2	AccessPackageId	uniqueidentifier	0	
+C	governance	intg.EntitlementAssignment	U	3	TargetObjectId	uniqueidentifier	1	
+C	governance	intg.EntitlementAssignment	U	4	TargetPersonId	int	1	
+C	governance	intg.EntitlementAssignment	U	5	State	varchar(30)	0	
+C	governance	intg.EntitlementAssignment	U	6	ExpiresUtc	datetime2(7)	1	
+C	governance	intg.EntitlementAssignment	U	7	CreatedUtc	datetime2(7)	1	
+C	governance	intg.EntitlementAssignment	U	8	RequestId	uniqueidentifier	1	
+C	governance	intg.EntitlementAssignment	U	9	ApproverObjectId	uniqueidentifier	1	
+C	governance	intg.GroupMember	U	1	GroupId	uniqueidentifier	0	
+C	governance	intg.GroupMember	U	2	MemberObjectId	uniqueidentifier	0	
+C	governance	intg.GroupMember	U	3	LastSeenRunId	bigint	0	
+C	governance	intg.InventoryItem	U	1	InventoryItemId	bigint	0	I
+C	governance	intg.InventoryItem	U	10	Harness	nvarchar(100)	1	
+C	governance	intg.InventoryItem	U	11	CreatedAt	datetime2(7)	1	
+C	governance	intg.InventoryItem	U	12	RawJson	nvarchar(max)	1	
+C	governance	intg.InventoryItem	U	2	SyncRunId	bigint	0	
+C	governance	intg.InventoryItem	U	3	ResourceType	varchar(80)	0	
+C	governance	intg.InventoryItem	U	4	ResourceId	nvarchar(200)	0	
+C	governance	intg.InventoryItem	U	5	DisplayName	nvarchar(400)	1	
+C	governance	intg.InventoryItem	U	6	EnvironmentId	nvarchar(200)	1	
+C	governance	intg.InventoryItem	U	7	EnvironmentName	nvarchar(400)	1	
+C	governance	intg.InventoryItem	U	8	EnvironmentType	nvarchar(60)	1	
+C	governance	intg.InventoryItem	U	9	OwnerObjectId	nvarchar(100)	1	
+C	governance	intg.JobRun	U	1	JobRunId	bigint	0	I
+C	governance	intg.JobRun	U	2	JobName	varchar(60)	0	
+C	governance	intg.JobRun	U	3	Node	nvarchar(100)	0	
+C	governance	intg.JobRun	U	4	StartedUtc	datetime2(7)	0	
+C	governance	intg.JobRun	U	5	FinishedUtc	datetime2(7)	1	
+C	governance	intg.JobRun	U	6	Status	varchar(20)	0	
+C	governance	intg.JobRun	U	7	Message	nvarchar(1000)	1	
+C	governance	intg.PersonCostCenterSeen	U	1	PersonId	int	0	
+C	governance	intg.PersonCostCenterSeen	U	2	CostCenterCode	nvarchar(100)	1	
+C	governance	intg.PersonCostCenterSeen	U	3	SeenUtc	datetime2(7)	0	D
+C	governance	intg.RegistryRow	U	1	RegistryRowId	bigint	0	I
+C	governance	intg.RegistryRow	U	2	SyncRunId	bigint	0	
+C	governance	intg.RegistryRow	U	3	AgentId	nvarchar(200)	0	
+C	governance	intg.RegistryRow	U	4	Name	nvarchar(400)	1	
+C	governance	intg.RegistryRow	U	5	Platform	nvarchar(100)	1	
+C	governance	intg.RegistryRow	U	6	OwnerUpn	nvarchar(256)	1	
+C	governance	intg.RegistryRow	U	7	Status	nvarchar(60)	1	
+C	governance	intg.RegistryRow	U	8	Audience	nvarchar(400)	1	
+C	governance	intg.RegistryRow	U	9	Matched	bit	0	D
+C	governance	intg.SeatGroupReading	U	1	SeatGroupReadingId	bigint	0	I
+C	governance	intg.SeatGroupReading	U	10	ReadUtc	datetime2(7)	0	D
+C	governance	intg.SeatGroupReading	U	2	SyncRunId	bigint	0	
+C	governance	intg.SeatGroupReading	U	3	SeatGroupId	int	0	
+C	governance	intg.SeatGroupReading	U	4	EntraGroupId	uniqueidentifier	1	
+C	governance	intg.SeatGroupReading	U	5	Found	bit	0	
+C	governance	intg.SeatGroupReading	U	6	OnPremisesSynced	bit	1	
+C	governance	intg.SeatGroupReading	U	7	UserMembers	int	1	
+C	governance	intg.SeatGroupReading	U	8	NestedGroups	int	1	
+C	governance	intg.SeatGroupReading	U	9	LicensedSkuIds	nvarchar(1000)	1	
+C	governance	intg.SeatHolder	U	1	MemberObjectId	uniqueidentifier	0	
+C	governance	intg.SeatHolder	U	10	FirstSeenUtc	datetime2(7)	1	
+C	governance	intg.SeatHolder	U	2	SkuId	uniqueidentifier	0	
+C	governance	intg.SeatHolder	U	3	AssignedByGroupId	uniqueidentifier	0	
+C	governance	intg.SeatHolder	U	4	State	varchar(30)	1	
+C	governance	intg.SeatHolder	U	5	Error	varchar(50)	1	
+C	governance	intg.SeatHolder	U	6	UsageLocation	varchar(10)	1	
+C	governance	intg.SeatHolder	U	7	UserPrincipalName	nvarchar(256)	1	
+C	governance	intg.SeatHolder	U	8	StateUpdatedUtc	datetime2(7)	1	
+C	governance	intg.SeatHolder	U	9	LastSeenRunId	bigint	0	
+C	governance	intg.SeatSkuReading	U	1	SeatSkuReadingId	bigint	0	I
+C	governance	intg.SeatSkuReading	U	2	SyncRunId	bigint	0	
+C	governance	intg.SeatSkuReading	U	3	SkuId	uniqueidentifier	0	
+C	governance	intg.SeatSkuReading	U	4	SkuPartNumber	varchar(100)	0	
+C	governance	intg.SeatSkuReading	U	5	EnabledUnits	int	0	
+C	governance	intg.SeatSkuReading	U	6	WarningUnits	int	0	
+C	governance	intg.SeatSkuReading	U	7	SuspendedUnits	int	0	
+C	governance	intg.SeatSkuReading	U	8	ConsumedUnits	int	0	
+C	governance	intg.SeatSkuReading	U	9	ReadUtc	datetime2(7)	0	D
+C	governance	intg.SyncRun	U	1	SyncRunId	bigint	0	I
+C	governance	intg.SyncRun	U	10	FindingsRaised	int	0	D
+C	governance	intg.SyncRun	U	11	Message	nvarchar(1000)	1	
+C	governance	intg.SyncRun	U	2	PublicId	uniqueidentifier	0	D
+C	governance	intg.SyncRun	U	3	Integration	varchar(10)	0	
+C	governance	intg.SyncRun	U	4	Mode	varchar(20)	0	
+C	governance	intg.SyncRun	U	5	TriggeredByPersonId	int	1	
+C	governance	intg.SyncRun	U	6	StartedUtc	datetime2(7)	0	D
+C	governance	intg.SyncRun	U	7	FinishedUtc	datetime2(7)	1	
+C	governance	intg.SyncRun	U	8	Status	varchar(20)	0	
+C	governance	intg.SyncRun	U	9	ItemsRead	int	0	D
+C	governance	ntf.Delivery	U	1	DeliveryId	bigint	0	I
+C	governance	ntf.Delivery	U	10	Utc	datetime2(7)	0	D
+C	governance	ntf.Delivery	U	11	Attempts	int	0	D
+C	governance	ntf.Delivery	U	2	OutboxId	bigint	1	
+C	governance	ntf.Delivery	U	3	RecipientPersonId	int	1	
+C	governance	ntf.Delivery	U	4	RecipientAddress	nvarchar(256)	1	
+C	governance	ntf.Delivery	U	5	Channel	varchar(20)	0	
+C	governance	ntf.Delivery	U	6	DedupeKey	nvarchar(300)	0	
+C	governance	ntf.Delivery	U	7	Subject	nvarchar(400)	1	
+C	governance	ntf.Delivery	U	8	Status	varchar(20)	0	
+C	governance	ntf.Delivery	U	9	Detail	nvarchar(1000)	1	
+C	governance	ntf.DigestEntry	U	1	DigestEntryId	bigint	0	I
+C	governance	ntf.DigestEntry	U	2	PersonId	int	0	
+C	governance	ntf.DigestEntry	U	3	RuleCode	varchar(10)	0	
+C	governance	ntf.DigestEntry	U	4	Text	nvarchar(1000)	0	
+C	governance	ntf.DigestEntry	U	5	Link	nvarchar(400)	1	
+C	governance	ntf.DigestEntry	U	6	CreatedUtc	datetime2(7)	0	D
+C	governance	ntf.DigestEntry	U	7	SentUtc	datetime2(7)	1	
+C	governance	ntf.NotificationRule	U	1	Code	varchar(10)	0	
+C	governance	ntf.NotificationRule	U	2	EventName	nvarchar(200)	0	
+C	governance	ntf.NotificationRule	U	3	Recipients	nvarchar(400)	0	
+C	governance	ntf.NotificationRule	U	4	Channels	varchar(100)	0	
+C	governance	ntf.NotificationRule	U	5	Timing	nvarchar(400)	0	
+C	governance	ntf.NotificationRule	U	6	IsAction	bit	0	
+C	governance	ntf.NotificationRule	U	7	IsEnabled	bit	0	D
+C	governance	ntf.Outbox	U	1	OutboxId	bigint	0	I
+C	governance	ntf.Outbox	U	10	Attempts	int	0	D
+C	governance	ntf.Outbox	U	11	ProcessedAtUtc	datetime2(7)	1	
+C	governance	ntf.Outbox	U	12	DeadLetteredUtc	datetime2(7)	1	
+C	governance	ntf.Outbox	U	13	LastError	nvarchar(1000)	1	
+C	governance	ntf.Outbox	U	2	EventType	varchar(60)	0	
+C	governance	ntf.Outbox	U	3	Payload	nvarchar(max)	0	
+C	governance	ntf.Outbox	U	4	DedupeKey	nvarchar(200)	0	
+C	governance	ntf.Outbox	U	5	CorrelationId	uniqueidentifier	0	D
+C	governance	ntf.Outbox	U	6	CreatedUtc	datetime2(7)	0	D
+C	governance	ntf.Outbox	U	7	AvailableAtUtc	datetime2(7)	0	D
+C	governance	ntf.Outbox	U	8	LockedBy	nvarchar(100)	1	
+C	governance	ntf.Outbox	U	9	LockedUntilUtc	datetime2(7)	1	
+C	governance	ntf.Preference	U	1	PersonId	int	0	
+C	governance	ntf.Preference	U	2	ActivityFeed	bit	0	D
+C	governance	ntf.Preference	U	3	QuietStart	time(7)	1	
+C	governance	ntf.Preference	U	4	QuietEnd	time(7)	1	
+C	governance	ntf.Preference	U	5	DigestHour	int	0	D
+C	governance	ops.ConsumptionEvent	U	1	EventId	int	0	I
+C	governance	ops.ConsumptionEvent	U	10	ReportedUtc	datetime2(7)	0	D
+C	governance	ops.ConsumptionEvent	U	11	AckDueUtc	datetime2(7)	0	
+C	governance	ops.ConsumptionEvent	U	12	AckUtc	datetime2(7)	1	
+C	governance	ops.ConsumptionEvent	U	13	AckByPersonId	int	1	
+C	governance	ops.ConsumptionEvent	U	14	ResponseAction	nvarchar(2000)	1	
+C	governance	ops.ConsumptionEvent	U	15	RestoredUtc	datetime2(7)	1	
+C	governance	ops.ConsumptionEvent	U	16	ReviewNotes	nvarchar(2000)	1	
+C	governance	ops.ConsumptionEvent	U	17	CriticalServiceAffected	bit	0	D
+C	governance	ops.ConsumptionEvent	U	18	Status	varchar(20)	0	
+C	governance	ops.ConsumptionEvent	U	19	RowVer	timestamp	0	
+C	governance	ops.ConsumptionEvent	U	2	PublicId	uniqueidentifier	0	D
+C	governance	ops.ConsumptionEvent	U	3	FundingOwnerId	int	0	
+C	governance	ops.ConsumptionEvent	U	4	WorkloadId	int	1	
+C	governance	ops.ConsumptionEvent	U	5	EventClass	varchar(30)	0	
+C	governance	ops.ConsumptionEvent	U	6	Severity	varchar(10)	0	
+C	governance	ops.ConsumptionEvent	U	7	Title	nvarchar(300)	0	
+C	governance	ops.ConsumptionEvent	U	8	Description	nvarchar(2000)	0	
+C	governance	ops.ConsumptionEvent	U	9	ReportedByPersonId	int	0	
+C	governance	ops.Finding	U	1	FindingId	bigint	0	I
+C	governance	ops.Finding	U	10	Expected	nvarchar(400)	1	
+C	governance	ops.Finding	U	11	Actual	nvarchar(400)	1	
+C	governance	ops.Finding	U	12	Status	varchar(20)	0	
+C	governance	ops.Finding	U	13	DedupeKey	nvarchar(300)	0	
+C	governance	ops.Finding	U	14	SyncRunId	bigint	1	
+C	governance	ops.Finding	U	15	RaisedUtc	datetime2(7)	0	D
+C	governance	ops.Finding	U	16	LastSeenUtc	datetime2(7)	0	D
+C	governance	ops.Finding	U	17	DueUtc	datetime2(7)	1	
+C	governance	ops.Finding	U	18	ResolvedUtc	datetime2(7)	1	
+C	governance	ops.Finding	U	19	ResolvedByPersonId	int	1	
+C	governance	ops.Finding	U	2	PublicId	uniqueidentifier	0	D
+C	governance	ops.Finding	U	20	Resolution	nvarchar(1000)	1	
+C	governance	ops.Finding	U	21	RowVer	timestamp	0	
+C	governance	ops.Finding	U	3	FindingType	varchar(40)	0	
+C	governance	ops.Finding	U	4	Severity	varchar(10)	0	
+C	governance	ops.Finding	U	5	FundingOwnerId	int	1	
+C	governance	ops.Finding	U	6	WorkloadId	int	1	
+C	governance	ops.Finding	U	7	ExternalId	nvarchar(200)	1	
+C	governance	ops.Finding	U	8	Title	nvarchar(300)	0	
+C	governance	ops.Finding	U	9	Details	nvarchar(2000)	1	
+C	governance	ref.Caveat	U	1	CaveatCode	varchar(10)	0	
+C	governance	ref.Caveat	U	2	Title	nvarchar(200)	0	
+C	governance	ref.Caveat	U	3	Control	nvarchar(1000)	0	
+C	governance	ref.Caveat	U	4	Guidance	nvarchar(2000)	1	
+C	governance	ref.Holiday	U	1	HolidayDate	date	0	
+C	governance	ref.Holiday	U	2	Name	nvarchar(100)	0	
+C	governance	ref.Setting	U	1	SettingKey	varchar(100)	0	
+C	governance	ref.Setting	U	2	SettingValue	nvarchar(2000)	0	
+C	governance	ref.Setting	U	3	Description	nvarchar(400)	1	
+C	governance	ref.Setting	U	4	UpdatedUtc	datetime2(7)	0	D
+C	governance	ref.Setting	U	5	UpdatedByPersonId	int	1	
+C	governance	ref.Setting	U	6	RowVer	timestamp	0	
+C	governance	ref.TextBlock	U	1	TextKey	varchar(120)	0	
+C	governance	ref.TextBlock	U	2	VersionNo	int	0	
+C	governance	ref.TextBlock	U	3	Body	nvarchar(4000)	0	
+C	governance	ref.TextBlock	U	4	Status	varchar(20)	0	
+C	governance	ref.TextBlock	U	5	ApprovedByPersonId	int	1	
+C	governance	ref.TextBlock	U	6	UpdatedUtc	datetime2(7)	0	D
+C	governance	rpt.fn_SeatHolders	IF	1	MemberObjectId	uniqueidentifier	0	
+C	governance	rpt.fn_SeatPosition	IF	1	FundingOwnerId	int	1	
+C	governance	rpt.fn_SeatPosition	IF	2	Code	varchar(32)	1	
+C	governance	rpt.fn_SeatPosition	IF	3	Name	nvarchar(200)	0	
+C	governance	rpt.fn_SeatPosition	IF	4	SeatGroupId	int	1	
+C	governance	rpt.fn_SeatPosition	IF	5	TrackingGroup	nvarchar(256)	1	
+C	governance	rpt.fn_SeatPosition	IF	6	ReservedSeats	int	0	
+C	governance	rpt.fn_SeatPosition	IF	7	TrackingMembers	int	1	
+C	governance	rpt.fn_SeatPosition	IF	8	AssignedSeats	int	1	
+C	governance	rpt.fn_SeatPosition	IF	9	OverSeats	int	1	
+C	governance	rpt.vDecision	V	1	PublicId	uniqueidentifier	0	
+C	governance	rpt.vDecision	V	10	DelegationId	int	1	
+C	governance	rpt.vDecision	V	11	ScopeText	nvarchar(1000)	0	
+C	governance	rpt.vDecision	V	12	ConditionsText	nvarchar(2000)	1	
+C	governance	rpt.vDecision	V	13	ExpiresOn	date	1	
+C	governance	rpt.vDecision	V	14	NextReviewOn	date	1	
+C	governance	rpt.vDecision	V	15	RequestNumber	varchar(20)	1	
+C	governance	rpt.vDecision	V	16	FundingOwner	nvarchar(200)	1	
+C	governance	rpt.vDecision	V	2	DecisionType	varchar(40)	0	
+C	governance	rpt.vDecision	V	3	Outcome	varchar(30)	0	
+C	governance	rpt.vDecision	V	4	DecidedAtUtc	datetime2(7)	0	
+C	governance	rpt.vDecision	V	5	Source	varchar(30)	0	
+C	governance	rpt.vDecision	V	6	RaciActivityCode	varchar(60)	0	
+C	governance	rpt.vDecision	V	7	RaciVersionId	int	0	
+C	governance	rpt.vDecision	V	8	Decider	nvarchar(256)	0	
+C	governance	rpt.vDecision	V	9	DeciderRoleCode	varchar(40)	0	
+C	governance	rpt.vKpi	V	1	KpiCode	varchar(22)	0	
+C	governance	rpt.vKpi	V	2	Name	nvarchar(42)	0	
+C	governance	rpt.vKpi	V	3	Numerator	decimal(18,2)	1	
+C	governance	rpt.vKpi	V	4	Denominator	decimal(18,2)	1	
+C	governance	rpt.vKpi	V	5	Phase	int	0	
+C	governance	rpt.vWorkloadInScope	V	1	WorkloadId	int	0	
+C	governance	rpt.vWorkloadInScope	V	10	ServiceName	nvarchar(200)	1	
+C	governance	rpt.vWorkloadInScope	V	11	LifecycleStage	varchar(20)	1	
+C	governance	rpt.vWorkloadInScope	V	12	SolutionClass	varchar(30)	1	
+C	governance	rpt.vWorkloadInScope	V	13	Criticality	varchar(20)	1	
+C	governance	rpt.vWorkloadInScope	V	14	State	varchar(20)	0	
+C	governance	rpt.vWorkloadInScope	V	15	HasOwnership	int	0	
+C	governance	rpt.vWorkloadInScope	V	16	OnApprovedRoute	int	0	
+C	governance	rpt.vWorkloadInScope	V	2	PublicId	uniqueidentifier	0	
+C	governance	rpt.vWorkloadInScope	V	3	Name	nvarchar(200)	0	
+C	governance	rpt.vWorkloadInScope	V	4	WorkloadType	varchar(30)	0	
+C	governance	rpt.vWorkloadInScope	V	5	FundingOwnerId	int	0	
+C	governance	rpt.vWorkloadInScope	V	6	FundingOwnerName	nvarchar(200)	0	
+C	governance	rpt.vWorkloadInScope	V	7	OwnerType	varchar(20)	0	
+C	governance	rpt.vWorkloadInScope	V	8	CostCenterId	int	1	
+C	governance	rpt.vWorkloadInScope	V	9	ServiceId	int	1	
+C	governance	sec.Delegation	U	1	DelegationId	int	0	I
+C	governance	sec.Delegation	U	10	Notes	nvarchar(1000)	1	
+C	governance	sec.Delegation	U	11	RowVer	timestamp	0	
+C	governance	sec.Delegation	U	12	SysStart	datetime2(7)	0	
+C	governance	sec.Delegation	U	13	SysEnd	datetime2(7)	0	
+C	governance	sec.Delegation	U	2	PublicId	uniqueidentifier	0	D
+C	governance	sec.Delegation	U	3	FundingOwnerId	int	0	
+C	governance	sec.Delegation	U	4	DelegatePersonId	int	0	
+C	governance	sec.Delegation	U	5	GrantedByPersonId	int	0	
+C	governance	sec.Delegation	U	6	MaxCreditsPerRequest	decimal(18,2)	1	
+C	governance	sec.Delegation	U	7	EffectiveFrom	date	0	
+C	governance	sec.Delegation	U	8	EffectiveTo	date	1	
+C	governance	sec.Delegation	U	9	Status	varchar(20)	0	
+C	governance	sec.DelegationEnvelope	U	1	DelegationId	int	0	
+C	governance	sec.DelegationEnvelope	U	2	EnvelopeId	int	0	
+C	governance	sec.DelegationHistory	U	1	DelegationId	int	0	
+C	governance	sec.DelegationHistory	U	10	Notes	nvarchar(1000)	1	
+C	governance	sec.DelegationHistory	U	11	RowVer	timestamp	0	
+C	governance	sec.DelegationHistory	U	12	SysStart	datetime2(7)	0	
+C	governance	sec.DelegationHistory	U	13	SysEnd	datetime2(7)	0	
+C	governance	sec.DelegationHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	sec.DelegationHistory	U	3	FundingOwnerId	int	0	
+C	governance	sec.DelegationHistory	U	4	DelegatePersonId	int	0	
+C	governance	sec.DelegationHistory	U	5	GrantedByPersonId	int	0	
+C	governance	sec.DelegationHistory	U	6	MaxCreditsPerRequest	decimal(18,2)	1	
+C	governance	sec.DelegationHistory	U	7	EffectiveFrom	date	0	
+C	governance	sec.DelegationHistory	U	8	EffectiveTo	date	1	
+C	governance	sec.DelegationHistory	U	9	Status	varchar(20)	0	
+C	governance	sec.GroupRoleMap	U	1	EntraGroupId	uniqueidentifier	0	
+C	governance	sec.GroupRoleMap	U	2	RoleCode	varchar(40)	0	
+C	governance	sec.GroupRoleMap	U	3	GroupName	nvarchar(256)	1	
+C	governance	sec.Person	U	1	PersonId	int	0	I
+C	governance	sec.Person	U	10	CostCenterCode	nvarchar(100)	1	
+C	governance	sec.Person	U	11	ManagerPersonId	int	1	
+C	governance	sec.Person	U	12	AccountEnabled	bit	0	D
+C	governance	sec.Person	U	13	LeaveDate	date	1	
+C	governance	sec.Person	U	14	IsSynthetic	bit	0	D
+C	governance	sec.Person	U	15	LastSyncedUtc	datetime2(7)	1	
+C	governance	sec.Person	U	16	SyncRunId	bigint	1	
+C	governance	sec.Person	U	17	RowVer	timestamp	0	
+C	governance	sec.Person	U	2	PublicId	uniqueidentifier	0	D
+C	governance	sec.Person	U	3	EntraObjectId	uniqueidentifier	1	
+C	governance	sec.Person	U	4	UserPrincipalName	nvarchar(256)	1	
+C	governance	sec.Person	U	5	DisplayName	nvarchar(256)	0	
+C	governance	sec.Person	U	6	Mail	nvarchar(256)	1	
+C	governance	sec.Person	U	7	JobTitle	nvarchar(200)	1	
+C	governance	sec.Person	U	8	Department	nvarchar(200)	1	
+C	governance	sec.Person	U	9	Division	nvarchar(200)	1	
+C	governance	sec.RaciActivity	U	1	ActivityCode	varchar(60)	0	
+C	governance	sec.RaciActivity	U	2	Name	nvarchar(200)	0	
+C	governance	sec.RaciActivity	U	3	GovernsStages	nvarchar(200)	0	
+C	governance	sec.RaciActivity	U	4	SimplifiedRow	nvarchar(200)	0	
+C	governance	sec.RaciActivity	U	5	SortOrder	int	0	
+C	governance	sec.RaciCell	U	1	RaciVersionId	int	0	
+C	governance	sec.RaciCell	U	2	ActivityCode	varchar(60)	0	
+C	governance	sec.RaciCell	U	3	FunctionCode	varchar(30)	0	
+C	governance	sec.RaciCell	U	4	RaciValue	varchar(3)	0	
+C	governance	sec.RaciFunction	U	1	FunctionCode	varchar(30)	0	
+C	governance	sec.RaciFunction	U	2	Name	nvarchar(100)	0	
+C	governance	sec.RaciFunction	U	3	ScopeType	varchar(20)	0	
+C	governance	sec.RaciFunction	U	4	DecisionRoleCode	varchar(40)	1	
+C	governance	sec.RaciFunction	U	5	WorkRoleCode	varchar(40)	1	
+C	governance	sec.RaciFunction	U	6	ConsultRoleCode	varchar(40)	1	
+C	governance	sec.RaciFunction	U	7	SortOrder	int	0	
+C	governance	sec.RaciVersion	U	1	RaciVersionId	int	0	I
+C	governance	sec.RaciVersion	U	10	SteeringApprovalUtc	datetime2(7)	1	
+C	governance	sec.RaciVersion	U	11	ActivatedUtc	datetime2(7)	1	
+C	governance	sec.RaciVersion	U	12	RowVer	timestamp	0	
+C	governance	sec.RaciVersion	U	2	VersionNo	int	0	
+C	governance	sec.RaciVersion	U	3	Status	varchar(20)	0	
+C	governance	sec.RaciVersion	U	4	Notes	nvarchar(2000)	1	
+C	governance	sec.RaciVersion	U	5	CreatedByPersonId	int	1	
+C	governance	sec.RaciVersion	U	6	CreatedUtc	datetime2(7)	0	D
+C	governance	sec.RaciVersion	U	7	PlatformOwnerApprovalPersonId	int	1	
+C	governance	sec.RaciVersion	U	8	PlatformOwnerApprovalUtc	datetime2(7)	1	
+C	governance	sec.RaciVersion	U	9	SteeringApprovalPersonId	int	1	
+C	governance	sec.RoleAssignment	U	1	RoleAssignmentId	int	0	I
+C	governance	sec.RoleAssignment	U	10	SourceGroupId	uniqueidentifier	1	
+C	governance	sec.RoleAssignment	U	11	AcceptedUtc	datetime2(7)	1	
+C	governance	sec.RoleAssignment	U	12	ReviewDueOn	date	1	
+C	governance	sec.RoleAssignment	U	13	GrantedByPersonId	int	1	
+C	governance	sec.RoleAssignment	U	14	RowVer	timestamp	0	
+C	governance	sec.RoleAssignment	U	15	SysStart	datetime2(7)	0	
+C	governance	sec.RoleAssignment	U	16	SysEnd	datetime2(7)	0	
+C	governance	sec.RoleAssignment	U	2	PublicId	uniqueidentifier	0	D
+C	governance	sec.RoleAssignment	U	3	PersonId	int	0	
+C	governance	sec.RoleAssignment	U	4	RoleCode	varchar(40)	0	
+C	governance	sec.RoleAssignment	U	5	ScopeType	varchar(20)	0	
+C	governance	sec.RoleAssignment	U	6	ScopeId	int	1	
+C	governance	sec.RoleAssignment	U	7	EffectiveFrom	date	0	
+C	governance	sec.RoleAssignment	U	8	EffectiveTo	date	1	
+C	governance	sec.RoleAssignment	U	9	Source	varchar(20)	0	
+C	governance	sec.RoleAssignmentHistory	U	1	RoleAssignmentId	int	0	
+C	governance	sec.RoleAssignmentHistory	U	10	SourceGroupId	uniqueidentifier	1	
+C	governance	sec.RoleAssignmentHistory	U	11	AcceptedUtc	datetime2(7)	1	
+C	governance	sec.RoleAssignmentHistory	U	12	ReviewDueOn	date	1	
+C	governance	sec.RoleAssignmentHistory	U	13	GrantedByPersonId	int	1	
+C	governance	sec.RoleAssignmentHistory	U	14	RowVer	timestamp	0	
+C	governance	sec.RoleAssignmentHistory	U	15	SysStart	datetime2(7)	0	
+C	governance	sec.RoleAssignmentHistory	U	16	SysEnd	datetime2(7)	0	
+C	governance	sec.RoleAssignmentHistory	U	2	PublicId	uniqueidentifier	0	
+C	governance	sec.RoleAssignmentHistory	U	3	PersonId	int	0	
+C	governance	sec.RoleAssignmentHistory	U	4	RoleCode	varchar(40)	0	
+C	governance	sec.RoleAssignmentHistory	U	5	ScopeType	varchar(20)	0	
+C	governance	sec.RoleAssignmentHistory	U	6	ScopeId	int	1	
+C	governance	sec.RoleAssignmentHistory	U	7	EffectiveFrom	date	0	
+C	governance	sec.RoleAssignmentHistory	U	8	EffectiveTo	date	1	
+C	governance	sec.RoleAssignmentHistory	U	9	Source	varchar(20)	0	
+C	governance	sec.RoleDefinition	U	1	RoleCode	varchar(40)	0	
+C	governance	sec.RoleDefinition	U	2	Name	nvarchar(100)	0	
+C	governance	sec.RoleDefinition	U	3	Description	nvarchar(1000)	0	
+C	governance	sec.RoleDefinition	U	4	FunctionCode	varchar(30)	1	
+C	governance	sec.RoleDefinition	U	5	ScopeType	varchar(20)	0	
+C	governance	sec.RoleDefinition	U	6	IsCentral	bit	0	
+C	governance	sec.RoleDefinition	U	7	IsLob	bit	0	
+C	governance	sec.RoleDefinition	U	8	CanDecide	bit	0	
+C	governance	sec.RoleDefinition	U	9	SortOrder	int	0	
+C	governance	sec.RolePermission	U	1	RoleCode	varchar(40)	0	
+C	governance	sec.RolePermission	U	2	Permission	varchar(60)	0	
+C	governance	sec.SodSetting	U	1	RuleCode	varchar(10)	0	
+C	governance	sec.SodSetting	U	2	Description	nvarchar(400)	0	
+C	governance	sec.SodSetting	U	3	IsEnforced	bit	0	
+C	governance	sec.SodSetting	U	4	AllowSamePersonForTwoDecisionTypes	bit	0	D
+C	governance	sec.TokenCache	U	1	Id	nvarchar(449)	0	
+C	governance	sec.TokenCache	U	2	Value	varbinary(max)	0	
+C	governance	sec.TokenCache	U	3	ExpiresAtTime	datetimeoffset(7)	0	
+C	governance	sec.TokenCache	U	4	SlidingExpirationInSeconds	bigint	1	
+C	governance	sec.TokenCache	U	5	AbsoluteExpiration	datetimeoffset(7)	1	
+C	governance	sec.fn_ChildAccess	IF	1	AccessResult	int	0	
+C	governance	sec.fn_FundingOwnerAccess	IF	1	AccessResult	int	0	
+C	governance	sec.fn_RequestAccess	IF	1	AccessResult	int	0	
+C	governance	sec.fn_TaskAccess	IF	1	AccessResult	int	0	
+C	governance	wf.Campaign	U	1	CampaignId	int	0	I
+C	governance	wf.Campaign	U	10	CreatedUtc	datetime2(7)	0	D
+C	governance	wf.Campaign	U	2	PublicId	uniqueidentifier	0	D
+C	governance	wf.Campaign	U	3	CampaignType	varchar(20)	0	
+C	governance	wf.Campaign	U	4	Name	nvarchar(200)	0	
+C	governance	wf.Campaign	U	5	StartsOn	date	0	
+C	governance	wf.Campaign	U	6	DueOn	date	0	
+C	governance	wf.Campaign	U	7	Status	varchar(20)	0	
+C	governance	wf.Campaign	U	8	AccessReviewDefinitionId	nvarchar(100)	1	
+C	governance	wf.Campaign	U	9	CreatedByPersonId	int	1	
+C	governance	wf.CampaignItem	U	1	CampaignItemId	int	0	I
+C	governance	wf.CampaignItem	U	10	TaskId	bigint	1	
+C	governance	wf.CampaignItem	U	11	CompletedUtc	datetime2(7)	1	
+C	governance	wf.CampaignItem	U	2	CampaignId	int	0	
+C	governance	wf.CampaignItem	U	3	FundingOwnerId	int	0	
+C	governance	wf.CampaignItem	U	4	WorkloadId	int	1	
+C	governance	wf.CampaignItem	U	5	OwnerPersonId	int	1	
+C	governance	wf.CampaignItem	U	6	Status	varchar(20)	0	
+C	governance	wf.CampaignItem	U	7	Outcome	varchar(20)	1	
+C	governance	wf.CampaignItem	U	8	OutcomeEvidence	nvarchar(2000)	1	
+C	governance	wf.CampaignItem	U	9	DecisionId	bigint	1	
+C	governance	wf.CommandLog	U	1	IdempotencyKey	uniqueidentifier	0	
+C	governance	wf.CommandLog	U	2	PersonId	int	0	
+C	governance	wf.CommandLog	U	3	Command	varchar(80)	0	
+C	governance	wf.CommandLog	U	4	ResultRef	nvarchar(200)	1	
+C	governance	wf.CommandLog	U	5	Utc	datetime2(7)	0	D
+C	governance	wf.Comment	U	1	CommentId	bigint	0	I
+C	governance	wf.Comment	U	2	RequestId	bigint	0	
+C	governance	wf.Comment	U	3	FundingOwnerId	int	0	
+C	governance	wf.Comment	U	4	PersonId	int	0	
+C	governance	wf.Comment	U	5	Body	nvarchar(2000)	0	
+C	governance	wf.Comment	U	6	Utc	datetime2(7)	0	D
+C	governance	wf.ConsultDefinition	U	1	DefinitionId	int	0	
+C	governance	wf.ConsultDefinition	U	2	StageCode	varchar(20)	0	
+C	governance	wf.ConsultDefinition	U	3	FunctionCode	varchar(30)	0	
+C	governance	wf.ConsultDefinition	U	4	IsBlocking	bit	0	
+C	governance	wf.Decision	U	1	DecisionId	bigint	0	I
+C	governance	wf.Decision	U	10	DelegationId	int	1	
+C	governance	wf.Decision	U	11	OnBehalfOfPersonId	int	1	
+C	governance	wf.Decision	U	12	RaciVersionId	int	0	
+C	governance	wf.Decision	U	13	RaciActivityCode	varchar(60)	0	
+C	governance	wf.Decision	U	14	StageCode	varchar(20)	1	
+C	governance	wf.Decision	U	15	ScopeText	nvarchar(1000)	0	
+C	governance	wf.Decision	U	16	ConditionsText	nvarchar(2000)	1	
+C	governance	wf.Decision	U	17	ReasonText	nvarchar(2000)	1	
+C	governance	wf.Decision	U	18	RequiredEvidenceText	nvarchar(2000)	1	
+C	governance	wf.Decision	U	19	ExpiresOn	date	1	
+C	governance	wf.Decision	U	2	PublicId	uniqueidentifier	0	
+C	governance	wf.Decision	U	20	NextReviewOn	date	1	
+C	governance	wf.Decision	U	21	Source	varchar(30)	0	
+C	governance	wf.Decision	U	22	SourceRef	nvarchar(200)	1	
+C	governance	wf.Decision	U	23	SupersedesDecisionId	bigint	1	
+C	governance	wf.Decision	U	24	DecidedAtUtc	datetime2(7)	0	
+C	governance	wf.Decision	U	25	ledger_start_transaction_id	bigint	0	
+C	governance	wf.Decision	U	26	ledger_start_sequence_number	bigint	0	
+C	governance	wf.Decision	U	3	RequestId	bigint	1	
+C	governance	wf.Decision	U	4	WorkloadId	int	1	
+C	governance	wf.Decision	U	5	FundingOwnerId	int	1	
+C	governance	wf.Decision	U	6	DecisionType	varchar(40)	0	
+C	governance	wf.Decision	U	7	Outcome	varchar(30)	0	
+C	governance	wf.Decision	U	8	DeciderPersonId	int	0	
+C	governance	wf.Decision	U	9	DeciderRoleCode	varchar(40)	0	
+C	governance	wf.DecisionCondition	U	1	DecisionId	bigint	0	
+C	governance	wf.DecisionCondition	U	2	ConditionNo	int	0	
+C	governance	wf.DecisionCondition	U	3	ConditionText	nvarchar(1000)	0	
+C	governance	wf.DecisionCondition	U	4	OwnerPersonId	int	1	
+C	governance	wf.DecisionCondition	U	5	DueOn	date	1	
+C	governance	wf.DecisionCondition	U	6	ledger_start_transaction_id	bigint	0	
+C	governance	wf.DecisionCondition	U	7	ledger_start_sequence_number	bigint	0	
+C	governance	wf.DecisionCondition_Ledger	V	1	DecisionId	bigint	0	
+C	governance	wf.DecisionCondition_Ledger	V	2	ConditionNo	int	0	
+C	governance	wf.DecisionCondition_Ledger	V	3	ConditionText	nvarchar(1000)	0	
+C	governance	wf.DecisionCondition_Ledger	V	4	OwnerPersonId	int	1	
+C	governance	wf.DecisionCondition_Ledger	V	5	DueOn	date	1	
+C	governance	wf.DecisionCondition_Ledger	V	6	ledger_transaction_id	bigint	0	
+C	governance	wf.DecisionCondition_Ledger	V	7	ledger_sequence_number	bigint	0	
+C	governance	wf.DecisionCondition_Ledger	V	8	ledger_operation_type	int	0	
+C	governance	wf.DecisionCondition_Ledger	V	9	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	wf.Decision_Ledger	V	1	DecisionId	bigint	0	I
+C	governance	wf.Decision_Ledger	V	10	DelegationId	int	1	
+C	governance	wf.Decision_Ledger	V	11	OnBehalfOfPersonId	int	1	
+C	governance	wf.Decision_Ledger	V	12	RaciVersionId	int	0	
+C	governance	wf.Decision_Ledger	V	13	RaciActivityCode	varchar(60)	0	
+C	governance	wf.Decision_Ledger	V	14	StageCode	varchar(20)	1	
+C	governance	wf.Decision_Ledger	V	15	ScopeText	nvarchar(1000)	0	
+C	governance	wf.Decision_Ledger	V	16	ConditionsText	nvarchar(2000)	1	
+C	governance	wf.Decision_Ledger	V	17	ReasonText	nvarchar(2000)	1	
+C	governance	wf.Decision_Ledger	V	18	RequiredEvidenceText	nvarchar(2000)	1	
+C	governance	wf.Decision_Ledger	V	19	ExpiresOn	date	1	
+C	governance	wf.Decision_Ledger	V	2	PublicId	uniqueidentifier	0	
+C	governance	wf.Decision_Ledger	V	20	NextReviewOn	date	1	
+C	governance	wf.Decision_Ledger	V	21	Source	varchar(30)	0	
+C	governance	wf.Decision_Ledger	V	22	SourceRef	nvarchar(200)	1	
+C	governance	wf.Decision_Ledger	V	23	SupersedesDecisionId	bigint	1	
+C	governance	wf.Decision_Ledger	V	24	DecidedAtUtc	datetime2(7)	0	
+C	governance	wf.Decision_Ledger	V	25	ledger_transaction_id	bigint	0	
+C	governance	wf.Decision_Ledger	V	26	ledger_sequence_number	bigint	0	
+C	governance	wf.Decision_Ledger	V	27	ledger_operation_type	int	0	
+C	governance	wf.Decision_Ledger	V	28	ledger_operation_type_desc	nvarchar(6)	0	
+C	governance	wf.Decision_Ledger	V	3	RequestId	bigint	1	
+C	governance	wf.Decision_Ledger	V	4	WorkloadId	int	1	
+C	governance	wf.Decision_Ledger	V	5	FundingOwnerId	int	1	
+C	governance	wf.Decision_Ledger	V	6	DecisionType	varchar(40)	0	
+C	governance	wf.Decision_Ledger	V	7	Outcome	varchar(30)	0	
+C	governance	wf.Decision_Ledger	V	8	DeciderPersonId	int	0	
+C	governance	wf.Decision_Ledger	V	9	DeciderRoleCode	varchar(40)	0	
+C	governance	wf.EscalationStep	U	1	LadderCode	varchar(30)	0	
+C	governance	wf.EscalationStep	U	2	Level	int	0	
+C	governance	wf.EscalationStep	U	3	RoleCode	varchar(40)	0	
+C	governance	wf.EscalationStep	U	4	ScopeKind	varchar(30)	0	
+C	governance	wf.ExceptionItem	U	1	ExceptionId	int	0	I
+C	governance	wf.ExceptionItem	U	10	OwnerPersonId	int	0	
+C	governance	wf.ExceptionItem	U	11	ExpiresOn	date	0	
+C	governance	wf.ExceptionItem	U	12	NextReviewOn	date	1	
+C	governance	wf.ExceptionItem	U	13	Status	varchar(20)	0	
+C	governance	wf.ExceptionItem	U	14	Notified30	bit	0	D
+C	governance	wf.ExceptionItem	U	15	Notified7	bit	0	D
+C	governance	wf.ExceptionItem	U	16	Notified1	bit	0	D
+C	governance	wf.ExceptionItem	U	17	CreatedUtc	datetime2(7)	0	D
+C	governance	wf.ExceptionItem	U	18	ClosedUtc	datetime2(7)	1	
+C	governance	wf.ExceptionItem	U	19	RowVer	timestamp	0	
+C	governance	wf.ExceptionItem	U	2	PublicId	uniqueidentifier	0	D
+C	governance	wf.ExceptionItem	U	3	FundingOwnerId	int	0	
+C	governance	wf.ExceptionItem	U	4	WorkloadId	int	1	
+C	governance	wf.ExceptionItem	U	5	RequestId	bigint	1	
+C	governance	wf.ExceptionItem	U	6	DecisionId	bigint	1	
+C	governance	wf.ExceptionItem	U	7	Title	nvarchar(200)	0	
+C	governance	wf.ExceptionItem	U	8	Description	nvarchar(2000)	0	
+C	governance	wf.ExceptionItem	U	9	CompensatingControls	nvarchar(2000)	0	
+C	governance	wf.ItsmTicket	U	1	ItsmTicketId	bigint	0	I
+C	governance	wf.ItsmTicket	U	10	State	varchar(30)	0	
+C	governance	wf.ItsmTicket	U	11	Payload	nvarchar(max)	0	
+C	governance	wf.ItsmTicket	U	12	ClosureNotes	nvarchar(2000)	1	
+C	governance	wf.ItsmTicket	U	13	CreatedUtc	datetime2(7)	0	D
+C	governance	wf.ItsmTicket	U	14	LastPolledUtc	datetime2(7)	1	
+C	governance	wf.ItsmTicket	U	15	ClosedUtc	datetime2(7)	1	
+C	governance	wf.ItsmTicket	U	16	RowVer	timestamp	0	
+C	governance	wf.ItsmTicket	U	17	PollError	nvarchar(400)	1	
+C	governance	wf.ItsmTicket	U	18	PollErrorUtc	datetime2(7)	1	
+C	governance	wf.ItsmTicket	U	2	FundingOwnerId	int	1	
+C	governance	wf.ItsmTicket	U	3	RequestId	bigint	1	
+C	governance	wf.ItsmTicket	U	4	TaskId	bigint	1	
+C	governance	wf.ItsmTicket	U	5	EventId	int	1	
+C	governance	wf.ItsmTicket	U	6	Kind	varchar(20)	0	
+C	governance	wf.ItsmTicket	U	7	CorrelationId	uniqueidentifier	0	
+C	governance	wf.ItsmTicket	U	8	ExternalNumber	nvarchar(60)	1	
+C	governance	wf.ItsmTicket	U	9	ExternalUrl	nvarchar(400)	1	
+C	governance	wf.Request	U	1	RequestId	bigint	0	I
+C	governance	wf.Request	U	10	WorkloadId	int	1	
+C	governance	wf.Request	U	11	FundingOwnerId	int	0	
+C	governance	wf.Request	U	12	ServiceId	int	1	
+C	governance	wf.Request	U	13	RequesterPersonId	int	0	
+C	governance	wf.Request	U	14	SponsorPersonId	int	1	
+C	governance	wf.Request	U	15	PayloadJson	nvarchar(max)	0	
+C	governance	wf.Request	U	16	EstimateCredits	decimal(18,2)	1	
+C	governance	wf.Request	U	17	EnvelopeId	int	1	
+C	governance	wf.Request	U	18	PatternId	int	1	
+C	governance	wf.Request	U	19	PatternResult	nvarchar(max)	1	
+C	governance	wf.Request	U	2	PublicId	uniqueidentifier	0	D
+C	governance	wf.Request	U	20	TriggeredReviews	nvarchar(max)	1	
+C	governance	wf.Request	U	21	CreatedUtc	datetime2(7)	0	D
+C	governance	wf.Request	U	22	SubmittedUtc	datetime2(7)	1	
+C	governance	wf.Request	U	23	ClosedUtc	datetime2(7)	1	
+C	governance	wf.Request	U	24	LastActivityUtc	datetime2(7)	0	D
+C	governance	wf.Request	U	25	RowVer	timestamp	0	
+C	governance	wf.Request	U	26	ConfigurerPersonId	int	1	
+C	governance	wf.Request	U	27	MetersDeclaredNone	bit	0	D
+C	governance	wf.Request	U	3	RequestNumber	varchar(20)	0	
+C	governance	wf.Request	U	4	JourneyCode	varchar(10)	0	
+C	governance	wf.Request	U	5	DefinitionId	int	0	
+C	governance	wf.Request	U	6	State	varchar(30)	0	
+C	governance	wf.Request	U	7	CurrentStage	varchar(20)	1	
+C	governance	wf.Request	U	8	Title	nvarchar(200)	0	
+C	governance	wf.Request	U	9	Summary	nvarchar(2000)	1	
+C	governance	wf.RequestEvent	U	1	RequestEventId	bigint	0	I
+C	governance	wf.RequestEvent	U	10	Text	nvarchar(2000)	1	
+C	governance	wf.RequestEvent	U	2	RequestId	bigint	0	
+C	governance	wf.RequestEvent	U	3	FundingOwnerId	int	0	
+C	governance	wf.RequestEvent	U	4	Utc	datetime2(7)	0	D
+C	governance	wf.RequestEvent	U	5	PersonId	int	1	
+C	governance	wf.RequestEvent	U	6	EventType	varchar(40)	0	
+C	governance	wf.RequestEvent	U	7	FromState	varchar(30)	1	
+C	governance	wf.RequestEvent	U	8	ToState	varchar(30)	1	
+C	governance	wf.RequestEvent	U	9	StageCode	varchar(20)	1	
+C	governance	wf.SlaPolicy	U	1	SlaPolicyCode	varchar(30)	0	
+C	governance	wf.SlaPolicy	U	2	Name	nvarchar(100)	0	
+C	governance	wf.SlaPolicy	U	3	Duration	int	0	
+C	governance	wf.SlaPolicy	U	4	Unit	varchar(10)	0	
+C	governance	wf.SlaPolicy	U	5	Calendar	varchar(20)	0	
+C	governance	wf.SlaPolicy	U	6	RemindAtPct1	int	0	D
+C	governance	wf.SlaPolicy	U	7	RemindAtPct2	int	0	D
+C	governance	wf.StageDefinition	U	1	DefinitionId	int	0	
+C	governance	wf.StageDefinition	U	10	AllowsDelegation	bit	0	D
+C	governance	wf.StageDefinition	U	11	RequiredEvidence	nvarchar(400)	1	
+C	governance	wf.StageDefinition	U	12	EntryRule	varchar(60)	1	
+C	governance	wf.StageDefinition	U	13	ExitRule	varchar(60)	1	
+C	governance	wf.StageDefinition	U	14	NotifyCodes	varchar(100)	1	
+C	governance	wf.StageDefinition	U	15	Guidance	nvarchar(1000)	1	
+C	governance	wf.StageDefinition	U	16	SortOrder	int	0	
+C	governance	wf.StageDefinition	U	2	StageCode	varchar(20)	0	
+C	governance	wf.StageDefinition	U	3	Name	nvarchar(200)	0	
+C	governance	wf.StageDefinition	U	4	RaciActivityCode	varchar(60)	1	
+C	governance	wf.StageDefinition	U	5	TaskKind	varchar(20)	0	
+C	governance	wf.StageDefinition	U	6	TaskRoleCode	varchar(40)	1	
+C	governance	wf.StageDefinition	U	7	DecisionType	varchar(40)	1	
+C	governance	wf.StageDefinition	U	8	SlaPolicyCode	varchar(30)	1	
+C	governance	wf.StageDefinition	U	9	LadderCode	varchar(30)	1	
+C	governance	wf.Task	U	1	TaskId	bigint	0	I
+C	governance	wf.Task	U	10	ScopeId	int	1	
+C	governance	wf.Task	U	11	AssignedPersonId	int	1	
+C	governance	wf.Task	U	12	ClaimedUtc	datetime2(7)	1	
+C	governance	wf.Task	U	13	Status	varchar(20)	0	
+C	governance	wf.Task	U	14	IsBlocking	bit	0	D
+C	governance	wf.Task	U	15	SlaPolicyCode	varchar(30)	1	
+C	governance	wf.Task	U	16	LadderCode	varchar(30)	1	
+C	governance	wf.Task	U	17	StartedUtc	datetime2(7)	0	D
+C	governance	wf.Task	U	18	DueUtc	datetime2(7)	1	
+C	governance	wf.Task	U	19	Reminder1Utc	datetime2(7)	1	
+C	governance	wf.Task	U	2	PublicId	uniqueidentifier	0	D
+C	governance	wf.Task	U	20	Reminder2Utc	datetime2(7)	1	
+C	governance	wf.Task	U	21	Reminded1	bit	0	D
+C	governance	wf.Task	U	22	Reminded2	bit	0	D
+C	governance	wf.Task	U	23	EscalationLevel	int	0	D
+C	governance	wf.Task	U	24	RelatedEntityType	varchar(30)	1	
+C	governance	wf.Task	U	25	RelatedEntityId	bigint	1	
+C	governance	wf.Task	U	26	Outcome	varchar(30)	1	
+C	governance	wf.Task	U	27	CompletedByPersonId	int	1	
+C	governance	wf.Task	U	28	CompletedUtc	datetime2(7)	1	
+C	governance	wf.Task	U	29	Notes	nvarchar(2000)	1	
+C	governance	wf.Task	U	3	RequestId	bigint	1	
+C	governance	wf.Task	U	30	RowVer	timestamp	0	
+C	governance	wf.Task	U	31	DecisionType	varchar(40)	1	
+C	governance	wf.Task	U	32	RaciActivityCode	varchar(60)	1	
+C	governance	wf.Task	U	33	Discipline	varchar(30)	1	
+C	governance	wf.Task	U	34	Reason	nvarchar(1000)	1	
+C	governance	wf.Task	U	4	FundingOwnerId	int	1	
+C	governance	wf.Task	U	5	StageCode	varchar(20)	1	
+C	governance	wf.Task	U	6	TaskType	varchar(20)	0	
+C	governance	wf.Task	U	7	Title	nvarchar(300)	0	
+C	governance	wf.Task	U	8	AssignedRoleCode	varchar(40)	1	
+C	governance	wf.Task	U	9	ScopeType	varchar(20)	1	
+C	governance	wf.TaskExclusion	U	1	TaskId	bigint	0	
+C	governance	wf.TaskExclusion	U	2	PersonId	int	0	
+C	governance	wf.TaskExclusion	U	3	RuleCode	varchar(10)	0	
+C	governance	wf.TransitionDefinition	U	1	DefinitionId	int	0	
+C	governance	wf.TransitionDefinition	U	2	FromStage	varchar(20)	0	
+C	governance	wf.TransitionDefinition	U	3	Outcome	varchar(30)	0	
+C	governance	wf.TransitionDefinition	U	4	ToStage	varchar(20)	0	
+C	governance	wf.TransitionDefinition	U	5	ToState	varchar(30)	0	
+C	governance	wf.TransitionDefinition	U	6	GuardRule	varchar(60)	1	
+C	governance	wf.WorkflowDefinition	U	1	DefinitionId	int	0	I
+C	governance	wf.WorkflowDefinition	U	2	JourneyCode	varchar(10)	0	
+C	governance	wf.WorkflowDefinition	U	3	VersionNo	int	0	
+C	governance	wf.WorkflowDefinition	U	4	Name	nvarchar(200)	0	
+C	governance	wf.WorkflowDefinition	U	5	Description	nvarchar(1000)	0	
+C	governance	wf.WorkflowDefinition	U	6	TypicalUser	nvarchar(200)	0	
+C	governance	wf.WorkflowDefinition	U	7	Turnaround	nvarchar(100)	0	
+C	governance	wf.WorkflowDefinition	U	8	IsActive	bit	0	
+G	governance	app_web	DELETE	core.ControlCheck
+G	governance	app_web	DELETE	core.WorkloadMeter
+G	governance	app_web	DELETE	ref.TextBlock
+G	governance	app_web	DELETE	sec.DelegationEnvelope
+G	governance	app_web	DELETE	sec.GroupRoleMap
+G	governance	app_web	DELETE	sec.TokenCache
+G	governance	app_web	DELETE	wf.TaskExclusion
+G	governance	app_web	EXECUTE	SCHEMA::sec
+G	governance	app_web	INSERT	SCHEMA::aud
+G	governance	app_web	INSERT	SCHEMA::core
+G	governance	app_web	INSERT	SCHEMA::evd
+G	governance	app_web	INSERT	SCHEMA::intg
+G	governance	app_web	INSERT	SCHEMA::ntf
+G	governance	app_web	INSERT	SCHEMA::ops
+G	governance	app_web	INSERT	SCHEMA::ref
+G	governance	app_web	INSERT	SCHEMA::sec
+G	governance	app_web	INSERT	SCHEMA::wf
+G	governance	app_web	SELECT	SCHEMA::aud
+G	governance	app_web	SELECT	SCHEMA::core
+G	governance	app_web	SELECT	SCHEMA::evd
+G	governance	app_web	SELECT	SCHEMA::intg
+G	governance	app_web	SELECT	SCHEMA::ntf
+G	governance	app_web	SELECT	SCHEMA::ops
+G	governance	app_web	SELECT	SCHEMA::ref
+G	governance	app_web	SELECT	SCHEMA::rpt
+G	governance	app_web	SELECT	SCHEMA::sec
+G	governance	app_web	SELECT	SCHEMA::wf
+G	governance	app_web	UPDATE	SCHEMA::core
+G	governance	app_web	UPDATE	SCHEMA::evd
+G	governance	app_web	UPDATE	SCHEMA::intg
+G	governance	app_web	UPDATE	SCHEMA::ntf
+G	governance	app_web	UPDATE	SCHEMA::ops
+G	governance	app_web	UPDATE	SCHEMA::ref
+G	governance	app_web	UPDATE	SCHEMA::sec
+G	governance	app_web	UPDATE	SCHEMA::wf
+G	governance	app_web	UPDATE	wf.RequestNumber
+G	governance	app_worker	DELETE	core.SeatChargeSnapshot
+G	governance	app_worker	DELETE	intg.CopilotActivity
+G	governance	app_worker	DELETE	intg.GroupMember
+G	governance	app_worker	DELETE	intg.JobRun
+G	governance	app_worker	DELETE	intg.PersonCostCenterSeen
+G	governance	app_worker	DELETE	intg.SeatHolder
+G	governance	app_worker	DELETE	ntf.Delivery
+G	governance	app_worker	DELETE	ntf.DigestEntry
+G	governance	app_worker	DELETE	ntf.Outbox
+G	governance	app_worker	DELETE	sec.TokenCache
+G	governance	app_worker	DELETE	wf.TaskExclusion
+G	governance	app_worker	EXECUTE	SCHEMA::sec
+G	governance	app_worker	INSERT	SCHEMA::aud
+G	governance	app_worker	INSERT	SCHEMA::core
+G	governance	app_worker	INSERT	SCHEMA::evd
+G	governance	app_worker	INSERT	SCHEMA::intg
+G	governance	app_worker	INSERT	SCHEMA::ntf
+G	governance	app_worker	INSERT	SCHEMA::ops
+G	governance	app_worker	INSERT	SCHEMA::ref
+G	governance	app_worker	INSERT	SCHEMA::sec
+G	governance	app_worker	INSERT	SCHEMA::wf
+G	governance	app_worker	SELECT	SCHEMA::aud
+G	governance	app_worker	SELECT	SCHEMA::core
+G	governance	app_worker	SELECT	SCHEMA::evd
+G	governance	app_worker	SELECT	SCHEMA::intg
+G	governance	app_worker	SELECT	SCHEMA::ntf
+G	governance	app_worker	SELECT	SCHEMA::ops
+G	governance	app_worker	SELECT	SCHEMA::ref
+G	governance	app_worker	SELECT	SCHEMA::rpt
+G	governance	app_worker	SELECT	SCHEMA::sec
+G	governance	app_worker	SELECT	SCHEMA::wf
+G	governance	app_worker	UPDATE	SCHEMA::core
+G	governance	app_worker	UPDATE	SCHEMA::evd
+G	governance	app_worker	UPDATE	SCHEMA::intg
+G	governance	app_worker	UPDATE	SCHEMA::ntf
+G	governance	app_worker	UPDATE	SCHEMA::ops
+G	governance	app_worker	UPDATE	SCHEMA::ref
+G	governance	app_worker	UPDATE	SCHEMA::sec
+G	governance	app_worker	UPDATE	SCHEMA::wf
+G	governance	app_worker	UPDATE	wf.RequestNumber
+G	governance	gov_reader	SELECT	SCHEMA::aud
+G	governance	gov_reader	SELECT	SCHEMA::core
+G	governance	gov_reader	SELECT	SCHEMA::evd
+G	governance	gov_reader	SELECT	SCHEMA::intg
+G	governance	gov_reader	SELECT	SCHEMA::ntf
+G	governance	gov_reader	SELECT	SCHEMA::ops
+G	governance	gov_reader	SELECT	SCHEMA::ref
+G	governance	gov_reader	SELECT	SCHEMA::rpt
+G	governance	gov_reader	SELECT	SCHEMA::sec
+G	governance	gov_reader	SELECT	SCHEMA::wf
+O	governance	aud.AuditLog	U
+O	governance	aud.AuditLog_Ledger	V
+O	governance	core.ApprovedPattern	U
+O	governance	core.ApprovedPosture	U
+O	governance	core.ApprovedPostureHistory	U
+O	governance	core.AttributionOverride	U
+O	governance	core.AttributionOverrideHistory	U
+O	governance	core.AttributionRule	U
+O	governance	core.AttributionRuleHistory	U
+O	governance	core.CommercialItem	U
+O	governance	core.CommercialItemHistory	U
+O	governance	core.ControlCheck	U
+O	governance	core.ControlTemplate	U
+O	governance	core.CostCenter	U
+O	governance	core.CostCenterHistory	U
+O	governance	core.EnvelopeCommitment	U
+O	governance	core.EnvironmentClass	U
+O	governance	core.FundingEnvelope	U
+O	governance	core.FundingEnvelopeHistory	U
+O	governance	core.FundingOwner	U
+O	governance	core.FundingOwnerHistory	U
+O	governance	core.LicenseDetermination	U
+O	governance	core.SeatChargeSnapshot	U
+O	governance	core.SeatGroup	U
+O	governance	core.SeatGroupHistory	U
+O	governance	core.SeatReclaim	U
+O	governance	core.SeatReservation	U
+O	governance	core.SeatReservationHistory	U
+O	governance	core.SeatSku	U
+O	governance	core.Service	U
+O	governance	core.ServiceHistory	U
+O	governance	core.Workload	U
+O	governance	core.WorkloadBinding	U
+O	governance	core.WorkloadBindingHistory	U
+O	governance	core.WorkloadHistory	U
+O	governance	core.WorkloadMeter	U
+O	governance	evd.Attestation	U
+O	governance	evd.Attestation_Ledger	V
+O	governance	evd.EvidenceContent	U
+O	governance	evd.EvidenceItem	U
+O	governance	evd.EvidenceItem_Ledger	V
+O	governance	evd.EvidenceLink	U
+O	governance	evd.EvidenceLink_Ledger	V
+O	governance	evd.Verification	U
+O	governance	evd.Verification_Ledger	V
+O	governance	intg.AccessPackageMap	U
+O	governance	intg.AccessReviewDecision	U
+O	governance	intg.AllocationReading	U
+O	governance	intg.CopilotActivity	U
+O	governance	intg.DeltaToken	U
+O	governance	intg.EntitlementAssignment	U
+O	governance	intg.GroupMember	U
+O	governance	intg.InventoryItem	U
+O	governance	intg.JobRun	U
+O	governance	intg.PersonCostCenterSeen	U
+O	governance	intg.RegistryRow	U
+O	governance	intg.SeatGroupReading	U
+O	governance	intg.SeatHolder	U
+O	governance	intg.SeatSkuReading	U
+O	governance	intg.SyncRun	U
+O	governance	ntf.Delivery	U
+O	governance	ntf.DigestEntry	U
+O	governance	ntf.NotificationRule	U
+O	governance	ntf.Outbox	U
+O	governance	ntf.Preference	U
+O	governance	ops.ConsumptionEvent	U
+O	governance	ops.Finding	U
+O	governance	ref.Caveat	U
+O	governance	ref.Holiday	U
+O	governance	ref.Setting	U
+O	governance	ref.TextBlock	U
+O	governance	rpt.fn_SeatHolders	IF
+O	governance	rpt.fn_SeatPosition	IF
+O	governance	rpt.vDecision	V
+O	governance	rpt.vKpi	V
+O	governance	rpt.vWorkloadInScope	V
+O	governance	sec.Delegation	U
+O	governance	sec.DelegationEnvelope	U
+O	governance	sec.DelegationHistory	U
+O	governance	sec.GroupRoleMap	U
+O	governance	sec.Person	U
+O	governance	sec.RaciActivity	U
+O	governance	sec.RaciCell	U
+O	governance	sec.RaciFunction	U
+O	governance	sec.RaciVersion	U
+O	governance	sec.RoleAssignment	U
+O	governance	sec.RoleAssignmentHistory	U
+O	governance	sec.RoleDefinition	U
+O	governance	sec.RolePermission	U
+O	governance	sec.SodSetting	U
+O	governance	sec.TokenCache	U
+O	governance	sec.fn_ChildAccess	IF
+O	governance	sec.fn_FundingOwnerAccess	IF
+O	governance	sec.fn_RequestAccess	IF
+O	governance	sec.fn_TaskAccess	IF
+O	governance	wf.Campaign	U
+O	governance	wf.CampaignItem	U
+O	governance	wf.CommandLog	U
+O	governance	wf.Comment	U
+O	governance	wf.ConsultDefinition	U
+O	governance	wf.Decision	U
+O	governance	wf.DecisionCondition	U
+O	governance	wf.DecisionCondition_Ledger	V
+O	governance	wf.Decision_Ledger	V
+O	governance	wf.EscalationStep	U
+O	governance	wf.ExceptionItem	U
+O	governance	wf.ItsmTicket	U
+O	governance	wf.Request	U
+O	governance	wf.RequestEvent	U
+O	governance	wf.SlaPolicy	U
+O	governance	wf.StageDefinition	U
+O	governance	wf.Task	U
+O	governance	wf.TaskExclusion	U
+O	governance	wf.TransitionDefinition	U
+O	governance	wf.WorkflowDefinition	U
+P	governance	rpt.fn_SeatPosition	IF	1	@AsOf	date	0	0
+P	governance	sec.fn_ChildAccess	IF	1	@FundingOwnerId	int	0	0
+P	governance	sec.fn_ChildAccess	IF	2	@RequestId	bigint	0	0
+P	governance	sec.fn_FundingOwnerAccess	IF	1	@FundingOwnerId	int	0	0
+P	governance	sec.fn_RequestAccess	IF	1	@FundingOwnerId	int	0	0
+P	governance	sec.fn_RequestAccess	IF	2	@RequesterPersonId	int	0	0
+P	governance	sec.fn_RequestAccess	IF	3	@SponsorPersonId	int	0	0
+P	governance	sec.fn_TaskAccess	IF	1	@FundingOwnerId	int	0	0
+P	governance	sec.fn_TaskAccess	IF	2	@AssignedPersonId	int	0	0

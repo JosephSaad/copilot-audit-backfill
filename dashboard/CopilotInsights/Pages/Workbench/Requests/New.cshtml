@@ -1,0 +1,320 @@
+@page "/workbench/Requests/New/{journey}"
+@model Governance.Web.Pages.Requests.NewModel
+@using Microsoft.AspNetCore.Mvc.Rendering
+@using Governance.Application.Requests
+@{
+    ViewData["Title"] = Model.Tile?.Name ?? "New request";
+    var j = Model.Journey;
+    IEnumerable<SelectListItem> Sel(IEnumerable<Option> o, string? selected) => o.Select(x => new SelectListItem(x.Text, x.Value, x.Value == selected));
+    IEnumerable<SelectListItem> Codes(IEnumerable<(string Value, string Text)> o, string? selected) => o.Select(x => new SelectListItem(x.Text, x.Value, x.Value == selected));
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Start">Start</a> › @j</div>
+        <h1>@(Model.Tile?.Name ?? "New request")</h1>
+        <p class="lead">@Model.Tile?.Description Every question says why it is asked. You can save a draft and come back; nothing goes to anyone until you submit.</p>
+    </div>
+</div>
+@if (!Model.IntakeOpen)
+{
+    <div class="alert alert-warn">Intake is not open yet, so you can save a draft but not submit it.</div>
+}
+@if (Model.State is "RETURNED" or "DECLINED")
+{
+    <div class="alert alert-warn"><strong>What to fix:</strong> @(Model.ReturnReason ?? "See the request's timeline.") Earlier decisions stay on the record.</div>
+}
+<form method="post" class="card">
+    <idem />
+    <input type="hidden" asp-for="RowVerBase64" />
+    @if (Model.Id is Guid draftId) { <input type="hidden" name="Id" value="@draftId" /> }
+    <h2>About the request</h2>
+    <div class="form-grid">
+        <div class="field full">
+            <label asp-for="Input.Title" class="req">Title <help>A short name people will recognize in their task list, for example "Claims triage agent for Retail".</help></label>
+            <input asp-for="Input.Title" maxlength="200" required />
+        </div>
+        @if (j != Journeys.SeatReservation)
+        {
+        <div class="field">
+            <label asp-for="Input.FundingOwnerId" class="req">Funding owner <help k="req.fundingowner">The LOB or Enterprise Shared unit that pays for this and whose business owner is accountable. One funding owner at a time (A2). @(Model.AttributionBasis is null ? "" : "Prefilled from " + Model.AttributionBasis + ".")</help></label>
+            <select asp-for="Input.FundingOwnerId" asp-items="Sel(Model.FundingOwners, Model.Input.FundingOwnerId?.ToString())"><option value="">Choose one</option></select>
+            @if (Model.AttributionBasis is not null) { <span class="hint">Prefilled from @Model.AttributionBasis. Change it if this work is funded elsewhere.</span> }
+        </div>
+        }
+        @if (j is Journeys.NewWorkload or Journeys.Exception)
+        {
+            <div class="field">
+                <label asp-for="Input.SponsorPersonId" class="req">Sponsor <help>The person who owns the purpose and outcome claims and receives lifecycle notices. A request without a valid sponsor is returned at B2.</help></label>
+                <select asp-for="Input.SponsorPersonId" data-filter-by="Input.FundingOwnerId">
+                    <option value="">Choose one</option>
+                    @foreach (var s in Model.Sponsors)
+                    {
+                        <option value="@s.PersonId" data-fo="@s.FundingOwnerId" selected="@(Model.Input.SponsorPersonId == s.PersonId && Model.Input.FundingOwnerId == s.FundingOwnerId)">@s.Text</option>
+                    }
+                </select>
+                <span class="hint">People who sponsor, own products or own the business in the funding owner you chose.</span>
+            </div>
+        }
+        @if (j != Journeys.SeatReservation)
+        {
+        <div class="field full">
+            <label asp-for="Input.Purpose" class="req">Purpose <help>What problem this solves and for whom. Intake checks it is complete and not a duplicate (B2).</help></label>
+            <textarea asp-for="Input.Purpose" maxlength="2000"></textarea>
+        </div>
+        }
+    </div>
+
+    @if (j == Journeys.NewWorkload)
+    {
+        <h2 class="mt">The workload</h2>
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.WorkloadName" class="req">Workload name <help>The agent, environment or flow as people will know it.</help></label>
+                <input asp-for="Input.WorkloadName" maxlength="200" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.WorkloadType">What it is <help>An agent, a Power Platform environment, an agent flow or a service entitlement cohort. Each Microsoft object type has its own controls (C04).</help></label>
+                <select asp-for="Input.WorkloadType" asp-items='Codes(new[] { ("AGENT", "Agent"), ("ENVIRONMENT", "Environment"), ("AGENT_FLOW", "Agent flow"), ("SERVICE_ENTITLEMENT", "Service entitlement cohort"), ("OTHER", "Other") }, Model.Input.WorkloadType)'></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.ServiceId" class="req">Service <help>@Model.Caveat("C01") Only approved catalog services are listed; anything else is an exception (J3).</help></label>
+                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.RequestedLifecycleStage" class="req">Stage you need <help>@Model.Caveat("C03") Builders start in Development or Test; Production needs the acceptance gate (D5) with test evidence.</help></label>
+                <select asp-for="Input.RequestedLifecycleStage" asp-items='Codes(new[] { ("LOCAL", "Local or mocked"), ("DEVELOPMENT", "Development"), ("TEST", "Test"), ("PRODUCTION", "Production") }, Model.Input.RequestedLifecycleStage)'><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.Audience">Who will use it <help>@Model.Caveat("C13") Customers in the audience always go to specialist review.</help></label>
+                <select asp-for="Input.Audience" asp-items="Codes(Audiences.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.Audience)"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.DataClass">Highest data class it touches <help>Confidential or restricted data triggers Security and Risk review (B8).</help></label>
+                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.ActionScope">What it does <help>Agents that act in internal or external systems need a pattern that allows it, or a review.</help></label>
+                <select asp-for="Input.ActionScope" asp-items="Codes(ActionScopes.Labels.Select(kv => (kv.Key, kv.Value)), Model.Input.ActionScope)"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.TriggerType">How it is triggered <help>@Model.Caveat("C12") Scheduled and autonomous agents consume credits with nobody watching, so FinOps reviews the forecast.</help></label>
+                <select asp-for="Input.TriggerType" asp-items="Codes(TriggerTypes.All.Select(x => (x, Ui.Words(x))), Model.Input.TriggerType)"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.EnvironmentClassCode">Environment class <help>The class sets the institutional default agent limit and whether tenant capacity may be drawn (E6, G8).</help></label>
+                <select asp-for="Input.EnvironmentClassCode" asp-items="Sel(Model.EnvironmentClasses, Model.Input.EnvironmentClassCode)"><option value="">Not an environment</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.EstimateCreditsPerMonth" class="req">Copilot Credits per month <help>@Model.Caveat("C18") Your best estimate. It is checked against your funding owner's envelope (B4) in credits; units are never converted silently (E8).</help></label>
+                <input asp-for="Input.EstimateCreditsPerMonth" type="number" min="0" step="1" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.DurationMonths">For how many months <help>Every approval expires or has a review date.</help></label>
+                <input asp-for="Input.DurationMonths" type="number" min="1" max="36" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.SupportContact">Support contact <help>Who users call when it stops working.</help></label>
+                <input asp-for="Input.SupportContact" maxlength="200" />
+            </div>
+            <div class="field full">
+                <label asp-for="Input.BusinessOutcome" class="req">Measurable business outcome <help>What will be better, and how you will show it at recertification (I1).</help></label>
+                <textarea asp-for="Input.BusinessOutcome" maxlength="2000"></textarea>
+            </div>
+            <fieldset class="full">
+                <legend>Anything that needs a closer look? <help>Each ticked box opens only the review it needs (B8). Leaving a true box unticked does not save time: classification catches it and returns the request.</help></legend>
+                <label class="check"><input type="checkbox" asp-for="Input.CustomerFacing" /> Customers will use it, or it is a preview service (@Model.Caveat("C02").Split(':')[0])</label>
+                <label class="check"><input type="checkbox" asp-for="Input.NewConnectorOrIntegration" /> It needs a new connector or integration</label>
+                <label class="check"><input type="checkbox" asp-for="Input.NewBillingScope" /> It needs a new billing scope (subscription, billing plan or policy)</label>
+                <label class="check"><input type="checkbox" asp-for="Input.UsesGitHubHarness" /> It is built with the GitHub Copilot harness (build and test usage is billable, C12)</label>
+                <label class="check"><input type="checkbox" asp-for="Input.MaterialChange" /> It changes an approved workload materially (I3)</label>
+            </fieldset>
+            <fieldset class="full">
+                <legend>Other things it consumes <help>Downstream meters (C-DM): costs that do not show as Copilot Credits. Classification confirms them.</help></legend>
+                <div class="checks">
+                    @foreach (var m in Governance.Web.Pages.Requests.NewModel.MeterChoices)
+                    {
+                        <label class="check"><input type="checkbox" name="Input.Meters" value="@m.Code" checked="@(Model.Input.Meters.Contains(m.Code))" /> @m.Label</label>
+                    }
+                </div>
+            </fieldset>
+        </div>
+    }
+
+    @if (j == Journeys.Exception)
+    {
+        <h2 class="mt">The exception</h2>
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.ServiceId">Service or harness <help>It may be outside the catalog; that is what an exception is for.</help></label>
+                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Not in the catalog</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.WorkloadPublicId">Workload it affects <help>If it changes something already registered.</help></label>
+                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">None yet</option></select>
+            </div>
+            <div class="field full">
+                <label asp-for="Input.RequestedDeviation" class="req">What falls outside the approved patterns <help>Be specific: service, audience, data, limit or billing scope. Only the disciplines this triggers will review it (B8).</help></label>
+                <textarea asp-for="Input.RequestedDeviation" maxlength="2000"></textarea>
+            </div>
+            <div class="field full">
+                <label asp-for="Input.ProposedCompensatingControls">Compensating controls you propose <help>What reduces the risk while the exception lasts. The decider sets the final conditions and owner.</help></label>
+                <textarea asp-for="Input.ProposedCompensatingControls" maxlength="2000"></textarea>
+            </div>
+            <div class="field">
+                <label asp-for="Input.RequestedExpiry" class="req">Expiry you propose <help>Every exception expires. Notices go out 30, 7 and 1 days before (N13).</help></label>
+                <input asp-for="Input.RequestedExpiry" type="date" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.DataClass">Highest data class <help>Confidential or restricted data adds a Security and Risk review.</help></label>
+                <select asp-for="Input.DataClass" asp-items="Codes(DataClasses.Ordered.Select(x => (x, Ui.Words(x))), Model.Input.DataClass)"><option value="">Choose one</option></select>
+            </div>
+            <fieldset class="full">
+                <legend>What it involves <help>Each box opens the matching review.</help></legend>
+                <label class="check"><input type="checkbox" asp-for="Input.CustomerFacing" /> Customers or a preview service</label>
+                <label class="check"><input type="checkbox" asp-for="Input.NewConnectorOrIntegration" /> A new connector or integration</label>
+                <label class="check"><input type="checkbox" asp-for="Input.NewBillingScope" /> A new billing scope or more than the envelope</label>
+                <label class="check"><input type="checkbox" asp-for="Input.UsesGitHubHarness" /> The GitHub Copilot harness</label>
+            </fieldset>
+        </div>
+    }
+
+    @if (j == Journeys.CapacityChange)
+    {
+        <h2 class="mt">The change</h2>
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.WorkloadPublicId" class="req">Workload or environment <help>Only workloads you can see are listed. The request's funding owner must be the workload's.</help></label>
+                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.ChangeKind" class="req">What to change <help>An allocation is per environment; an agent limit is per agent and does not stop the flows it calls (C11); an envelope is the internal budget.</help></label>
+                <select asp-for="Input.ChangeKind" asp-items='Codes(new[] { ("ALLOCATION", "Environment allocation"), ("AGENT_LIMIT", "Agent monthly limit"), ("ENVELOPE", "Funding envelope") }, Model.Input.ChangeKind)'><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.EnvironmentId">Power Platform environment ID <help>For allocations and limits: the environment's GUID from the Power Platform admin center.</help></label>
+                <input asp-for="Input.EnvironmentId" maxlength="100" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.CurrentValue">Current value (credits) <help>What it is today. Verification reads it back.</help></label>
+                <input asp-for="Input.CurrentValue" type="number" min="0" step="1" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.RequestedValue" class="req">Requested value (credits) <help>Above the environment class default or the envelope's headroom goes to FinOps and the business owner.</help></label>
+                <input asp-for="Input.RequestedValue" type="number" min="0" step="1" />
+            </div>
+            <div class="field full">
+                <label class="check"><input type="checkbox" asp-for="Input.RequestTenantPool" /> Also let the environment draw from tenant capacity <help>@Model.Caveat("C15") With tenant-pool draw on, the allocation is no longer a cap (E3), so this is never routine.</help></label>
+            </div>
+        </div>
+    }
+
+    @if (j == Journeys.Retirement)
+    {
+        <h2 class="mt">Retirement</h2>
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.WorkloadPublicId" class="req">Workload to retire <help>Only workloads you can see are listed.</help></label>
+                <select asp-for="Input.WorkloadPublicId" asp-items="Sel(Model.Workloads, Model.Input.WorkloadPublicId?.ToString())"><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.ReplacementWorkload">Replaced by <help>If something takes its place.</help></label>
+                <input asp-for="Input.ReplacementWorkload" maxlength="200" />
+            </div>
+            <div class="field full">
+                <label asp-for="Input.RetirementReason" class="req">Why <help>Failed recertification, replacement, no longer needed.</help></label>
+                <textarea asp-for="Input.RetirementReason" maxlength="2000"></textarea>
+            </div>
+            <div class="field full">
+                <label asp-for="Input.RetirementPlan" class="req">Plan <help>Users, data and dependencies. Platform Operations disables it through ITSM; FinOps closes residual commitments; Sourcing is consulted on contracts (I4, I5).</help></label>
+                <textarea asp-for="Input.RetirementPlan" maxlength="2000"></textarea>
+            </div>
+        </div>
+    }
+
+    @if (j == Journeys.Commercial)
+    {
+        <h2 class="mt">The commercial decision</h2>
+        <div class="alert alert-info">The Workbench records the decision and the Sourcing task. It never buys, renews or resizes anything itself, and forecasts never trigger a purchase (C21).</div>
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.CommercialKind" class="req">Kind <help>P3 and pack purchases and renewals are approved by the Commercial Authority; Sourcing executes.</help></label>
+                <select asp-for="Input.CommercialKind" asp-items='Codes(new[] { ("P3_PURCHASE", "P3 pre-purchase"), ("PACK_PURCHASE", "Monthly capacity pack"), ("RENEWAL", "Renewal"), ("CRITICAL_SHARED_FUNDING", "Critical shared funding, F9") }, Model.Input.CommercialKind)'><option value="">Choose one</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.ServiceId">Service <help>The service the capacity is for, if one.</help></label>
+                <select asp-for="Input.ServiceId" asp-items="Sel(Model.Services, Model.Input.ServiceId?.ToString())"><option value="">Several or none</option></select>
+            </div>
+            <div class="field">
+                <label asp-for="Input.Quantity" class="req">Quantity <help>@Model.Caveat("C05")</help></label>
+                <input asp-for="Input.Quantity" type="number" min="0" step="1" />
+            </div>
+            <div class="field">
+                <label asp-for="Input.Unit" class="req">Unit <help>Credits, P3 commit units and currency are separate units; nothing is converted without a dated rate (E8).</help></label>
+                <select asp-for="Input.Unit" asp-items='Codes(new[] { ("COPILOT_CREDIT", "Copilot Credits"), ("P3_COMMIT_UNIT", "P3 commit units"), ("USD", "US dollars"), ("CAD", "Canadian dollars") }, Model.Input.Unit)'><option value="">Choose one</option></select>
+            </div>
+            <div class="field full">
+                <label asp-for="Input.Rationale" class="req">Rationale <help>Coverage, forecast scenarios and the comparison method (C18).</help></label>
+                <textarea asp-for="Input.Rationale" maxlength="2000"></textarea>
+            </div>
+        </div>
+    }
+
+
+    @if (j == Journeys.SeatReservation)
+    {
+        var ss = Model.SeatSettings;
+        var anniv = Governance.Application.Seats.SeatPolicy.NextAnniversary(ss, DateTime.UtcNow);
+        var opens = Governance.Application.Seats.SeatPolicy.TrueDownWindowOpens(ss, DateTime.UtcNow);
+        var windowOpen = Governance.Application.Seats.SeatPolicy.IsTrueDownWindowOpen(ss, DateTime.UtcNow);
+        <h2 class="mt">The seat reservation</h2>
+        <div class="alert alert-info">Copilot seats are the paid per-user Microsoft 365 Copilot license, counted in seats, never in credits.
+            Your LOB pays for its whole reservation every month, and for any seats assigned above it.
+            You can ask for more seats at any time. Seats can only be given back at the EA anniversary on @anniv.ToString("d MMMM yyyy"):
+            @(windowOpen ? "the window for decreases is open now." : $"a decrease asked for now is held until {opens:d MMMM yyyy} and does not change the reservation before the anniversary.")
+            People get their seat through their LOB's OIM role, not through this request.</div>
+        @if (Model.SeatLobs.Count == 0)
+        {
+            <div class="alert alert-warn">You hold no LOB role (business owner, delegated approver, finance partner or product owner) that can change a seat reservation.</div>
+        }
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.FundingOwnerId" class="req">LOB <help>The line of business whose reservation changes. Only LOBs where you are the business owner, a delegated approver, the finance partner or a product owner are listed.</help></label>
+                <select asp-for="Input.FundingOwnerId" id="seatLob">
+                    <option value="">Choose one</option>
+                    @foreach (var l in Model.SeatLobs)
+                    {
+                        <option value="@l.FundingOwnerId" data-reserved="@(l.ReservedSeats ?? 0)" data-assigned="@(l.AssignedSeats?.ToString() ?? "not read yet")" data-group="@(l.TrackingGroup ?? "no tracking group mapped")" selected="@(Model.Input.FundingOwnerId == l.FundingOwnerId)">@l.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Today <help>The reservation in effect today, and the people in the LOB's tracking group who hold a Copilot seat at the last read-back. The request records the reservation in effect when you submit, not a number you type.</help></label>
+                <div id="seatNow" class="hint">
+                    @foreach (var l in Model.SeatLobs.Where(l => l.FundingOwnerId == Model.Input.FundingOwnerId))
+                    {
+                        <span>@(l.ReservedSeats ?? 0) seats reserved; @(l.AssignedSeats?.ToString() ?? "not read yet") assigned (@(l.TrackingGroup ?? "no tracking group mapped")).</span>
+                    }
+                </div>
+            </div>
+            <div class="field">
+                <label asp-for="Input.RequestedSeats" class="req">New total reservation (seats) <help>The LOB's whole reservation after the change, not the difference. More than today is an increase (any time); less is a true-down (only at the EA anniversary). Digital Workplace and Finance check unallocated seats, approved pending demand and the operational buffer first.</help></label>
+                <input asp-for="Input.RequestedSeats" type="number" min="0" step="1" />
+            </div>
+            <div class="field full">
+                <label asp-for="Input.SeatDemand" class="req">Who needs the seats and why <help>For an increase: the teams or roles, how many people and from when. For a decrease: why the seats are no longer needed. Finance uses this in the flex-pool review.</help></label>
+                <textarea asp-for="Input.SeatDemand" maxlength="2000"></textarea>
+            </div>
+        </div>
+    }
+
+    @if (Model.CompletenessGaps.Count > 0)
+    {
+        <div class="alert alert-warn mt" role="status"><strong>Before you submit:</strong> intake will return the request unless these are fixed. You can still submit.
+            <ul>@foreach (var g in Model.CompletenessGaps) { <li>@g</li> }</ul></div>
+    }
+    <div class="btn-row mt">
+        <button class="btn btn-ghost" type="submit" asp-page-handler="Save">Save draft</button>
+        <button class="btn" type="submit" asp-page-handler="Submit" disabled="@(!Model.IntakeOpen)">@(Model.IsResubmission ? "Resubmit" : "Submit")</button>
+        <span class="muted small">Submitting sends it to the intake team (B2).</span>
+    </div>
+</form>

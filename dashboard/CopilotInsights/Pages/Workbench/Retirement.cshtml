@@ -1,0 +1,40 @@
+@page "/workbench/Retirement"
+@model RetirementModel
+@{
+    ViewData["Title"] = "Retirement";
+}
+<div class="page-head">
+    <div>
+        <h1>Retirement</h1>
+        <p class="lead">Controlled retirement: the business owner decides, Platform Operations disables the workload through ITSM and a second operator verifies, FinOps closes residual commitments, and Sourcing is consulted on contracts. Records are kept. <help>Process references: I4, I5.</help></p>
+    </div>
+    <div class="page-actions"><a class="btn" href="/workbench/Requests/New/J7">Retire a workload</a></div>
+</div>
+<h2>Retirement requests</h2>
+@if (Model.Requests.Items.Count == 0) { <div class="card empty">No retirement requests.</div> }
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Request <help>The retirement request.</help></th><th scope="col">Funding owner <help>Who owns and pays for the workload.</help></th><th scope="col">Status <help>Where the retirement is.</help></th><th scope="col">Last activity <help>When anything last happened on it.</help></th></tr></thead>
+            <tbody>
+            @foreach (var r in Model.Requests.Items)
+            {
+                <tr><td><a href="/workbench/Requests/@r.PublicId">@r.RequestNumber</a> @r.Title</td><td>@r.FundingOwnerName</td><td>@Ui.Pill(r.State) <span class="small muted">@r.CurrentStage</span></td><td>@Ui.Local(r.LastActivityUtc)</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+<h2 class="mt">Workloads retiring</h2>
+@if (Model.Retiring.Items.Count == 0) { <div class="card empty">None.</div> }
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Workload <help>The workload being retired or already retired.</help></th><th scope="col">Funding owner <help>Who owns and pays for the workload.</help></th><th scope="col">Service <help>The catalog service it used.</help></th></tr></thead>
+            <tbody>@foreach (var w in Model.Retiring.Items) { <tr><td><a href="/workbench/Registry/Workloads/@w.PublicId">@w.Name</a></td><td>@w.FundingOwnerName</td><td>@w.ServiceName</td></tr> }</tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Retiring.Query.Page, Model.Retiring.Pages, Model.Retiring.Total)" />
+}

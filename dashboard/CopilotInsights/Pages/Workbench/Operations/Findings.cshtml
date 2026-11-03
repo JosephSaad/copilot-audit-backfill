@@ -1,0 +1,43 @@
+@page "/workbench/Operations/Findings"
+@model Governance.Web.Pages.Operations.FindingsModel
+@{
+    ViewData["Title"] = "Drift and findings";
+    var types = new[] { "", "UNREGISTERED", "ALLOCATION_DRIFT", "TENANT_POOL_DRIFT", "PAYG_DRIFT", "AGENT_LIMIT_DRIFT", "POLICY_DRIFT", "OWNER_CHANGE", "HARNESS_CHANGE", "ASSIGNMENT_WITHOUT_FUNDING", "VACANCY", "STALE_SYNC", "ATTESTATION_OVERDUE", "EXCEPTION_EXPIRED" };
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Governance operations</div>
+        <h1>Drift and findings</h1>
+        <p class="lead">Differences between what was approved and what Microsoft reports, unregistered objects, assignments without funding, vacancies and stale data. Each finding is resolved by fixing the setting through ITSM, by a request, or accepted by the Platform Owner with a reason.</p>
+    </div>
+    <div class="page-actions"><a class="btn btn-ghost" href="/workbench/Operations/Findings?open=@(!Model.Open)">@(Model.Open ? "Show closed too" : "Open only")</a></div>
+</div>
+<form method="get" class="btn-row mb0">
+    <input type="hidden" name="open" value="@Model.Open" />
+    <label for="ft">Kind <help>Show one kind of finding, such as an unregistered agent or allocation drift.</help></label>
+    <select id="ft" name="type">@foreach (var t in types) { <option value="@t" selected="@(t == (Model.Type ?? ""))">@(t == "" ? "All" : Ui.Words(t))</option> }</select>
+    <button class="btn btn-small btn-ghost" type="submit">Filter</button>
+</form>
+<partial name="_Search" model="Model.Search" />
+@if (Model.Items.Items.Count == 0) { <div class="card empty">No findings.</div> }
+@foreach (var f in Model.Items.Items)
+{
+    <div class="task">
+        <div class="task-head"><div class="task-title">@f.Title</div><div class="btn-row">@Ui.Pill(f.Severity) @Ui.Pill(f.FindingType, "info") @Ui.Pill(f.Status)</div></div>
+        <div class="kv"><span>@(f.FundingOwnerName ?? "No funding owner")</span>@if (f.WorkloadPublicId is Guid g) { <span><a href="/workbench/Registry/Workloads/@g">@f.WorkloadName</a></span> }<span class="mono">@f.ExternalId</span><span>raised @Ui.Local(f.RaisedUtc)</span><span>last seen @Ui.Ago(f.LastSeenUtc)</span></div>
+        @if (f.Expected is not null || f.Actual is not null) { <p class="small">Approved: <strong>@f.Expected</strong> · Read back: <strong>@f.Actual</strong></p> }
+        @if (!string.IsNullOrEmpty(f.Details)) { <p class="small">@f.Details</p> }
+        @if (!string.IsNullOrEmpty(f.Resolution)) { <p class="small muted">Resolution: @f.Resolution</p> }
+        @if (Model.CanAct && f.Status is "OPEN" or "ACKNOWLEDGED")
+        {
+            <form method="post" asp-page-handler="Act" asp-route-finding="@f.PublicId" class="btn-row">
+                <idem />
+                <input name="text" placeholder="How it was resolved, or why it is accepted" aria-label="Resolution" maxlength="1000" />
+                @if (f.Status == "OPEN") { <button class="btn btn-small btn-ghost" type="submit" name="action" value="acknowledge">Acknowledge</button> }
+                <button class="btn btn-small" type="submit" name="action" value="resolve">Resolved</button>
+                @if (Model.Principal.HasCentral(Roles.PlatformOwner)) { <button class="btn btn-small btn-ghost" type="submit" name="action" value="accept">Accept the risk</button> }
+            </form>
+        }
+    </div>
+}
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />

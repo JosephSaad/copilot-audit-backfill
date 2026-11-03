@@ -1,0 +1,35 @@
+@page "/workbench/Registry/Services/Edit/{id:guid?}"
+@model Governance.Web.Pages.Registry.ServiceEditModel
+@{
+    ViewData["Title"] = Model.Id is null ? "Add a service" : "Edit service";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/Services">Services</a></div>
+        <h1>@ViewData["Title"]</h1>
+        <p class="lead">The Platform Owner publishes the catalog. Requests can only use approved or pilot services; anything else is an exception.</p>
+    </div>
+</div>
+<form method="post" class="card">
+    <idem />
+    <div class="form-grid">
+        <div class="field"><label asp-for="Input.Code" class="req">Code <help>A short unique code, used in reports and imports.</help></label><input asp-for="Input.Code" maxlength="40" required /></div>
+        <div class="field"><label asp-for="Input.Name" class="req">Name <help>The name people will see.</help></label><input asp-for="Input.Name" maxlength="200" required /></div>
+        <div class="field"><label asp-for="Input.Harness">Harness <help>The runtime that executes agents, for example "Standard" or "GitHub Copilot". The GitHub harness makes build and test usage billable (C12).</help></label><input asp-for="Input.Harness" maxlength="100" /></div>
+        <div class="field"><label asp-for="Input.RouteType">Route <help>Where its controls live.</help></label>
+            <select asp-for="Input.RouteType"><option value="PPAC_ENVIRONMENT">Power Platform environment</option><option value="M365_POLICY">Microsoft 365 policy</option><option value="ENTRA_PACKAGE">Entra access package</option></select></div>
+        <div class="field"><label asp-for="Input.TenantAvailability">Available in the tenant <help>What Microsoft offers. Preview routes need an adoption decision (C02).</help></label>
+            <select asp-for="Input.TenantAvailability"><option value="GA">Generally available</option><option value="PREVIEW">Preview</option><option value="NOT_AVAILABLE">Not available</option></select></div>
+        <div class="field"><label asp-for="Input.InstitutionalStatus">Institutional status <help>What the institution allows. Separate from availability (C01).</help></label>
+            <select asp-for="Input.InstitutionalStatus"><option value="APPROVED">Approved</option><option value="PILOT">Pilot</option><option value="NOT_APPROVED">Not approved</option><option value="RETIRED">Retired</option></select></div>
+        <div class="field"><label asp-for="Input.Audiences">Audiences <help>Comma list: EMPLOYEES_TEAM, EMPLOYEES_LOB, EMPLOYEES_ALL, CUSTOMERS.</help></label><input asp-for="Input.Audiences" maxlength="400" /></div>
+        <div class="field"><label asp-for="Input.DataClasses">Data classes <help>Comma list of data classes approved: PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED.</help></label><input asp-for="Input.DataClasses" maxlength="400" /></div>
+        <div class="field"><label asp-for="Input.AccessTiers">Access tiers <help>Comma list, for example Standard, Extended.</help></label><input asp-for="Input.AccessTiers" maxlength="200" /></div>
+        <div class="field"><label asp-for="Input.OperationalOwnerPersonId">Operational owner <help>Setup step 2: every service has one.</help></label>
+            <select asp-for="Input.OperationalOwnerPersonId"><option value="">Not named</option>@foreach (var p in Model.People) { <option value="@p.Value" selected="@(p.Value == Model.Input.OperationalOwnerPersonId?.ToString())">@p.Text</option> }</select></div>
+        <div class="field"><label asp-for="Input.ReviewOn">Next review <help>When this is next reviewed; reminders go out before it.</help></label><input asp-for="Input.ReviewOn" type="date" /></div>
+        <div class="field full"><label class="check"><input type="checkbox" asp-for="Input.IsCustomerFacing" /> Customer-facing <help>Requests always go to specialist review (C13).</help></label></div>
+        <div class="field full"><label asp-for="Input.Description">Description <help>A short plain-language description.</help></label><textarea asp-for="Input.Description" maxlength="2000"></textarea></div>
+    </div>
+    <button class="btn mt" type="submit">Save</button>
+</form>

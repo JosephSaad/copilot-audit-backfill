@@ -1,0 +1,239 @@
+@page "/workbench/Registry/Seats/{id:guid}"
+@model Governance.Web.Pages.Registry.SeatLobModel
+@{
+    var d = Model.D;
+    var p = d.Position;
+    ViewData["Title"] = $"{d.LobName} seats";
+    var current = d.Reservations.FirstOrDefault(r => r.EffectiveFrom <= DateTime.UtcNow.Date && (r.EffectiveTo is null || r.EffectiveTo >= DateTime.UtcNow.Date));
+    var upcoming = d.Reservations.Where(r => r.EffectiveFrom > DateTime.UtcNow.Date).ToList();
+    var holders = Model.HolderFilter switch
+    {
+        "noseat" => d.Holders.Where(h => !h.HasSeat).ToList(),
+        "inactive" => d.Holders.Where(h => h.HasSeat && (h.LastActivityDate is null || h.LastActivityDate < DateTime.UtcNow.Date.AddDays(-Model.InactiveDays))).ToList(),
+        "all" => d.Holders.ToList(),
+        _ => d.Holders.Where(h => h.HasSeat).ToList(),
+    };
+    var maxTrend = d.Trend.Count == 0 ? 1 : Math.Max(1, d.Trend.Max(t => Math.Max(t.ReservedSeats, t.AssignedSeats)));
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
+        <h1>@d.LobName</h1>
+        <p class="lead">Reserved Copilot seats against the seats people in this LOB actually hold. The LOB pays for its reservation until the EA anniversary, and for any seats above it. <help>Assigned seats are people in the LOB's tracking group who hold an active Copilot add-on license, from the daily read-back.</help></p>
+    </div>
+    <div class="page-actions">
+        @if (Model.CanAskChange) { <a class="btn" href="/workbench/Requests/New/J9?fundingOwner=@d.PublicId">Change the reservation</a> }
+        <a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export holders</a>
+    </div>
+</div>
+
+<div class="grid grid-4">
+    <div class="stat"><div class="stat-label">Reserved <help>Seats reserved for this LOB and in effect today.</help></div><div class="stat-value">@Ui.Num(p.ReservedSeats)</div><div class="stat-note">@(current is null ? "no reservation yet" : "since " + Ui.Date(current.EffectiveFrom))</div></div>
+    <div class="stat"><div class="stat-label">Assigned <help>People in the tracking group who hold an active seat.</help></div><div class="stat-value">@Ui.Num(p.AssignedSeats)</div><div class="stat-note">@Ui.Num(p.TrackingMembers) people in the tracking group</div></div>
+    <div class="stat"><div class="stat-label">Over the reservation <help>Seats assigned above the reservation. Charged on top of it every month (FIN-06). Ask for an increase if they are needed.</help></div><div class="stat-value @(p.OverSeats > 0 ? "text-bad" : "")">@Ui.Num(p.OverSeats)</div><div class="stat-note">@(p.OverSeats > 0 ? "charged on top" : "within the reservation")</div></div>
+    <div class="stat"><div class="stat-label">Unused reserved <help>Reserved seats nobody holds. They are still charged until a true-down at the EA anniversary (FIN-05).</help></div><div class="stat-value">@Ui.Num(p.UnusedReserved)</div><div class="stat-note">@Ui.Num(p.Inactive) holders inactive @Model.InactiveDays days or more</div></div>
+</div>
+@if (upcoming.Count > 0)
+{
+    <div class="alert alert-info mt" role="status">Approved change waiting to take effect: @foreach (var u in upcoming) { <span>@Ui.Num(u.Seats) seats from @Ui.Date(u.EffectiveFrom) (@Ui.Words(u.ChangeKind).ToLowerInvariant()). </span> }</div>
+}
+@if (d.OimRoleName is not null || p.TrackingGroup is not null)
+{
+    <p class="small muted mt">Tracking group <span class="mono">@(p.TrackingGroup ?? "not mapped")</span> · OIM role <span class="mono">@(d.OimRoleName ?? "not recorded")</span> <help>People get a seat by requesting the OIM role, which ServiceNow provisions into the tracking group and the shared license group. The Workbench reads these groups; it never changes them.</help></p>
+}
+
+<div class="card mt">
+    <div class="card-head">
+        <h2>Reserved against assigned, by month <help>From the monthly chargeback snapshots: the reservation in effect and the seats assigned at month end. Certified months never change.</help></h2>
+        <div class="legend"><span><span class="key" style="background:var(--brand-soft);border:1px solid var(--brand)"></span>Reserved</span><span><span class="key" style="background:var(--brand)"></span>Assigned</span><span><span class="key" style="background:var(--bad)"></span>Assigned above the reservation</span></div>
+    </div>
+    @if (d.Trend.Count == 0)
+    {
+        <p class="muted">No monthly snapshot yet. The first one is taken after the first full month of read-back.</p>
+    }
+    else
+    {
+        <div class="trend" role="img" aria-label="Reserved and assigned seats by month">
+            @foreach (var t in d.Trend)
+            {
+                <div class="trend-month">
+                    <div class="trend-bars">
+                        <div class="trend-bar reserved" style="height:@(Math.Max(2, 100 * t.ReservedSeats / maxTrend))%" title="Reserved: @Ui.Num(t.ReservedSeats)"></div>
+                        <div class="trend-bar assigned @(t.AssignedSeats > t.ReservedSeats ? "over" : "")" style="height:@(Math.Max(2, 100 * t.AssignedSeats / maxTrend))%" title="Assigned: @Ui.Num(t.AssignedSeats)"></div>
+                    </div>
+                    <div class="trend-label">@t.PeriodMonth.ToString("MMM yyyy")<br />@Ui.Num(t.AssignedSeats) / @Ui.Num(t.ReservedSeats)@(t.Status == "DRAFT" ? " (draft)" : "")</div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@if (d.Findings.Count > 0)
+{
+    <div class="card mt">
+        <h2>Open seat findings <help>Raised by the license read-back. Platform Operations follows them up in Operations, Drift and findings.</help></h2>
+        <ul class="plain">
+            @foreach (var f in d.Findings)
+            {
+                <li><span class="pill @(f.Severity is "HIGH" or "CRITICAL" ? "pill-bad" : "pill-warn")">@Ui.Words(f.Severity)</span> @f.Title <span class="small muted">since @Ui.Date(f.RaisedUtc)</span></li>
+            }
+        </ul>
+    </div>
+}
+
+<div class="card mt">
+    <h2>Reservation history <help>Every change with its effective dates, the quantity before and after, who approved it and the flex-pool review (CAL-06). Increases can happen any time; decreases only at the EA anniversary.</help></h2>
+    @if (d.Reservations.Count == 0)
+    {
+        <p class="muted">No reservation recorded yet.</p>
+        @if (Model.CanBaseline)
+        {
+            <form method="post" asp-page-handler="Baseline" asp-route-id="@d.PublicId" class="form-grid">
+                <idem />
+                <div class="field"><label for="bs" class="req">Seats reserved <help>The LOB's current reservation, as agreed with Finance. This first figure is recorded once; every later change is a seat reservation request.</help></label><input id="bs" type="number" name="seatCount" min="0" step="1" required /></div>
+                <div class="field"><label for="bf" class="req">In effect from <help>The date the reservation started, usually the start of the EA year or the date the LOB joined.</help></label><input id="bf" type="date" name="effectiveFrom" value="@(new DateTime(DateTime.UtcNow.Year, 1, 1).ToString("yyyy-MM-dd"))" required /></div>
+                <div class="field full"><label for="bn">Source <help>Where the figure comes from, for example the reservation schedule or a Finance email reference.</help></label><input id="bn" name="notes" maxlength="1000" /></div>
+                <div><button class="btn" type="submit">Record the first reservation</button></div>
+            </form>
+        }
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Seats", "The reservation after this change, and before it.")' />
+                    <partial name="_Th" model='("", "Change", "First reservation, new, increase, true-down or correction.")' />
+                    <partial name="_Th" model='("", "In effect", "From and to. An open end means it is the latest.")' />
+                    <partial name="_Th" model='("", "Approved by", "Who approved the change.")' />
+                    <partial name="_Th" model='("", "Flex-pool review", "What Digital Workplace and Finance checked: unallocated inventory, pending demand and the buffer.")' />
+                    <partial name="_Th" model='("", "Request", "The reservation request that made the change.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var r in d.Reservations)
+                {
+                    <tr>
+                        <td data-label="Seats" class="num"><strong>@Ui.Num(r.Seats)</strong>@if (r.PreviousSeats is int prev) { <div class="small muted">was @Ui.Num(prev)</div> }</td>
+                        <td data-label="Change">@Ui.Words(r.ChangeKind)</td>
+                        <td data-label="In effect">@Ui.Date(r.EffectiveFrom) to @(r.EffectiveTo is null ? "now" : Ui.Date(r.EffectiveTo))</td>
+                        <td data-label="Approved by">@r.ApprovedByName</td>
+                        <td data-label="Flex-pool review">@(r.FlexPoolReview ?? r.Notes)</td>
+                        <td data-label="Request">@if (r.RequestPublicId is Guid rq) { <a href="/workbench/Requests/@rq">@r.RequestNumber</a> }</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="card mt" id="reclaim">
+    <h2>Seats proposed for reclaim <help>Seat holders with no Copilot activity for @Model.InactiveDays days. The business owner or a delegated approver keeps the seat or reclaims it. Reclaim opens an ITSM task to remove the person's OIM role; the seat shows as removed after the next license read.</help></h2>
+    @if (d.Reclaims.Count == 0)
+    {
+        <p class="muted">Nothing to answer.</p>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Person", "The seat holder.")' />
+                    <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report. None means no activity in the report period.")' />
+                    <partial name="_Th" model='("", "Status", "Proposed, kept, reclaim sent, removed or cancelled.")' />
+                    <partial name="_Th" model='("", "Answer", "Keep or reclaim, with the reason.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var r in d.Reclaims)
+                {
+                    <tr>
+                        <td data-label="Person">@r.DisplayName <div class="small muted">@r.UserPrincipalName</div></td>
+                        <td data-label="Last Copilot use">@(r.LastActivityDate is null ? "None reported" : Ui.Date(r.LastActivityDate))@if (r.InactiveDays is int days) { <div class="small muted">@days days</div> }</td>
+                        <td data-label="Status">@Ui.Pill(r.Status)@if (r.TicketNumber is not null) { <div class="small muted">ITSM @r.TicketNumber</div> }</td>
+                        <td data-label="Answer">
+                            @if (r.Status == "PROPOSED" && Model.CanAnswerReclaim)
+                            {
+                                <form method="post" asp-page-handler="Reclaim" asp-route-id="@d.PublicId" asp-route-reclaim="@r.PublicId" class="btn-row">
+                                    <idem />
+                                    <input name="reason" aria-label="Reason for @r.DisplayName" placeholder="Reason (required)" maxlength="1000" required />
+                                    <button class="btn btn-small btn-ghost" type="submit" name="take" value="false">Keep</button>
+                                    <button class="btn btn-small" type="submit" name="take" value="true">Reclaim</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <span>@r.Reason</span>@if (r.DecidedByName is not null) { <div class="small muted">@r.DecidedByName, @Ui.Date(r.DecidedUtc)</div> }
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="card mt">
+    <div class="card-head">
+        <h2>People in the tracking group <help>Everyone the tracking group lists, with their seat and its state. A person in the group without a seat may be waiting for provisioning, or the license may have failed.</help></h2>
+        <nav class="btn-row" aria-label="Filter people">
+            <a class="btn btn-small @(Model.HolderFilter is null or "seat" ? "" : "btn-ghost")" href="?holders=seat#people">With a seat</a>
+            <a class="btn btn-small @(Model.HolderFilter == "inactive" ? "" : "btn-ghost")" href="?holders=inactive#people">Inactive</a>
+            <a class="btn btn-small @(Model.HolderFilter == "noseat" ? "" : "btn-ghost")" href="?holders=noseat#people">No seat</a>
+            <a class="btn btn-small @(Model.HolderFilter == "all" ? "" : "btn-ghost")" href="?holders=all#people">Everyone</a>
+        </nav>
+    </div>
+    <div class="table-wrap" id="people">
+        <table class="stack">
+            <thead><tr>
+                <partial name="_Th" model='("", "Person", "Name and sign-in name.")' />
+                <partial name="_Th" model='("", "Seat", "Whether the person holds an active Copilot add-on seat.")' />
+                <partial name="_Th" model='("", "License state", "From Microsoft 365. An error such as not enough licenses or a missing usage location means the person has no working seat.")' />
+                <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report.")' />
+            </tr></thead>
+            <tbody>
+            @if (holders.Count == 0) { <tr><td colspan="4" class="muted">Nobody in this view.</td></tr> }
+            @foreach (var h in holders)
+            {
+                <tr>
+                    <td data-label="Person">@(h.DisplayName ?? "Unknown person")@if (!h.AccountEnabled) { <span class="pill pill-bad">Account disabled</span> } <div class="small muted">@h.UserPrincipalName</div></td>
+                    <td data-label="Seat">@(h.HasSeat ? (h.Direct ? "Yes, assigned directly" : "Yes") : "No")</td>
+                    <td data-label="License state">@(h.State ?? "")@if (h.Error is not null) { <span class="pill pill-bad">@Ui.Words(h.Error)</span> }</td>
+                    <td data-label="Last Copilot use">@(h.LastActivityDate is null ? (h.HasSeat ? "None reported" : "") : Ui.Date(h.LastActivityDate))</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt" id="admins">
+    <h2>LOB seat admins <help>Seat admins follow this LOB's reservation against actual seats. Any seat admin can name or end other seat admins for this LOB only. The business owner or the Platform Owner names the first one. The last seat admin cannot remove themselves.</help></h2>
+    @if (d.Admins.Count == 0) { <p class="muted">No seat admin yet.</p> }
+    else
+    {
+        <ul class="plain">
+            @foreach (var a in d.Admins)
+            {
+                <li class="btn-row">
+                    <span><strong>@a.DisplayName</strong> <span class="small muted">@a.UserPrincipalName · since @Ui.Date(a.EffectiveFrom)@(a.GrantedByName is null ? "" : ", named by " + a.GrantedByName)</span></span>
+                    @if (Model.CanManageAdmins)
+                    {
+                        <form method="post" asp-page-handler="EndAdmin" asp-route-id="@d.PublicId" asp-route-assignment="@a.PublicId" class="inline" data-confirm="End @a.DisplayName's seat admin role for @d.LobName?"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form>
+                    }
+                </li>
+            }
+        </ul>
+    }
+    @if (Model.CanManageAdmins)
+    {
+        <form method="post" asp-page-handler="AddAdmin" asp-route-id="@d.PublicId" class="form-grid mt">
+            <idem />
+            <div class="field"><label for="ap" class="req">Person <help>Start typing a name or sign-in name and choose from the list. You cannot name yourself.</help></label>
+                <input id="ap" name="person" list="people-list" autocomplete="off" required placeholder="Name or sign-in name" />
+                <datalist id="people-list">@foreach (var o in Model.People) { <option value="@o.Value">@o.Text</option> }</datalist>
+            </div>
+            <div><button class="btn" type="submit">Add seat admin</button></div>
+        </form>
+    }
+</div>

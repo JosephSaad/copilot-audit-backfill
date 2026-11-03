@@ -1,0 +1,17 @@
+{
+  "queue": "INTAKE",
+  "correlationId": "00000000-0000-0000-0000-000000000001",
+  "card": {
+    "type": "AdaptiveCard",
+    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+    "version": "1.4",
+    "body": [
+      { "type": "TextBlock", "text": "CCG-2026-000123: Completeness and sponsorship", "weight": "Bolder", "size": "Medium", "wrap": true },
+      { "type": "TextBlock", "text": "A new request is waiting in the Intake queue. Due 28 Oct.", "wrap": true },
+      { "type": "FactSet", "facts": [ { "title": "Stage", "value": "B2" }, { "title": "Funding owner", "value": "Retail Banking" } ] }
+    ],
+    "actions": [
+      { "type": "Action.OpenUrl", "title": "Open in the Workbench", "url": "http://localhost:5291/workbench/Requests/00000000-0000-0000-0000-000000000000" }
+    ]
+  }
+}

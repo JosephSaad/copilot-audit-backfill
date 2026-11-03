@@ -124,6 +124,16 @@ Assert-That (($sorted -join "`n") -ceq ($baseline.Lines -join "`n") -and @($sort
 $released = [regex]::Match([System.IO.File]::ReadAllText((Join-Path $root 'CHANGELOG.md')), '(?m)^## \[(\d+\.\d+\.\d+)\]').Groups[1].Value
 Assert-That ($baseline.Release -eq $released) "it was taken at the release the changelog names last ($($baseline.Release); the changelog says $released). When cutting a release, run tools/dev/schema/Update-SchemaBaseline.ps1"
 
+Write-Host "`n4. The Governance Workbench's baseline file" -ForegroundColor Cyan
+$govBaseline = Read-SchemaBaseline -Path (Join-Path $PSScriptRoot 'schema-baseline-governance.tsv')
+$govRows = @(ConvertFrom-SchemaLine $govBaseline.Lines)
+$govTables = @($govRows | Where-Object { $_.Section -eq 'O' -and $_.Kind -eq 'U' }).Count
+Assert-That ($govTables -ge 80 -and (@($govRows | ForEach-Object Database | Sort-Object -Unique) -join ',') -eq 'governance') "tests/schema-baseline-governance.tsv holds the Workbench's database: $govTables tables"
+Assert-That (@(Compare-SchemaSnapshot -Baseline $govBaseline.Lines -Current $govBaseline.Lines).Count -eq 0) 'and reads as compatible with itself'
+$govSorted = [string[]] $govBaseline.Lines.Clone(); [array]::Sort($govSorted, [StringComparer]::Ordinal)
+Assert-That (($govSorted -join "`n") -ceq ($govBaseline.Lines -join "`n") -and @($govSorted | Select-Object -Unique).Count -eq $govSorted.Count) 'its lines are sorted and none is there twice'
+Assert-That ($govBaseline.Release -eq $released) "it was taken at the release the changelog names last ($($govBaseline.Release); the changelog says $released)"
+
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host 'All schema compatibility tests passed.' -ForegroundColor Green

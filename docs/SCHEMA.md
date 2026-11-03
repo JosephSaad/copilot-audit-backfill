@@ -11,6 +11,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [The scripts](#the-scripts)
 - [Naming conventions](#naming-conventions)
 - [The bi schema: what each table and view is for, and what uses it](#the-bi-schema-what-each-table-and-view-is-for-and-what-uses-it)
+- [Governance Workbench database](#governance-workbench-database)
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
@@ -174,6 +175,31 @@ So write a report against the views. Join a fact view to a dimension view on the
 | `bi.EventMarkers` | Dates marked on trend charts: a launch, a training wave | `dash.EventMarker` | The model |
 
 **Procedures and the function.** `bi.usp_RefreshBi` fills the schema; `bi.usp_NameAgents` names the agents at the end of every refresh; `bi.usp_MergeAgents` (2.6.3) makes one agent of the identities the audit log gives the same agent; `bi.fnAgentIdentity` is the one rule for which agent a record belongs to.
+
+## Governance Workbench database
+
+The Governance Workbench (3.0.0) keeps its data in a database of its own, `CopilotGovernance` by default, beside the Copilot database on the same SQL Server. Nothing on this page is in it, and nothing of it is in the Copilot database: the two share no table names. It is needed only when the Workbench is turned on ([OPERATIONS.md](OPERATIONS.md#governance-workbench)).
+
+- **SQL Server 2022 or later.** It uses ledger tables (decisions, evidence metadata, attestations, verifications and the audit trail: rows are added, never changed or deleted, and a digest proves it), system-versioned temporal tables (in `sec` and `core`, the seat tables included: every earlier version of a row is kept), and row-level security (each line of business sees only its own rows; each connection carries the person and whether they hold a central role in `SESSION_CONTEXT`).
+- **Its scripts** are in `governance/src/Governance.Database/Scripts`, run in name order by `governance/src/Governance.Database/Deploy-Database.ps1`. Each is safe to rerun and only adds, and from 3.0.0 the database follows the same compatibility rule as this one: nothing is dropped, renamed or narrowed.
+- **Its schemas**, from `001-schemas.sql`:
+
+| Schema | Holds |
+|---|---|
+| `ref` | Reference data and settings (`ref.Setting`) |
+| `core` | The registry: funding owners, cost centers, services, control templates, workloads, envelopes, commercial inventory, Copilot seat reservations |
+| `sec` | People, roles, delegations and the RACI matrix |
+| `wf` | Requests, tasks, decisions and ITSM tickets |
+| `evd` | Evidence |
+| `ntf` | Notifications: the outbox, deliveries and digests |
+| `intg` | Integration snapshots and job runs (`intg.JobRun`) |
+| `ops` | Consumption events and findings |
+| `aud` | The audit trail |
+| `rpt` | Reporting views |
+
+- **Its database roles:** `app_web` for the dashboard's account, `app_worker` for the worker's, `gov_reader` for reporting and audit export (read only). None is a database owner.
+
+**Roles for the Workbench in this database.** The role check on `dash.RoleGrant` and `dash.AccessProfileRole` (`sql/Create-CopilotDashboardSchema.sql`) takes three more roles from 3.0.0: `Governance`, `GovernanceOperator` and `GovernanceAuditor`, the Workbench's page roles. Run on an existing database, the script widens the check; nothing already granted changes.
 
 ## Loading and state
 
@@ -2911,7 +2937,7 @@ Indexes and constraints:
 | 1 | `Upn` | nvarchar(512) | **no** |  |  |
 ### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user), AD groups (DOMAIN\\Group) or Entra groups (entra:&lt;object ID&gt;, 2.8.0). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail, and with OrgWide show their pages for the whole organization (2.8.0).
+*Table.* Roles granted to people (UPN or DOMAIN\\user), AD groups (DOMAIN\\Group) or Entra groups (entra:&lt;object ID&gt;, 2.8.0). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail, and with OrgWide show their pages for the whole organization (2.8.0); Governance, GovernanceOperator and GovernanceAuditor open Governance Workbench pages and no usage data (3.0.0).
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2934,7 +2960,7 @@ Indexes and constraints:
 - `PK_DashRoleGrant`: primary key, clustered (GrantId)
 - `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
 - `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
-- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`
+- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`; from 3.0.0 also `Governance`, `GovernanceOperator` and `GovernanceAuditor`, the Governance Workbench's page roles
 - `DF_DashRoleGrant_OrgWide`: default `(0)` on OrgWide
 
 ### dash.AccessProfile
@@ -2977,7 +3003,7 @@ Indexes and constraints:
 
 - `PK_DashAccessProfileRole`: primary key, clustered (ProfileId, Role)
 - `FK_DashAccessProfileRole_Profile`: foreign key (ProfileId) to dash.AccessProfile, on delete cascade
-- `CK_DashAccessProfileRole_Role`: check, the eight roles of dash.RoleGrant
+- `CK_DashAccessProfileRole_Role`: check, the roles of dash.RoleGrant (the eight, and from 3.0.0 Governance, GovernanceOperator and GovernanceAuditor)
 
 ### dash.ProfileGrant
 

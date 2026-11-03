@@ -28,9 +28,20 @@
       8. Schedules the daily pre-cache (2.5.1): Invoke-InsightsPrecache.ps1,
          copied into the site's folder, builds every report page ahead at
          -PrecacheAt in -PrecacheTimeZone, 07:00 Eastern Time unless given.
+      9. With -GovernanceDatabase, the Governance Workbench (/workbench): checks
+         the server with governance\deploy\Test-WorkbenchPrerequisites.ps1
+         before the site goes offline (SQL Server 2022 or later), writes
+         ConnectionStrings:Governance and Notifications:WorkbenchBaseUrl, and,
+         with -GrantDatabaseAccess, creates or upgrades the governance database
+         (governance\src\Governance.Database\Deploy-Database.ps1), the site's
+         account in app_web and -WorkerAccount in app_worker. With -WorkerServer,
+         on that one server only: installs the worker as the Windows service
+         CopilotGovernanceWorker (governance\deploy\Install-WorkbenchWorker.ps1)
+         and schedules the daily ledger digest (Save-LedgerDigest.ps1).
 
     The site is offline from step 3 to step 6, and back online whether they
-    succeed or fail. Its inputs are checked before it goes offline.
+    succeed or fail. Its inputs are checked before it goes offline. -WhatIf
+    checks the inputs, lists what would change, and changes nothing.
 
     The dashboard reads the database the pipeline fills (Install-CopilotAudit.ps1).
     The top of the organization is found in the org chart; -OrgTopUpn or
@@ -92,6 +103,47 @@
     The thumbprint of the app registration's certificate, in Local Computer > Personal on every web server; the
     app-pool account is given read access to its private key.
 
+.PARAMETER GovernanceDatabase
+    Turns the Governance Workbench on: its database on -SqlServer, such as CopilotGovernance (SQL Server 2022 or
+    later). Needs PowerShell 7 (pwsh) and sqlcmd on the server. Run again without it, the Workbench keeps its settings.
+
+.PARAMETER SiteUrl
+    The address people open the site at, such as https://insights.contoso.com or, behind a load balancer, its
+    address; with -ApplicationPath, the path too. The links in Workbench notices start with it. Omitted: the address
+    the site has already, else this server's binding.
+
+.PARAMETER WorkerServer
+    Installs the Workbench worker (a Windows service) and the daily ledger digest on this server. Give it on one
+    server only; the other web servers run the site alone.
+
+.PARAMETER WorkerAccount
+    The gMSA the worker runs as (DOMAIN\name$), made a member of app_worker in the governance database and given read
+    on dash.UserDay and bi.DimUser in the Copilot database (with -GrantDatabaseAccess; otherwise the grant is written
+    for a DBA to Grant-WorkbenchWorkerAccess.sql in the site's folder).
+
+.PARAMETER WorkerPackagePath
+    The worker to install: a folder holding Governance.Worker.csproj (published with the .NET 10 SDK), a published
+    folder, or the release's copilot-governance-worker zip. Omitted: governance\src\Governance.Worker beside this installer.
+
+.PARAMETER WorkerSettingsFile
+    The worker's settings, made from governance\deploy\appsettings.Worker.Production.sample.json. Needed the first
+    time; omitted, the installed worker's own file is kept. Its connection strings (GovernanceWorker, and Insights for
+    the seat read's Copilot activity) are written from -SqlServer, -GovernanceDatabase and -Database on every run; the
+    site's address is filled in when the file leaves it as <...>, or when -SiteUrl is given.
+
+.PARAMETER WorkerPath
+    The worker's folder. Default C:\CopilotGovernance\Worker.
+
+.PARAMETER LedgerDigestPath
+    A share on write-once storage the worker's account can write to. With it, the scheduled task 'Copilot
+    Governance ledger digest' saves a digest of the governance database's ledger there each day.
+
+.PARAMETER LedgerDigestAt
+    When the ledger digest runs each day, as HH:mm on this server's clock. Default 02:00.
+
+.PARAMETER ProxyUrl
+    The outbound proxy, such as http://proxy.contoso.com:8080: for the prerequisite check's HTTPS tests and the worker's calls.
+
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -SiteName 'Apps' -ApplicationPath /CopilotDashboard `
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' -GrantDatabaseAccess
@@ -101,10 +153,14 @@
         -HostName insights.contoso.com -CertificateThumbprint 3F2A... -GrantDatabaseAccess
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.4.zip -SqlServer sql01   # an update: the rest is kept
+.EXAMPLE
+    .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -GrantDatabaseAccess `
+        -GovernanceDatabase CopilotGovernance -SiteUrl https://insights.contoso.com -WorkerServer -WorkerAccount 'CONTOSO\gmsa-cgw-worker$' `
+        -WorkerSettingsFile D:\Drop\appsettings.Worker.Production.json -LedgerDigestPath '\\worm01\CopilotGovernanceLedger$'
 #>
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string] $PackagePath,
     [Parameter(Mandatory)][string] $SqlServer,
@@ -130,7 +186,17 @@ param(
     [ValidateSet('Windows', 'Entra')][string] $Authentication,
     [string] $EntraTenantId,
     [string] $EntraClientId,
-    [string] $EntraCertificateThumbprint
+    [string] $EntraCertificateThumbprint,
+    [string] $GovernanceDatabase,
+    [string] $SiteUrl,
+    [switch] $WorkerServer,
+    [string] $WorkerAccount,
+    [string] $WorkerPackagePath,
+    [string] $WorkerSettingsFile,
+    [string] $WorkerPath = 'C:\CopilotGovernance\Worker',
+    [string] $LedgerDigestPath,
+    [string] $LedgerDigestAt = '02:00',
+    [string] $ProxyUrl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -193,6 +259,106 @@ function Resolve-SiteSetting {
     [pscustomobject] $r
 }
 
+function Assert-WorkbenchInput {
+    <# The Workbench's parameters, checked before anything changes: an error naming the one that is wrong. Pure, for the tests. #>
+    param(
+        [string[]] $Given,                 # the parameters given this time
+        [string] $GovernanceDatabase,
+        [string[]] $CopilotDatabases,      # -Database and every tenant's
+        [bool] $WorkerServer, [string] $WorkerAccount, [string] $LedgerDigestAt, [string] $ProxyUrl
+    )
+    if (-not $GovernanceDatabase) {
+        $for = @($Given | Where-Object { $_ -in 'SiteUrl', 'WorkerServer', 'WorkerAccount', 'WorkerPackagePath', 'WorkerSettingsFile', 'WorkerPath', 'LedgerDigestPath', 'LedgerDigestAt', 'ProxyUrl' })
+        if ($for.Count) { throw "-$($for[0]) is for the Governance Workbench: give -GovernanceDatabase with it. Nothing was changed." }
+        return
+    }
+    if ($GovernanceDatabase -notmatch '^[A-Za-z][A-Za-z0-9_]{0,100}$') { throw "-GovernanceDatabase '$GovernanceDatabase' must be letters, digits and underscores, starting with a letter. Nothing was changed." }
+    if ($CopilotDatabases -contains $GovernanceDatabase) { throw "-GovernanceDatabase '$GovernanceDatabase' is a Copilot database: the Workbench has a database of its own, such as CopilotGovernance. Nothing was changed." }
+    if ($WorkerAccount -and $WorkerAccount -notmatch '^[A-Za-z0-9][A-Za-z0-9.\-]{0,62}\\[A-Za-z0-9][A-Za-z0-9.\-_]{0,62}\$$') {
+        throw "-WorkerAccount '$WorkerAccount' is not a group managed service account (DOMAIN\name`$). Nothing was changed."
+    }
+    if ($WorkerServer -and -not $WorkerAccount) { throw '-WorkerServer needs -WorkerAccount, the gMSA the worker runs as. Nothing was changed.' }
+    foreach ($p in 'WorkerPackagePath', 'WorkerSettingsFile', 'WorkerPath', 'LedgerDigestPath', 'LedgerDigestAt') {
+        if ($Given -contains $p -and -not $WorkerServer) { throw "-$p is for the server that runs the worker: give -WorkerServer with it there. Nothing was changed." }
+    }
+    if ($LedgerDigestAt -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { throw "-LedgerDigestAt '$LedgerDigestAt' is not a time of day: give it as HH:mm, such as 02:00. Nothing was changed." }
+    if ($ProxyUrl -and $ProxyUrl -notmatch '^https?://[^\s/]+(:\d+)?/?$') { throw "-ProxyUrl '$ProxyUrl' is not an address such as http://proxy.contoso.com:8080. Nothing was changed." }
+}
+
+function Resolve-WorkbenchBaseUrl {
+    <#
+        The site's root address, which the links in Workbench notices start with (Notifications:WorkbenchBaseUrl):
+        -SiteUrl, else what the site has, else its binding's. Never .../workbench: the notices add that. Pure, for the tests.
+    #>
+    param([string] $SiteUrl, [string] $Existing, [string] $Protocol, [string] $HostName, [int] $Port, [string] $AppName)
+    if ($SiteUrl) {
+        $u = $SiteUrl.Trim().TrimEnd('/')
+        if ($u -notmatch '^https?://[^/\s?#]+(/[^\s?#]*)?$') { throw "-SiteUrl '$SiteUrl' is not an address such as https://insights.contoso.com. Nothing was changed." }
+        if ($u -match '/workbench$') { throw "-SiteUrl '$SiteUrl' ends with /workbench: give the site's own address, $($u -replace '/workbench$', ''). Nothing was changed." }
+        return $u
+    }
+    if ($Existing -and $Existing -notmatch '<[^>]+>') { return $Existing.Trim().TrimEnd('/') }
+    $plain = -not $Port -or ($Protocol -eq 'https' -and $Port -eq 443) -or ($Protocol -eq 'http' -and $Port -eq 80)
+    '{0}://{1}{2}{3}' -f $Protocol, $HostName, $(if ($plain) { '' } else { ":$Port" }), $(if ($AppName) { "/$AppName" } else { '' })
+}
+
+function Merge-WorkerSetting {
+    <#
+        The worker's settings with its two connection strings written from this run's -SqlServer, -GovernanceDatabase
+        and Copilot database every time (a rerun against another server or database must not keep the old ones):
+        GovernanceWorker, and Insights, from which the nightly seat read takes Copilot activity as the site's manual
+        read does. The site's address is filled in where the file leaves it out or as <...>, and also when -SiteUrl is
+        given. Pure, for the tests.
+    #>
+    param($Settings, [string] $ConnectionString, [string] $InsightsConnectionString, [string] $BaseUrl, [bool] $BaseUrlGiven)
+    foreach ($s in 'ConnectionStrings', 'Notifications') {
+        if (-not $Settings.PSObject.Properties[$s]) { $Settings | Add-Member -NotePropertyName $s -NotePropertyValue ([pscustomobject] @{}) }
+    }
+    $fill = @(@($Settings.ConnectionStrings, 'GovernanceWorker', $ConnectionString, $true), @($Settings.Notifications, 'WorkbenchBaseUrl', $BaseUrl, $BaseUrlGiven))
+    if ($InsightsConnectionString) { $fill += , @($Settings.ConnectionStrings, 'Insights', $InsightsConnectionString, $true) }
+    foreach ($f in $fill) {
+        $o, $name, $value, $always = $f
+        $p = $o.PSObject.Properties[$name]
+        if (-not $p) { $o | Add-Member -NotePropertyName $name -NotePropertyValue $value }
+        elseif ($always -or -not "$($p.Value)" -or "$($p.Value)" -match '<[^>]+>') { $p.Value = $value }
+    }
+    $Settings
+}
+
+function Get-WorkerInsightsGrant {
+    <#
+        The worker's read on the Copilot database, for the nightly seat read's Copilot activity (dash.UserDay, each
+        person's interactions per day, and bi.DimUser, their UPN): the gMSA's login and user where missing, then SELECT
+        on those two tables only, where they exist. Safe to rerun. Pure, for the tests.
+    #>
+    param([string] $Database, [string] $Account)
+    $a = $Account.Replace("'", "''")
+    @"
+-- The Workbench worker ($Account) reads Copilot activity for the nightly seat read: two tables, read only.
+USE [master];
+IF SUSER_ID(N'$a') IS NULL CREATE LOGIN [$Account] FROM WINDOWS;
+USE [$Database];
+DECLARE @u sysname = (SELECT name FROM sys.database_principals WHERE sid = SUSER_SID(N'$a'));
+IF @u IS NULL BEGIN CREATE USER [$Account] FOR LOGIN [$Account]; SET @u = N'$a'; END;
+IF @u <> N'dbo'
+BEGIN
+    DECLARE @g nvarchar(max) = N'';
+    IF OBJECT_ID(N'dash.UserDay', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON dash.UserDay TO ' + QUOTENAME(@u) + N';';
+    IF OBJECT_ID(N'bi.DimUser', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON bi.DimUser TO ' + QUOTENAME(@u) + N';';
+    EXEC (@g);
+END;
+"@
+}
+
+function Get-LedgerDigestArgument {
+    <# The daily ledger digest task's command line for pwsh. Pure, for the tests. #>
+    param([string] $Script, [string] $SqlServer, [string] $Database, [string] $DigestPath, [bool] $TrustServerCertificate)
+    # A trailing \ would escape the closing quote.
+    $a = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$Script`" -SqlServer `"$SqlServer`" -Database $Database -DigestPath `"$($DigestPath.TrimEnd('\'))`""
+    if ($TrustServerCertificate) { $a += ' -TrustServerCertificate' }
+    $a
+}
+
 # ---- 0. Where we are ------------------------------------------------------------------------
 # The IIS:\ drive exists only in Windows PowerShell; PowerShell 7 loads WebAdministration without it.
 if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Run this in Windows PowerShell 5.1 (powershell.exe), not PowerShell 7: the IIS provider it uses is not available there.' }
@@ -201,6 +367,13 @@ if ($os.ProductType -eq 1) { throw 'This installs on Windows Server (2022 or lat
 if ([int] $os.BuildNumber -lt 20348) { Write-Warning "Windows Server 2022 (build 20348) or later is supported; this is build $($os.BuildNumber)." }
 if ($AppPoolIdentity -and -not $AppPoolIdentity.EndsWith('$') -and -not $AppPoolCredential) {
     throw "-AppPoolIdentity $AppPoolIdentity is not a managed service account (DOMAIN\name$): give its password with -AppPoolCredential."
+}
+# The Workbench's own scripts run in PowerShell 7, and its database scripts through sqlcmd.
+$governanceKit = Join-Path (Split-Path $PSScriptRoot -Parent) 'governance'
+if ($GovernanceDatabase) {
+    if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { throw '-GovernanceDatabase needs PowerShell 7 (pwsh) on this server: the Workbench''s scripts run in it. Install it, then run this again. Nothing was changed.' }
+    if (-not (Get-Command sqlcmd -ErrorAction SilentlyContinue)) { throw '-GovernanceDatabase needs the SQL Server command-line tools (sqlcmd) on this server. Install them, then run this again. Nothing was changed.' }
+    if (-not (Test-Path (Join-Path $governanceKit 'deploy\Test-WorkbenchPrerequisites.ps1'))) { throw "-GovernanceDatabase needs the governance folder of the source package beside the dashboard folder ($governanceKit). Run this from the source package. Nothing was changed." }
 }
 
 # ---- 1. IIS -----------------------------------------------------------------------------------
@@ -224,7 +397,7 @@ if ($ApplicationPath) {
     $appName = $ApplicationPath.Trim().Trim('/')
     if ($appName -notmatch '^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9][A-Za-z0-9._\-]*)*$') { throw "-ApplicationPath '$ApplicationPath' is not a path such as /CopilotDashboard. Nothing was changed." }
     # A name the dashboard uses for its own addresses (/admin, /agents ...) could not be told from them.
-    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me'
+    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me', 'workbench'
     if (($appName -split '/')[0] -in $own) { throw "-ApplicationPath '$ApplicationPath' has the name of one of the dashboard's own addresses (/$(($appName -split '/')[0])): choose another, such as /CopilotDashboard. Nothing was changed." }
     if (-not (Get-Website -Name $SiteName)) { throw "-ApplicationPath needs an existing site to hold it: there is no site '$SiteName'. Give the site's name with -SiteName. Nothing was changed." }
 }
@@ -301,6 +474,80 @@ elseif ($settings.PSObject.Properties['Insights'] -and $settings.Insights.PSObje
     $tenantDbs = @(@($settings.Insights.Tenants) | Where-Object { $_ -and $_.PSObject.Properties['ConnectionString'] } |
                    ForEach-Object { (New-Object System.Data.SqlClient.SqlConnectionStringBuilder ([string] $_.ConnectionString)).InitialCatalog } | Where-Object { $_ })
 }
+# The Governance Workbench: its parameters, the address its notices link to, and on the worker's server the worker
+# and its settings.
+Assert-WorkbenchInput -Given @($PSBoundParameters.Keys) -GovernanceDatabase $GovernanceDatabase -CopilotDatabases (@($Database) + $tenantDbs) `
+    -WorkerServer ([bool] $WorkerServer) -WorkerAccount $WorkerAccount -LedgerDigestAt $LedgerDigestAt -ProxyUrl $ProxyUrl
+$workbenchUrl = $null
+if ($GovernanceDatabase) {
+    # The site's own address when -SiteUrl is not given and the site has none yet: its HTTPS binding's, or its HTTP one's.
+    $wbProto = if ($CertificateThumbprint) { 'https' } else { 'http' }
+    $wbHost = $HostName; $wbPort = $Port
+    if (-not $CertificateThumbprint -and -not $HostName -and -not $Port -and (Get-Website -Name $SiteName)) {
+        $b = @(Get-WebBinding -Name $SiteName | Where-Object { $_.protocol -in 'http', 'https' } | Sort-Object { if ($_.protocol -eq 'https') { 0 } else { 1 } })
+        if ($b) { $parts = ([string] $b[0].bindingInformation).Split(':'); $wbProto = [string] $b[0].protocol; $wbPort = [int] $parts[1]; if ($parts[2]) { $wbHost = $parts[2] } }
+    }
+    if (-not $wbHost) { $wbHost = $env:COMPUTERNAME }
+    $hadUrl = if ($settings.PSObject.Properties['Notifications'] -and $settings.Notifications.PSObject.Properties['WorkbenchBaseUrl']) { [string] $settings.Notifications.WorkbenchBaseUrl } else { '' }
+    $workbenchUrl = Resolve-WorkbenchBaseUrl -SiteUrl $SiteUrl -Existing $hadUrl -Protocol $wbProto -HostName $wbHost -Port $wbPort -AppName $appName
+    if (-not $SiteUrl -and -not $hadUrl) { Write-Warning "Workbench notices will link to $workbenchUrl. Behind a load balancer, or at another name, give -SiteUrl with the address people open." }
+    if ($WorkerServer) {
+        $workerSource = if ($WorkerPackagePath) { $WorkerPackagePath } else { Join-Path $governanceKit 'src\Governance.Worker' }
+        if (-not (Test-Path $workerSource)) { throw "No worker at ${workerSource}: give -WorkerPackagePath the release's copilot-governance-worker zip, a published folder, or governance\src\Governance.Worker. Nothing was changed." }
+        # The worker's settings: the file given, else the installed worker's own.
+        $installedSettings = Join-Path $WorkerPath 'appsettings.Production.json'
+        $workerSettingsSource = if ($WorkerSettingsFile) { $WorkerSettingsFile } elseif (Test-Path $installedSettings) { $installedSettings } else { '' }
+        if (-not $workerSettingsSource -or -not (Test-Path $workerSettingsSource)) {
+            throw "The worker needs its settings: give -WorkerSettingsFile, made from governance\deploy\appsettings.Worker.Production.sample.json. Nothing was changed."
+        }
+        try { $workerSettings = Get-Content $workerSettingsSource -Raw | ConvertFrom-Json }
+        catch { throw "$workerSettingsSource does not read as JSON ($($_.Exception.Message)). Nothing was changed." }
+    }
+}
+
+function Invoke-WorkbenchPrerequisite {
+    <# governance\deploy\Test-WorkbenchPrerequisites.ps1 for this server, in PowerShell 7: true when no check fails. #>
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $governanceKit 'deploy\Test-WorkbenchPrerequisites.ps1'),
+           '-Role', $(if ($WorkerServer) { 'Both' } else { 'Web' }), '-SqlServer', $SqlServer, '-Database', $GovernanceDatabase)
+    if ($trust -eq 'true') { $a += '-TrustServerCertificate' }
+    if ($ProxyUrl) { $a += '-ProxyUrl', $ProxyUrl }
+    if ($WorkerServer) {
+        $a += '-GmsaAccount', $WorkerAccount
+        $subject = if ($workerSettings.PSObject.Properties['Tenant'] -and $workerSettings.Tenant.PSObject.Properties['WorkerCertificateSubject']) { [string] $workerSettings.Tenant.WorkerCertificateSubject } else { '' }
+        if ($subject -and $subject -notmatch '<[^>]+>') { $a += '-WorkerCertificateSubject', $subject }
+    }
+    # A Hosting Bundle installed by this run is not on this session's PATH yet.
+    $dotnetDir = Join-Path $env:ProgramFiles 'dotnet'
+    if ((Test-Path (Join-Path $dotnetDir 'dotnet.exe')) -and -not (Get-Command dotnet -ErrorAction SilentlyContinue)) { $env:PATH = "$dotnetDir;$env:PATH" }
+    & pwsh @a | Out-Host
+    $LASTEXITCODE -eq 0
+}
+
+# ---- -WhatIf: the inputs are checked above; what a run would change is listed, and nothing is changed -----------
+if ($WhatIfPreference) {
+    $where = if ($appName) { "application /$appName in site '$SiteName'" } else { "site '$SiteName'" }
+    [void] $PSCmdlet.ShouldProcess($PhysicalPath, "Copy the site files and write appsettings.Production.json (database $Database on $SqlServer)")
+    [void] $PSCmdlet.ShouldProcess($where, "Create or update the app pool '$poolName' and the $where, with its sign-in")
+    [void] $PSCmdlet.ShouldProcess("$SqlServer $((@(@($Database) + $tenantDbs) | Select-Object -Unique) -join ', ')",
+        $(if ($GrantDatabaseAccess) { "Install the dashboard schema and grant the site's account" } else { 'Write the grants for a DBA' }))
+    if (Test-Path $precacheScript) { [void] $PSCmdlet.ShouldProcess('Copilot Insights pre-cache', $(if ($PrecacheAt) { "Schedule daily at $PrecacheAt $PrecacheTimeZone, or keep the task as scheduled" } else { 'Remove the task' })) }
+    if ($GovernanceDatabase) {
+        [void] $PSCmdlet.ShouldProcess($settingsPath, "Set ConnectionStrings:Governance to $GovernanceDatabase on $SqlServer and Notifications:WorkbenchBaseUrl to $workbenchUrl")
+        [void] $PSCmdlet.ShouldProcess("$SqlServer $GovernanceDatabase",
+            $(if ($GrantDatabaseAccess) { "Create or upgrade the governance database, with the site's account in app_web$(if ($WorkerAccount) { " and $WorkerAccount in app_worker" })" } else { 'Show the Deploy-Database.ps1 command for a DBA' }))
+        if ($WorkerAccount) {
+            [void] $PSCmdlet.ShouldProcess("$SqlServer $Database", $(if ($GrantDatabaseAccess) { "Grant $WorkerAccount read on dash.UserDay and bi.DimUser" } else { "Write the grant of read on dash.UserDay and bi.DimUser to $WorkerAccount for a DBA" }))
+        }
+        if ($WorkerServer) {
+            [void] $PSCmdlet.ShouldProcess('CopilotGovernanceWorker', "Install the worker from $workerSource into $WorkerPath as a Windows service running as $WorkerAccount, its connection strings set to $GovernanceDatabase and $Database on $SqlServer")
+            [void] $PSCmdlet.ShouldProcess('Copilot Governance ledger digest', $(if ($LedgerDigestPath) { "Schedule daily at $LedgerDigestAt as $WorkerAccount, saving to $LedgerDigestPath" } else { 'Leave as it is (no -LedgerDigestPath)' }))
+        }
+        Write-Step 'Governance Workbench prerequisites'
+        if (-not (Invoke-WorkbenchPrerequisite)) { Write-Warning 'A run would stop here: fix the FAIL lines above first.' }
+    }
+    Write-Host 'Nothing was changed (-WhatIf).'
+    return
+}
 
 # ---- 2. ASP.NET Core Hosting Bundle -------------------------------------------------------------
 Write-Step 'ASP.NET Core 10 Hosting Bundle'
@@ -317,6 +564,14 @@ if (-not (Test-HostingBundle)) {
     if ($p.ExitCode -notin 0, 3010) { throw "The Hosting Bundle installer failed with exit code $($p.ExitCode)." }
     if (-not (Test-HostingBundle)) { throw 'The Hosting Bundle installed, but the ASP.NET Core module or the 10.x runtime is still missing.' }
     & net stop was /y | Out-Null; & net start w3svc | Out-Null
+}
+
+# ---- 2b. The Governance Workbench's prerequisites, before the site changes -----------------------
+if ($GovernanceDatabase) {
+    Write-Step 'Governance Workbench prerequisites'
+    if (-not (Invoke-WorkbenchPrerequisite)) {
+        throw 'This server is not ready for the Governance Workbench: fix the FAIL lines above (its database needs SQL Server 2022 or later), then run this again. The site was not changed.'
+    }
 }
 
 # ---- 3. The files -----------------------------------------------------------------------------
@@ -394,6 +649,13 @@ try {
     }
     # Before 2.3.0 a Development-only setting let an administrator view as someone else; the site no longer has it.
     if ($settings.Insights.PSObject.Properties['AllowViewAs']) { $settings.Insights.PSObject.Properties.Remove('AllowViewAs') }
+    # The Governance Workbench: its database, and the site's address its notices link to (+ /workbench/...).
+    if ($GovernanceDatabase) {
+        if (-not $settings.PSObject.Properties['ConnectionStrings']) { Set-Prop $settings 'ConnectionStrings' ([pscustomobject] @{}) }
+        Set-Prop $settings.ConnectionStrings 'Governance' "Server=$SqlServer;Database=$GovernanceDatabase;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotInsights-Workbench"
+        if (-not $settings.PSObject.Properties['Notifications']) { Set-Prop $settings 'Notifications' ([pscustomobject] @{}) }
+        Set-Prop $settings.Notifications 'WorkbenchBaseUrl' $workbenchUrl
+    }
     $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
 
     # ---- 5. App pool and site -----------------------------------------------------------------
@@ -661,8 +923,102 @@ if (Test-Path $sitePrecache) {
     else { & $sitePrecache -Register -PhysicalPath $PhysicalPath -At $PrecacheAt -TimeZone $PrecacheTimeZone }
 }
 
+# ---- 9. The Governance Workbench --------------------------------------------------------------
+if ($GovernanceDatabase) {
+    # Its own database, by its ordered scripts: the site's account in app_web, the worker's in app_worker.
+    Write-Step "Governance Workbench database $GovernanceDatabase"
+    $deployDb = Join-Path $governanceKit 'src\Governance.Database\Deploy-Database.ps1'
+    $dbArgs = @('-SqlServer', $SqlServer, '-Database', $GovernanceDatabase, '-WebPrincipal', $sqlLogin)
+    if ($WorkerAccount) { $dbArgs += '-WorkerPrincipal', $WorkerAccount }
+    if ($trust -eq 'true') { $dbArgs += '-TrustServerCertificate' }
+    if ($GrantDatabaseAccess) {
+        & pwsh -NoProfile -ExecutionPolicy Bypass -File $deployDb @dbArgs | Out-Host
+        if ($LASTEXITCODE) { throw "Deploy-Database.ps1 failed for $GovernanceDatabase (exit code $LASTEXITCODE). The site is installed; its Workbench pages fail until the database is there. Fix what it says, then run this again." }
+    }
+    else {
+        Write-Host '    Have a DBA create or upgrade it from the source package''s folder, or run this again with -GrantDatabaseAccess:'
+        Write-Host "    pwsh -File governance\src\Governance.Database\Deploy-Database.ps1 $(($dbArgs | ForEach-Object { if ($_ -match '[\s$\\]') { "'$_'" } else { $_ } }) -join ' ')"
+    }
+    # The worker's read on the Copilot database (its ConnectionStrings:Insights): the nightly seat read takes Copilot
+    # activity from there, as the site's manual read does, not from Microsoft's usage report.
+    if ($WorkerAccount) {
+        $workerGrant = Get-WorkerInsightsGrant -Database $Database -Account $WorkerAccount
+        if ($GrantDatabaseAccess) {
+            $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+            $conn.Open()
+            try { $cmd = $conn.CreateCommand(); $cmd.CommandText = $workerGrant; $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
+            finally { $conn.Dispose() }
+            Write-Host "    $WorkerAccount may read dash.UserDay and bi.DimUser in $Database (Copilot activity for the seat read)."
+        }
+        else {
+            $workerGrantFile = Join-Path $PhysicalPath 'Grant-WorkbenchWorkerAccess.sql'
+            Set-Content $workerGrantFile $workerGrant -Encoding utf8
+            Write-Host "    The worker's read on $Database (dash.UserDay, bi.DimUser) is written to $workerGrantFile. Have a DBA run it, or run this again with -GrantDatabaseAccess."
+        }
+    }
+
+    if ($WorkerServer) {
+        # The worker, on this server only: the other web servers run the site alone. Its jobs take a SQL lock each
+        # (sp_getapplock), so a second copy started by mistake waits rather than running them twice.
+        Write-Step "Governance Workbench worker service, as $WorkerAccount"
+        $wStage = Join-Path ([IO.Path]::GetTempPath()) ("CopilotGovernanceWorker-" + [guid]::NewGuid().ToString('N'))
+        $wSettings = "$wStage.settings.json"
+        New-Item -ItemType Directory -Force $wStage | Out-Null
+        try {
+            $wSrc = (Resolve-Path $workerSource).Path
+            if ((Get-Item $wSrc).PSIsContainer -and (Test-Path (Join-Path $wSrc 'Governance.Worker.csproj'))) {
+                if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw 'Publishing the worker from source needs the .NET 10 SDK; or give -WorkerPackagePath the release''s copilot-governance-worker zip.' }
+                & dotnet publish (Join-Path $wSrc 'Governance.Worker.csproj') -c Release -o $wStage --nologo | Out-Host
+                if ($LASTEXITCODE) { throw 'dotnet publish of the worker failed.' }
+            }
+            elseif ($wSrc -like '*.zip') { Expand-Archive -Path $wSrc -DestinationPath $wStage -Force }
+            else { Copy-Item -Path (Join-Path $wSrc '*') -Destination $wStage -Recurse -Force }
+            # The release's zip holds the worker in a folder of its own.
+            $wApp = $wStage
+            if (-not (Test-Path (Join-Path $wApp 'Governance.Worker.exe'))) {
+                $inner = Get-ChildItem $wStage -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'Governance.Worker.exe') } | Select-Object -First 1
+                if ($inner) { $wApp = $inner.FullName }
+            }
+            if (-not (Test-Path (Join-Path $wApp 'Governance.Worker.exe'))) { throw "No Governance.Worker.exe in ${workerSource}: is it the published worker?" }
+            # The ledger digest's script goes with the worker, where its scheduled task runs it.
+            Copy-Item -LiteralPath (Join-Path $governanceKit 'deploy\Save-LedgerDigest.ps1') -Destination $wApp -Force
+            $ws = Merge-WorkerSetting -Settings $workerSettings -BaseUrl $workbenchUrl -BaseUrlGiven ([bool] $SiteUrl) `
+                -ConnectionString "Server=$SqlServer;Database=$GovernanceDatabase;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotGovernance-Worker" `
+                -InsightsConnectionString "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Application Name=CopilotGovernance-Worker"
+            $ws | ConvertTo-Json -Depth 10 | Set-Content $wSettings -Encoding utf8
+            $wArgs = @('-PublishPath', $wApp, '-InstallPath', $WorkerPath, '-SettingsFile', $wSettings, '-GmsaAccount', $WorkerAccount)
+            if ($ProxyUrl) { $wArgs += '-ProxyUrl', $ProxyUrl }
+            & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $governanceKit 'deploy\Install-WorkbenchWorker.ps1') @wArgs | Out-Host
+            if ($LASTEXITCODE) { throw "Install-WorkbenchWorker.ps1 failed (exit code $LASTEXITCODE). The site is installed; fix what it says, then run this again with -WorkerServer." }
+        }
+        finally {
+            Remove-Item $wStage -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item $wSettings -Force -ErrorAction SilentlyContinue
+        }
+
+        # The daily ledger digest, on the worker's server and as its account, to write-once storage. A task already
+        # scheduled is kept unless -LedgerDigestPath is given again.
+        $digestTask = 'Copilot Governance ledger digest'
+        if ($LedgerDigestPath) {
+            $digestArgs = Get-LedgerDigestArgument -Script (Join-Path $WorkerPath 'Save-LedgerDigest.ps1') -SqlServer $SqlServer -Database $GovernanceDatabase `
+                -DigestPath $LedgerDigestPath -TrustServerCertificate ($trust -eq 'true')
+            $action = New-ScheduledTaskAction -Execute (Get-Command pwsh).Source -Argument $digestArgs -WorkingDirectory $WorkerPath
+            $trigger = New-ScheduledTaskTrigger -Daily -At $LedgerDigestAt
+            $taskSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+            # LogonType Password is how Task Scheduler is told to fetch a gMSA's password from AD.
+            $principal = New-ScheduledTaskPrincipal -UserId $WorkerAccount -LogonType Password -RunLevel Limited
+            Register-ScheduledTask -TaskName $digestTask -TaskPath '\' -Action $action -Trigger $trigger -Settings $taskSettings -Principal $principal `
+                -Description "Saves a digest of $GovernanceDatabase's ledger to $LedgerDigestPath (governance\deploy\Save-LedgerDigest.ps1)." -Force | Out-Null
+            Write-Host "    '$digestTask' runs daily at $LedgerDigestAt as $WorkerAccount, saving to $LedgerDigestPath."
+        }
+        elseif (Get-ScheduledTask -TaskName $digestTask -ErrorAction SilentlyContinue) { Write-Host "    '$digestTask' kept as scheduled." }
+        else { Write-Warning "No -LedgerDigestPath: the ledger digest is not scheduled. Give a share on write-once storage that $WorkerAccount can write to." }
+    }
+}
+
 $url = "{0}://{1}{2}/{3}" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" }), $(if ($appName) { "$appName/" } else { '' })
 Write-Host ''
 Write-Host "Copilot Insights is at $url" -ForegroundColor Green
+if ($GovernanceDatabase) { Write-Host "The Governance Workbench is at $workbenchUrl/workbench (the address its notices link to)." -ForegroundColor Green }
 Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organization, and grant roles.'
 if ($HostName -and $signIn -ne 'Entra') { Write-Host "For Kerberos sign-in on $HostName, register its SPN on the app-pool account: setspn -S HTTP/$HostName $(if ($AppPoolIdentity) { $AppPoolIdentity } else { "$env:USERDOMAIN\$env:COMPUTERNAME`$" })" }

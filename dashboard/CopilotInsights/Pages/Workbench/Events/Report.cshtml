@@ -1,0 +1,48 @@
+@page "/workbench/Events/Report"
+@model Governance.Web.Pages.Events.ReportModel
+@{
+    ViewData["Title"] = "Report a consumption problem";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Start">Start</a> › J5</div>
+        <h1>Report a consumption problem</h1>
+        <p class="lead">Use this when an agent or Copilot service stops for lack of credits, a threshold notice arrives, or something consumes far more than expected. Platform Operations triages it and acts within its authority; high and critical events also open an ITSM incident.</p>
+    </div>
+</div>
+<div class="alert alert-info">Microsoft already emails administrators about threshold alerts. Report here when people are affected or when you see something those alerts do not cover. An Azure budget alert never stops consumption (C08).</div>
+<form method="post" class="card">
+    <idem />
+    <div class="form-grid">
+        <div class="field">
+            <label for="fo" class="req">Funding owner <help>Whose workload or users are affected. Prefilled from your own attribution.</help></label>
+            <select id="fo" name="fundingOwnerId" required>
+                <option value="">Choose one</option>
+                @foreach (var o in Model.FundingOwners) { <option value="@o.Value" selected="@(o.Value == Model.DefaultFundingOwner?.ToString())">@o.Text</option> }
+            </select>
+        </div>
+        <div class="field">
+            <label for="wl">Workload <help>The agent, environment or service affected, if you know it.</help></label>
+            <select id="wl" name="workloadId"><option value="">Not sure</option>@foreach (var o in Model.Workloads) { <option value="@o.Value">@o.Text</option> }</select>
+        </div>
+        <div class="field">
+            <label for="cl" class="req">What happened <help>Threshold notice, requests denied, credits exhausted, runaway activity, or no permitted source of capacity (E5).</help></label>
+            <select id="cl" name="eventClass" required>
+                <option value="THRESHOLD">A threshold notice arrived</option>
+                <option value="DENIAL">Requests are being denied</option>
+                <option value="EXHAUSTION">Credits are exhausted</option>
+                <option value="RUNAWAY">Something is consuming far too much</option>
+                <option value="NO_PERMITTED_SOURCE">No permitted capacity source is left</option>
+                <option value="OTHER">Something else</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="sv" class="req">Severity <help>Critical: a critical service is down or customers are affected (acknowledged within 1 hour, around the clock). High: many people affected (4 hours). Normal: 1 business day.</help></label>
+            <select id="sv" name="severity" required><option value="NORMAL">Normal</option><option value="HIGH">High</option><option value="CRITICAL">Critical</option></select>
+        </div>
+        <div class="field full"><label for="tt" class="req">Short title <help>What people will see in the queue.</help></label><input id="tt" name="title" required maxlength="300" /></div>
+        <div class="field full"><label for="ds" class="req">Details <help>When it started, who is affected, any message shown, what you already tried.</help></label><textarea id="ds" name="description" required maxlength="2000"></textarea></div>
+        <div class="field full"><label class="check"><input type="checkbox" name="criticalService" value="true" /> A critical shared service is affected <help>The shared-service owner is told at once and continuity checks apply (G4, F9).</help></label></div>
+    </div>
+    <button class="btn mt" type="submit">Report</button>
+</form>

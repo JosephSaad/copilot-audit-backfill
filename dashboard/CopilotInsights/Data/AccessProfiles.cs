@@ -72,13 +72,21 @@ public static class AccessProfiles
         new("Dashboard operator", [new(Infrastructure.Roles.Admin, Pages: "/admin/health,/admin/notifications,/admin/audit")], [], true),
     ];
 
+    /// <summary>The Governance Workbench's starters, offered when it is set up: its central team, its operators and its auditors.</summary>
+    public static readonly IReadOnlyList<ProfileProposal> WorkbenchStarters =
+    [
+        new("Governance team", [new(Infrastructure.Roles.Governance)], [], true),
+        new("Governance operator", [new(Infrastructure.Roles.GovernanceOperator)], [], true),
+        new("Governance auditor", [new(Infrastructure.Roles.GovernanceAuditor)], [], true),
+    ];
+
     /// <summary>
     /// The profiles offered: each bundle of roles that people and groups hold today role by role (most held first), then
     /// the starters, leaving out any bundle a profile already gives and any starter whose name is taken. A bundle that is
     /// only a full Admin is left out: administrators are few, and named one by one on purpose.
     /// </summary>
     public static IReadOnlyList<ProfileProposal> Proposals(IEnumerable<(string Principal, ProfileRole Role)> grants,
-        IEnumerable<IEnumerable<ProfileRole>> existing, IEnumerable<string> existingNames)
+        IEnumerable<IEnumerable<ProfileRole>> existing, IEnumerable<string> existingNames, bool workbench = false)
     {
         var taken = existing.Select(Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var names = existingNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -91,7 +99,8 @@ public static class AccessProfiles
             .OrderByDescending(p => p.Holders.Count).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
         var seen = fromGrants.Select(p => Key(p.Roles)).ToHashSet();
-        return [.. fromGrants, .. Starters.Where(s => !names.Contains(s.Name) && !taken.Contains(Key(s.Roles)) && seen.Add(Key(s.Roles)))];
+        IEnumerable<ProfileProposal> starters = workbench ? [.. Starters, .. WorkbenchStarters] : Starters;
+        return [.. fromGrants, .. starters.Where(s => !names.Contains(s.Name) && !taken.Contains(Key(s.Roles)) && seen.Add(Key(s.Roles)))];
     }
 
     /// <summary>A request link as kept: https only, and no longer than the column.</summary>

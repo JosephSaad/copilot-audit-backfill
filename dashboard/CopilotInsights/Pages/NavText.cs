@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages;
 /// </summary>
 public static class NavText
 {
-    public static string? What(NavPage page) => Text.TryGetValue(page.Path, out var t) ? t.What : null;
+    public static string? What(NavPage page) => Text.TryGetValue(page.Path, out var t) ? t.What : global::Governance.Web.Infrastructure.WorkbenchNav.What(page.Path);
     public static string? Heading(NavPage page) => Text.TryGetValue(page.Path, out var t) ? t.Heading : null;
 
     /// <summary>The hover text of a link: what the page answers, and the role it needs.</summary>

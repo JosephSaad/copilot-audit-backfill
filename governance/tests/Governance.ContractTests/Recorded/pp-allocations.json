@@ -1,0 +1,19 @@
+{
+  "value": [
+    {
+      "scope": { "environmentId": "env-2" },
+      "allocatedEntitlements": [
+        {
+          "entitlementId": "MCSMessages",
+          "allocation": { "quantity": 5000 },
+          "consumedQuantity": 1250.5,
+          "enforcementRules": [ { "ruleType": "TenantPool", "enabled": false } ]
+        },
+        {
+          "entitlementId": "PowerAutomateFlows",
+          "allocation": { "quantity": 10 }
+        }
+      ]
+    }
+  ]
+}

@@ -47,7 +47,7 @@ public static class PathBaseLinks
     public static bool Clashes(string pathBase) =>
         pathBase.Trim('/').Split('/')[0] is { Length: > 0 } first
         && CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path.Trim('/').Split('/')[0])
-            .Concat(["api", "healthz", "not-found", "error", "me", "admin"])
+            .Concat(["api", "healthz", "not-found", "error", "me", "admin", "workbench"])
             .Contains(first, StringComparer.OrdinalIgnoreCase);
 
     public static IApplicationBuilder UsePathBaseLinks(this IApplicationBuilder app) => app.Use(async (ctx, next) =>

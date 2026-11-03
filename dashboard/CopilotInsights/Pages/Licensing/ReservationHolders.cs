@@ -7,14 +7,17 @@ namespace CopilotInsights.Pages.Licensing;
 /// The named people behind a reservation: the Microsoft 365 Copilot add-on holders an organization's figure
 /// counts, those under no listed leader, or the Technology-funded pool. For the Licensing role, as every list of people.
 /// </summary>
-public sealed class ReservationHoldersModel(PageServices s, ReservationData data) : InsightsPage(s)
+public sealed partial class ReservationHoldersModel(PageServices s, ReservationData data, global::Governance.Web.Infrastructure.WorkbenchSeats seats) : InsightsPage(s)
 {
+    /* With the Workbench on, a line of business's people (ReservationHolders.Workbench.cs). */
+    readonly global::Governance.Web.Infrastructure.WorkbenchSeats _seats = seats;
+
     public override string Title => "Reservation holders";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override string? OwnWindow => "today's licenses";
     public override bool UsesFilters => false;
-    public override string Intro => "The people an organization's allocated licenses count: who holds the Microsoft 365 Copilot add-on there today, with their manager, when they were licensed and when they last used Copilot.";
+    public override string Intro => _seats.On ? "The people holding a Microsoft 365 Copilot seat in one line of business's tracking group, from the Workbench's license read-back: how it was assigned, its state and when they last used Copilot." : "The people an organization's allocated licenses count: who holds the Microsoft 365 Copilot add-on there today, with their manager, when they were licensed and when they last used Copilot.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -37,6 +40,7 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
 
     protected override async Task BuildAsync()
     {
+        if (_seats.On) { await LineOfBusinessAsync(); return; }
         if (!await data.ReadyAsync()) { Notice = await NotSetUpAsync("Reservations cannot be recorded here yet", "2.6.8", "dash.Reservation", "dash.fnReservationMember"); return; }
         if (await data.LicensedDayAsync() is not { } day) { Notice = "No licenses have been read yet. The license lookup fills them each night."; return; }
         var res = Request.Query["res"].FirstOrDefault() ?? "";

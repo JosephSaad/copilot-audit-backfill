@@ -280,6 +280,10 @@ A web dashboard over the same database, for people who will never open Power BI:
 
 `dash.usp_RefreshDashboard` keeps its org chart and daily rollups current: every `-Incremental` run and CSV import calls it after `bi`. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** has every page, the security model, the install and how the first administrator gets in; `dashboard/demo/New-InsightsDemo.ps1` builds a 5,000-person demo company to try it on.
 
+### Governance Workbench (3.0.0)
+
+The dashboard can also serve the Governance Workbench, the record of who owns, funds and approved each Copilot workload: requests and approvals routed by a RACI matrix, a registry of funding owners, workloads, envelopes and services, Copilot seats per line of business with their monthly chargeback, consumption events, drift findings, recertification, exceptions and retirement, with an audit trail in ledger tables. It is optional and off until the site's settings name its database (`ConnectionStrings:Governance`); without it the dashboard is as before. It has its own database (`CopilotGovernance`, SQL Server 2022 or later) and a worker that runs as a Windows service. Its pages are under `/workbench`, with the dashboard's sign-in and three new roles in Admin › Access (Governance, GovernanceOperator, GovernanceAuditor), none of which opens usage data. Its code is in `governance/`. **[docs/OPERATIONS.md](docs/OPERATIONS.md#governance-workbench)** covers turning it on, the roles, the settings pages and the worker's jobs.
+
 ## Tests
 
 ```bash
@@ -362,6 +366,8 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `docs/REPORTING-REFERENCE.md` | The reference's guide: how the schema is created and filled, every reporting view column by column, each figure as SQL (2.5.9). Each release attaches it in full, with every table and view and the text of the scripts that create them (2.7.6). |
 | `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licenses, the nightly job, Power BI and Copilot. |
+| `governance/` | The Governance Workbench (3.0.0): its database scripts, services, worker, test tools and tests. Its pages are in `dashboard/CopilotInsights/Pages/Workbench`. |
+| `docs/GOVERNANCE-USER-GUIDE.md`, `docs/GOVERNANCE-RUNBOOK.md`, `docs/GOVERNANCE-DECISIONS.md`, `docs/GOVERNANCE-TEST-ENVIRONMENT.md` | The Governance Workbench: where each role starts, what to do when something fails, the decisions behind it, and running it on one PC (3.0.0). |
 | `tests/` | Mock Graph service and the test suites. |
 | `tools/dev/` | For building a release: the dashboard's layout audit, the `docs/SCHEMA.md` generator, the generator for the reporting reference's columns and script transcripts, and the release checklist. Not deployed. |
 | `PSScriptAnalyzerSettings.psd1` | The analyzer rules CI applies, and why each excluded rule is excluded. |
