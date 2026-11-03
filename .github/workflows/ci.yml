@@ -132,6 +132,9 @@ jobs:
       # runners don't have; they run on the build machine before each release.
       - name: Unit and contract tests
         shell: pwsh
+        # The contract tests that need a SQL Server skip themselves here; they run on the build machine.
+        env:
+          CGW_SKIP_SQL: '1'
         run: |
           dotnet test governance/tests/Governance.UnitTests/Governance.UnitTests.csproj -c Release --no-build --nologo
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
