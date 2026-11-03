@@ -4,6 +4,74 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-11-02
+
+Copilot Insights and the Governance Workbench are one product. The Workbench, where requests for Copilot workloads are
+approved by the RACI matrix, funding owners, workloads, envelopes and Copilot seats are kept, and consumption events,
+drift, recertification, exceptions and retirement are followed, is served by the dashboard under `/workbench`, in its
+menu and its look, with the dashboard's sign-in and roles. It keeps its own database, with tamper-evident ledger tables
+and row-level security, and a worker that runs as a Windows service. It is off until set up: a site that sets nothing
+new works as 2.8.0 did, and the data Insights already holds is not moved or changed.
+
+**Install over 2.8.0:** run `Install-CopilotAudit.ps1 -Dashboard` on the job server (role checks widened, one setting
+added, all additive), then build and deploy the dashboard from this release on each web server (docs\BUILD-FROM-SOURCE.md).
+The build needs these packages in the feed it uses, new in this release or at a new version:
+`Microsoft.Data.SqlClient` 7.1.1, `Microsoft.Extensions.Http.Resilience` 10.11.0, `Microsoft.Extensions.Hosting` and
+`Microsoft.Extensions.Hosting.WindowsServices` 10.0.14, and `Microsoft.Extensions.Http`, `.Options`,
+`.Options.ConfigurationExtensions`, `.Configuration.Abstractions`, `.DependencyInjection.Abstractions` and
+`.Logging.Abstractions` 10.0.14, with what they bring in. To turn the Workbench on, follow docs\DEPLOYMENT.md step 27:
+`Install-CopilotInsights.ps1 -GovernanceDatabase CopilotGovernance` on every web server, and `-WorkerServer
+-WorkerAccount` on one. It needs SQL Server 2022 or later for its database (the installer checks), a gMSA for the
+worker, and the worker's app registration (governance\deploy\Deploy-Production.md).
+
+### Added
+- **The Governance Workbench, under `/workbench`.** Its 50 pages in five sections of the dashboard's menu: Ownership and
+  approvals (start, my work, requests, a consumption problem, recertification, exceptions, retirement), Approval
+  queues, Ownership registry (funding owners, workloads, envelopes, Copilot seats, services, control templates, cost
+  centers, commercial, discovery), Governance operations (consumption events, drift and findings, sync and freshness,
+  attestations, KPIs, the audit trail, seat chargeback) and Workbench settings (RACI, workflows, SLAs and escalation,
+  notifications, Workbench roles, seat groups, integrations, the intake switch, wording). Every field has its (i) help;
+  a refused page says why and who grants it. docs\GOVERNANCE-USER-GUIDE.md, docs\DASHBOARD.md.
+- **Three roles for it in Admin › Access:** Governance (the central pages), GovernanceOperator (and the operator
+  pages) and GovernanceAuditor (reports and the audit trail, read only); Admin opens its settings. They show no usage
+  data, never pass the dashboard's level limit and never widen to the whole organization. Three starter access
+  profiles: Governance team, Governance operator and Governance auditor. The work people do there (RACI positions,
+  line-of-business seat admins, delegations) is still given in the Workbench. *Check someone's access* shows both.
+- **Its worker as a Windows service** on one server (`-WorkerServer`), its ten jobs each under a SQL lock, and a daily
+  ledger digest task. A release asset of its own: `copilot-governance-worker-vX.Y.Z.zip`, with its checksum.
+- **One Copilot seat record.** With the Workbench on, Leadership › Copilot reservations and Licensing › Reservation
+  holders show its seats by line of business (`core.SeatReservation`), each figure opening the Workbench page with the
+  same number. Insights' own register (`dash.Reservation`, its rate and snapshots) keeps every row and column but is no
+  longer edited, and the nightly snapshot adds nothing to it (`dash.Setting` *SeatModel*). Workbench settings › Seat
+  groups offers its rows once, as each line of business's first reservation, for the FinOps lead to confirm.
+- **Seat activity from Insights.** The seat read takes each person's last Copilot use from Insights' records
+  (`dash.UserDay`) when it can read the Insights database, so inactive seats are judged on every loaded day and names
+  are never hidden; otherwise, or when Insights' data is more than three days old, it reads Microsoft's usage report.
+- **A schema baseline for the Workbench database** (`tests\schema-baseline-governance.tsv`): from 3.0.0 it follows the
+  same rule as the Copilot database, additive only.
+- docs\GOVERNANCE-USER-GUIDE.md, GOVERNANCE-RUNBOOK.md, GOVERNANCE-DECISIONS.md, GOVERNANCE-TEST-ENVIRONMENT.md, and a
+  Governance Workbench section in OPERATIONS.md, DASHBOARD.md, DEPLOYMENT.md (step 27) and SCHEMA.md.
+
+### Changed
+- `Install-CopilotInsights.ps1` supports `-WhatIf`, and takes `-GovernanceDatabase`, `-SiteUrl`, `-WorkerAccount`,
+  `-WorkerServer`, `-WorkerPackagePath`, `-WorkerSettingsFile`, `-WorkerPath`, `-LedgerDigestPath`, `-LedgerDigestAt` and
+  `-ProxyUrl`; without them it does what it did.
+- `dash.RoleGrant` and `dash.AccessProfileRole` accept the three Workbench roles.
+- The Workbench's database script checks the SQL Server certificate unless `-TrustServerCertificate` is given, as the
+  dashboard's installer does.
+- Under Entra sign-in with the Workbench on, the site asks for the operator's own token for the Power Platform
+  inventory read, kept in the server's memory.
+
+### Known limits
+- **The Workbench on a real tenant and a real server.** Its worker service, the gMSA, the ledger digest task, the
+  installer's new steps on IIS, ServiceNow, Teams and the Power Platform inventory were tested with stand-ins and the
+  local test tenant only. Try it on a test server first.
+- **One tenant.** On a site with several tenants the Workbench belongs to one (`Workbench:Tenant`, else the first).
+- **Several web servers.** The operator's Power Platform token is kept per server: on another server they are asked to
+  sign in again. Servers set up differently (one with the Workbench, one without) set the seat model in turn.
+- **Credit chargeback and Credit commitment** keep their environment routes; they do not use lines of business.
+- **Licensing › Chargeback's *Charged to no group*** still opens Leavers with a different count, as in 2.7.7.
+
 ## [2.8.0] - 2026-10-28
 
 Fewer grants to make by hand, and a second way in. A persona role can now be granted across the whole organization;
