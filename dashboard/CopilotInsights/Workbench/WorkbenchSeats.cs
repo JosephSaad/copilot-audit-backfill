@@ -66,7 +66,7 @@ public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState sta
             months.Add(new SeatMonth(m, rows.All(r => r.Status == "CERTIFIED"), charged.Sum(r => r.ReservedSeats), charged.Sum(r => r.AssignedSeats),
                 charged.Sum(r => r.ChargeSeats), charged.Sum(r => r.Amount), rows[0].Currency, charged));
         }
-        return new SeatPosition(summary, lobs, settings.Currency, settings.RatePerSeatMonth, months);
+        return new SeatPosition(summary, lobs, settings.Currency, settings.RatePerSeatMonth, months) { Settings = settings };
     }
 
     /// <summary>Where a figure opens in the Workbench, for this viewer: null where the Workbench page would refuse them or show another number.</summary>
@@ -91,7 +91,7 @@ public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState sta
 /// before. Only a value that differs is written. A database that cannot be reached is logged and left as it was.
 /// </summary>
 public sealed class SeatModelSwitch(WorkbenchState state, CopilotInsights.Infrastructure.TenantAccessor tenants, CopilotInsights.Infrastructure.Db db,
-    ILogger<SeatModelSwitch> log) : BackgroundService
+    ILogger<SeatModelSwitch> log, IServiceProvider services) : BackgroundService
 {
     public const string Name = "SeatModel", Governance = "Governance", Leader = "Leader";
 
@@ -122,12 +122,32 @@ public sealed class SeatModelSwitch(WorkbenchState state, CopilotInsights.Infras
                 if (await db.ExecuteAsync("UPDATE dash.Setting SET Value = @value, UpdatedBy = N'Copilot Insights', UpdatedUtc = SYSUTCDATETIME() WHERE Name = @name AND ISNULL(Value, N'') <> @value;",
                         new { name = Name, value }) > 0)
                     log.LogInformation("The Copilot seat record for {Tenant} is now {Model}.", t.Name, value);
+                if (value == Governance) await CopyLineNamesAsync(stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 log.LogWarning(ex, "The Copilot seat record for {Tenant} could not be set to {Model}.", t.Name, value);
             }
         }
+    }
+
+    /// <summary>
+    /// The Workbench's lines of business (funding owners' codes and names) into dash.LineOfBusinessName, for the nightly
+    /// credit snapshot to keep the name each line had that month. Only names that changed are written.
+    /// </summary>
+    async Task CopyLineNamesAsync(CancellationToken ct)
+    {
+        var governance = new global::Governance.Application.Data.Db(services.GetRequiredService<Microsoft.Extensions.Options.IOptions<global::Governance.Application.Data.DbOptions>>(), global::Governance.Application.SystemPrincipal.Instance);
+        await using var c = await governance.OpenAsync(0, true, ct);
+        var names = (await Dapper.SqlMapper.QueryAsync<(string Code, string Name)>(c, "SELECT Code, Name FROM core.FundingOwner WHERE Status IN ('ACTIVE', 'SUSPENDED');")).ToList();
+        if (await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.LineOfBusinessName', N'U') IS NULL THEN 0 ELSE 1 END;") == 0) return;
+        foreach (var n in names)
+            await db.ExecuteAsync(
+                """
+                MERGE dash.LineOfBusinessName AS t USING (SELECT @Code AS OrgId, @Name AS Name) AS s ON t.OrgId = s.OrgId
+                WHEN MATCHED AND t.Name <> s.Name THEN UPDATE SET Name = s.Name, UpdatedUtc = SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN INSERT (OrgId, Name) VALUES (s.OrgId, s.Name);
+                """, new { n.Code, n.Name });
     }
 }
 
@@ -137,6 +157,8 @@ public sealed record SeatMonth(DateTime Month, bool Certified, int Reserved, int
 /// <summary>The seat position by line of business today, with the months kept.</summary>
 public sealed record SeatPosition(SeatSummary? Summary, IReadOnlyList<SeatLobRow> Lobs, string Currency, decimal Rate, IReadOnlyList<SeatMonth> Months)
 {
+    /// <summary>The seat policy's settings, one rule set for the Workbench's pages and these.</summary>
+    public Governance.Application.Seats.SeatSettings? Settings { get; init; }
     public IEnumerable<SeatLobRow> Charged => Lobs.Where(l => l.FundingOwnerId is not null);
     public SeatLobRow? NoLob => Lobs.FirstOrDefault(l => l.FundingOwnerId is null);
     public int Reserved => Charged.Sum(l => l.ReservedSeats);

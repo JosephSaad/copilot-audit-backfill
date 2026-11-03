@@ -123,6 +123,8 @@ S = up to a day, M = a few days, L = a week or more. Each phase ends with every 
   Workbench needs them (a role holder who changes cost center raises a vacancy finding). So the Workbench keeps its
   own directory read into `sec.Person`, and the two lists are one by Entra object ID: a person signing in to the
   site is found in `sec.Person` by the object ID Insights records (`dash.Person.ObjectId`), else by UPN.
+- Built in 3.0.1: the worker's directory read also gives a person recorded without an Entra object ID the one Insights
+  records for the same UPN (`DirectorySyncService.LinkInsightsPeopleAsync`), unless someone already has it.
 - License holders: `SeatSyncJob` keeps reading the shared license group and each LOB's tracking group (Insights
   doesn't hold tracking groups). Who holds a Copilot license comes from `audit.CopilotLicense`, so it isn't read
   twice.
@@ -136,21 +138,29 @@ The biggest phase. With governance on:
 
 - Leadership › Copilot reservations, Licensing › Reservation holders and Credit chargeback read lines of business
   from `core.FundingOwner` and reservations from `core.SeatReservation`. The leader-based view stays for clients
-  without governance.
+  without governance. Built: the two reservation pages in 3.0.0; Credit chargeback in 3.0.1, where a credit route's
+  Org ID is a funding owner's code (names, unknown codes, who sees which line and misrouted agents from the Workbench).
 - `dash.Reservation`, `dash.ReservationRate` and `dash.ReservationSnapshot` are hidden (D1). They keep their
   rows and columns, as the schema rule and the client's data require, but no page or step writes to them.
   Their admin page goes behind the hidden-reports switch, with a note pointing to the governance seat pages.
 - The client's existing reservation rows are offered as a one-time starting point for `core.SeatReservation`
   (Admin › Seat groups › "Start from Insights' reservations"). Nothing is copied unless an admin confirms.
 - One monthly snapshot: `core.SeatChargeSnapshot` (FinOps certifies it).
-- A new `bi`-side view, `dash.SeatReservationCurrent`, gives Power BI and Grafana the governance figures by
-  line of business. It is a new object, so it doesn't change anything existing.
+- A reporting view gives Power BI and Grafana the governance figures by line of business. Built in 3.0.1 as
+  `rpt.vSeatReservationCurrent` in the Workbench database, read through its reporting role `gov_reader`: a view
+  in the Copilot database would read across databases, which needs cross-database ownership chaining or the
+  reporting account in both, and weakens the separation D2 keeps.
 - The 95% purchase gate, the April true-down window and the single seat rate become one rule set, with tests on
-  both pages so they show the same figure.
-- Questions for the client (they block this phase): who pays for seats with no line of business, the seat rate,
-  and whether an increase takes effect on approval or at the start of the next calendar month.
+  both pages so they show the same figure. Built in 3.0.1: `SeatPolicy.PurchaseGate` (Insights' `ReservationRules.Gate`
+  uses it) and `PurchaseGateSentence`, shown the same on both seat pages, with `Seats.PurchaseGatePercent` and
+  `Seats.GateBaselineUnassigned`.
+- Questions for the client: who pays for seats with no line of business, the seat rate, and whether an increase
+  takes effect on approval or at the start of the next calendar month. Built so that they no longer block: each is a
+  seat setting with its default named on the pages (`Seats.NoLobChargedTo`, empty: a row of their own;
+  `Seats.RatePerSeatMonth`, a placeholder; `Seats.IncreaseEffective`, the decision date). The client's answers are
+  settings to change, not code.
 - Figure links: each linked headline figure on the seat pages opens a governance page with the same number.
-  `Test-FigureLinks.ps1` covers it.
+  `Test-FigureLinks.ps1` covers it: built in 3.0.1 with `-ActAs`, a test persona who sees every line of business.
 
 ### Phase 5: one installer and the Windows service (M)
 

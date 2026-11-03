@@ -40,6 +40,7 @@ public static class WorkbenchSetup
         services.AddScoped<WebPrincipal>();
         /* Copilot seats by line of business for Insights' reservation pages; with the Workbench off they keep the leader-based register. */
         services.AddScoped<WorkbenchSeats>();
+        services.AddScoped<WorkbenchLines>();
         services.AddHostedService<SeatModelSwitch>();
 
         /* The page rules, by the role the Workbench page asks for (Policies). Registered either way, so the pages

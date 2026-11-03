@@ -10,7 +10,8 @@ namespace Governance.Application.Integrations;
 /// central roles from mapped Entra groups (Source ENTRA_GROUP), and vacancy findings for leavers and role holders
 /// who changed cost center (section 5.8). Synthetic test personas (no Entra object ID) are never touched.
 /// </summary>
-public sealed class DirectorySyncService(Db db, IDirectoryApi directory, FindingWriter findings, IClock clock, TenantSettings tenant, ILogger<DirectorySyncService> log)
+public sealed class DirectorySyncService(Db db, IDirectoryApi directory, FindingWriter findings, IClock clock, TenantSettings tenant, ILogger<DirectorySyncService> log,
+    IInsightsActivitySource? insights = null)
 {
     private const string DeltaKey = "graph.users.delta";
 
@@ -19,11 +20,49 @@ public sealed class DirectorySyncService(Db db, IDirectoryApi directory, Finding
         => SyncRuns.RunAsync(db, IntegrationCodes.Directory, "APP_ONLY", null, async runId =>
         {
             var (people, resynced) = await SyncUsersAsync(runId, ct);
+            people += await LinkInsightsPeopleAsync(ct);
             var memberships = await SyncGroupsAsync(runId, ct);
             var (roles, raised) = await db.InTransactionAsync(async uow => (await SyncCentralRolesAsync(uow), await DetectVacanciesAsync(uow, runId)), ct);
             return (people + memberships, raised,
                 $"{people} people changed, {memberships} memberships read, {roles} central role changes, {raised} findings.{(resynced ? " The saved delta link had expired: a full resync ran." : "")}");
         }, ct);
+
+    /// <summary>
+    /// One person list with Copilot Insights: a person recorded here without an Entra object ID (signed in before Graph
+    /// returned them) takes the one Insights records for the same UPN, unless another person here already has it.
+    /// Optional: without the Insights database, or when it does not answer, nothing changes.
+    /// </summary>
+    public async Task<int> LinkInsightsPeopleAsync(CancellationToken ct)
+    {
+        if (insights is null) return 0;
+        IReadOnlyList<(string Upn, Guid ObjectId)> known;
+        try { known = await insights.ObjectIdsAsync(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogWarning(ex, "Copilot Insights' object IDs could not be read; people are matched by Graph alone this run.");
+            return 0;
+        }
+        if (known.Count == 0) return 0;
+        /* Only the people here who lack an object ID, usually a handful: not one statement per person Insights knows. */
+        var missing = (await db.InTransactionAsync(u => u.QueryAsync<string>(
+            "SELECT UserPrincipalName FROM sec.Person WHERE EntraObjectId IS NULL AND IsSynthetic = 0 AND UserPrincipalName IS NOT NULL"), ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidates = known.Where(k => missing.Contains(k.Upn)).ToList();
+        if (candidates.Count == 0) return 0;
+        return await db.InTransactionAsync(async uow =>
+        {
+            var linked = 0;
+            foreach (var k in candidates)
+                linked += await uow.ExecuteAsync(
+                    """
+                    UPDATE p SET EntraObjectId = @ObjectId
+                    FROM sec.Person AS p
+                    WHERE p.UserPrincipalName = @Upn AND p.EntraObjectId IS NULL AND p.IsSynthetic = 0
+                      AND NOT EXISTS (SELECT 1 FROM sec.Person AS o WHERE o.EntraObjectId = @ObjectId);
+                    """, new { k.Upn, k.ObjectId });
+            return linked;
+        }, ct);
+    }
 
     private async Task<(int Changed, bool Resynced)> SyncUsersAsync(long runId, CancellationToken ct)
     {

@@ -601,6 +601,16 @@ IF OBJECT_ID(N'dash.CK_DashCreditRoute_Shared', N'C') IS NULL
    skips none; with @Month, that month alone (Credit chargeback's "Take it again" after its snapshot was cleared). Each
    month in one transaction, its check under a range lock, so two runs at once cannot keep it twice. A rate of 0 is no
    rate, as the page reads it. */
+/* With the Governance Workbench as the seat record, a line of business is a funding owner: its code and name, kept here
+   by the dashboard (every quarter hour), so a month's snapshot keeps the name it had when it was taken. */
+IF OBJECT_ID(N'dash.LineOfBusinessName', N'U') IS NULL
+    CREATE TABLE dash.LineOfBusinessName
+    (
+        OrgId       NVARCHAR(64)    NOT NULL CONSTRAINT PK_DashLineOfBusinessName PRIMARY KEY,   -- the funding owner's code
+        Name        NVARCHAR(200)   NOT NULL,
+        UpdatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLineOfBusinessName_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
 EXEC (N'
 CREATE OR ALTER PROCEDURE dash.usp_TakeCreditChargeSnapshot
     @Month DATE = NULL
@@ -618,6 +628,8 @@ BEGIN
         SELECT @m = DATEFROMPARTS(YEAR(MIN([Day])), MONTH(MIN([Day])), 1), @stop = DATEFROMPARTS(YEAR(@lastDay), MONTH(@lastDay), 1)
         FROM audit.PowerPlatformCreditDay WHERE Product = ''Copilot Studio'';
     DECLARE @rate DECIMAL(12, 6) = NULLIF(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N''CreditChargeRate'') AS DECIMAL(12, 6)), 0);
+    /* Whose names: the Workbench''s funding owners where it is the seat record, else the reservation register. */
+    DECLARE @model NVARCHAR(40) = (SELECT Value FROM dash.Setting WHERE Name = N''SeatModel'');
     IF @rate IS NULL AND OBJECT_ID(N''dash.CostPrice'', N''U'') IS NOT NULL
         SET @rate = NULLIF((SELECT MonthlyPrice FROM dash.CostPrice WHERE Item = ''COPILOT_STUDIO_PAYG_CREDIT''), 0);
 
@@ -631,7 +643,8 @@ BEGIN
             IF NOT EXISTS (SELECT 1 FROM dash.CreditChargeSnapshot WITH (UPDLOCK, HOLDLOCK) WHERE SnapshotMonth = @m)
                 INSERT INTO dash.CreditChargeSnapshot (SnapshotMonth, EnvironmentName, Path, OrgId, OrgName, CostCenter, Credits, PaygCredits, PaygCost, Currency, ChargeRate)
                 SELECT @m, c.EnvironmentName, c.Path, c.OrgId,
-                       (SELECT TOP (1) o.Name FROM dash.Reservation AS o WHERE o.OrgId = c.OrgId ORDER BY o.EffectiveFrom DESC),
+                       CASE WHEN @model = N''Governance'' THEN (SELECT l.Name FROM dash.LineOfBusinessName AS l WHERE l.OrgId = c.OrgId)
+                            ELSE (SELECT TOP (1) o.Name FROM dash.Reservation AS o WHERE o.OrgId = c.OrgId ORDER BY o.EffectiveFrom DESC) END,
                        c.CostCenter, c.Credits, c.PaygCredits, c.PaygCost, c.Currency, @rate
                 FROM (SELECT d.EnvironmentName, ISNULL(r.Path, ''Unmapped'') AS Path, r.OrgId, r.CostCenter,
                              SUM(ISNULL(d.Credits, 0)) AS Credits,
@@ -880,6 +893,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TechnologyAllocation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp;        -- Leadership > Credit chargeback's register
+GRANT INSERT, UPDATE, DELETE ON dash.LineOfBusinessName TO CopilotInsightsApp; -- the Workbench's lines of business, kept by the dashboard
 GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- Forecasting > Credit commitment
 GRANT DELETE ON dash.CreditChargeSnapshot TO CopilotInsightsApp;                -- An administrator clears a month to take it again
 GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp;      -- and takes it again

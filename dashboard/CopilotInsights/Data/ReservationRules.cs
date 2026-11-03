@@ -54,12 +54,7 @@ public static class ReservationRules
     /// the baseline are assigned. Returns how many of them are assigned now, the share, how many may still be left
     /// unassigned (the buffer), and whether the gate is reached.
     /// </summary>
+    /// <remarks>One rule with the Governance Workbench's (SeatPolicy.PurchaseGate), whichever seat record is in use.</remarks>
     public static (int Assigned, double Share, int Buffer, bool Reached) Gate(int baselineUnassigned, int unassignedNow, int percent)
-    {
-        var assigned = Math.Max(0, baselineUnassigned - unassignedNow);
-        /* As the policy counts it: 95% of 1,136 is 1,079 to assign, leaving a buffer of 57. */
-        var buffer = baselineUnassigned - (int)Math.Floor(baselineUnassigned * percent / 100.0);
-        var share = baselineUnassigned > 0 ? assigned / (double)baselineUnassigned : 0;
-        return (assigned, share, buffer, baselineUnassigned > 0 && unassignedNow <= buffer);
-    }
+        => global::Governance.Application.Seats.SeatPolicy.PurchaseGate(baselineUnassigned, unassignedNow, percent);
 }

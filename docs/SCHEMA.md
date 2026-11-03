@@ -195,7 +195,7 @@ The Governance Workbench (3.0.0) keeps its data in a database of its own, `Copil
 | `intg` | Integration snapshots and job runs (`intg.JobRun`) |
 | `ops` | Consumption events and findings |
 | `aud` | The audit trail |
-| `rpt` | Reporting views |
+| `rpt` | Reporting views; `rpt.vSeatReservationCurrent` gives today's Copilot seats by line of business (reserved, assigned, over, unused, the last certified chargeback) for Power BI and Grafana |
 
 - **Its database roles:** `app_web` for the dashboard's account, `app_worker` for the worker's, `gov_reader` for reporting and audit export (read only). None is a database owner.
 

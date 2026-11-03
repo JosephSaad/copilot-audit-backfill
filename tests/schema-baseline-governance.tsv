@@ -1,4 +1,4 @@
-# release 3.0.0
+# release 3.0.1
 # The shape of the Governance Workbench's database (its own, beside the Copilot one) as this release installs it.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -866,6 +866,18 @@ C	governance	rpt.vKpi	V	2	Name	nvarchar(42)	0
 C	governance	rpt.vKpi	V	3	Numerator	decimal(18,2)	1	
 C	governance	rpt.vKpi	V	4	Denominator	decimal(18,2)	1	
 C	governance	rpt.vKpi	V	5	Phase	int	0	
+C	governance	rpt.vSeatReservationCurrent	V	1	FundingOwnerId	int	1	
+C	governance	rpt.vSeatReservationCurrent	V	10	LastCertifiedChargeSeats	int	1	
+C	governance	rpt.vSeatReservationCurrent	V	11	LastCertifiedAmount	decimal(18,2)	1	
+C	governance	rpt.vSeatReservationCurrent	V	12	Currency	char(3)	1	
+C	governance	rpt.vSeatReservationCurrent	V	2	Code	varchar(32)	1	
+C	governance	rpt.vSeatReservationCurrent	V	3	LineOfBusiness	nvarchar(200)	0	
+C	governance	rpt.vSeatReservationCurrent	V	4	TrackingGroup	nvarchar(256)	1	
+C	governance	rpt.vSeatReservationCurrent	V	5	ReservedSeats	int	0	
+C	governance	rpt.vSeatReservationCurrent	V	6	AssignedSeats	int	1	
+C	governance	rpt.vSeatReservationCurrent	V	7	OverSeats	int	1	
+C	governance	rpt.vSeatReservationCurrent	V	8	UnusedReservedSeats	int	1	
+C	governance	rpt.vSeatReservationCurrent	V	9	LastCertifiedMonth	date	1	
 C	governance	rpt.vWorkloadInScope	V	1	WorkloadId	int	0	
 C	governance	rpt.vWorkloadInScope	V	10	ServiceName	nvarchar(200)	1	
 C	governance	rpt.vWorkloadInScope	V	11	LifecycleStage	varchar(20)	1	
@@ -1433,6 +1445,7 @@ O	governance	rpt.fn_SeatHolders	IF
 O	governance	rpt.fn_SeatPosition	IF
 O	governance	rpt.vDecision	V
 O	governance	rpt.vKpi	V
+O	governance	rpt.vSeatReservationCurrent	V
 O	governance	rpt.vWorkloadInScope	V
 O	governance	sec.Delegation	U
 O	governance	sec.DelegationEnvelope	U

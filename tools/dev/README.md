@@ -5,7 +5,7 @@ These tools are for whoever builds a release. They are not deployed and nothing 
 | Tool | What it does |
 |---|---|
 | `ui/ui_audit.py` | Opens every dashboard page in headless Edge at 1440 and 1024 pixels wide and reports layout faults: text that is clipped or spills out of its box, chart labels that overlap or fall outside the chart, text cut short with an ellipsis and no hover text, links and buttons with no space between them, overlapping boxes, chart text outside 9–16px, and horizontal page scroll. It writes `ui/ui-audit/report.json` and a screenshot of each page that has an issue. It exits with code 1 if it finds anything. |
-| `ui/Test-FigureLinks.ps1` | Opens the page behind each headline figure that is a link and checks the same number appears on it, as written or as its digits. A few figures lead on purpose to a related page in another month or unit; they are listed in the script and reported as related, not failed. It exits with code 1 if a figure is missing from its page. Run it at more than one period: `pwsh tools/dev/ui/Test-FigureLinks.ps1 -Url http://localhost:5391 -Days 30,90,365`. |
+| `ui/Test-FigureLinks.ps1` | Opens the page behind each headline figure that is a link and checks the same number appears on it, as written or as its digits. A few figures lead on purpose to a related page in another month or unit; they are listed in the script and reported as related, not failed. It exits with code 1 if a figure is missing from its page. Run it at more than one period: `pwsh tools/dev/ui/Test-FigureLinks.ps1 -Url http://localhost:5391 -Days 30,90,365`. `-ActAs <persona PublicId>` runs it as a Workbench test persona (Development, `Testing:AllowActAs`), for the figures that open Workbench pages. |
 | `schema/extract.ps1`, `schema/scripts.py`, `schema/build.py`, `schema/build_md.py` | Regenerate [docs/SCHEMA.md](../../docs/SCHEMA.md). They combine an installed database's real columns, types, keys and indexes with the column comments in `sql/` and the descriptions in `build.py`. `build.py` also writes an HTML version to `schema/out/`. |
 
 | `schema/build_docx.py` | Writes the Word versions of the two reporting guides, `REPORTING.docx` and `REPORTING-REFERENCE.docx`, from their Markdown in a folder given (the release workflow's), or `docs/`. Needs `python-docx`. |
@@ -113,7 +113,9 @@ Work through every step, in this order, before tagging.
    1. Rebuild the demo database.
    2. Run the dashboard.
    3. Run `ui/ui_audit.py` until it reports 0 issues.
-   4. Run `ui/Test-FigureLinks.ps1` at 30, 90 and 365 days until no figure is missing from its page.
+   4. Run `ui/Test-FigureLinks.ps1` at 30, 90 and 365 days until no figure is missing from its page. With the
+      Governance Workbench set up, run it again as a test persona who sees every line of business, so the seat
+      figures that open Workbench pages are checked too: `-Pages /leadership/reservations,/licensing/reservation-holders -ActAs <persona PublicId>`.
    5. Look at the screenshots of any page whose layout changed.
 6. **Power BI.**
    1. Run `python powerbi/generate_model.py`.

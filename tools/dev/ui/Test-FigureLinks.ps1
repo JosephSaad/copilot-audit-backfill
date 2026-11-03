@@ -10,14 +10,21 @@
     Some figures lead on purpose to a related page that shows the detail behind them in another month or unit (a
     month's credits to the people who used them). They are listed in $RelatedLinks below and reported, not failed.
 
+    Figures that open a Governance Workbench page appear only for someone whose Workbench roles open it: run once more
+    with -ActAs naming a test persona who sees every line of business (Development "act as", Testing:AllowActAs).
+
 .EXAMPLE
     pwsh tools/dev/ui/Test-FigureLinks.ps1 -Url http://localhost:5391 -Days 30,90,365
+
+.EXAMPLE
+    pwsh tools/dev/ui/Test-FigureLinks.ps1 -Url http://localhost:5394 -Pages /leadership/reservations -ActAs ce5e1dac-15d7-f111-a0e5-6045bd5e8510
 #>
 param(
     [string] $Url = 'https://localhost:7291',
     [string[]] $Pages,
     [string[]] $Days = @('30'),
-    [string] $Out
+    [string] $Out,
+    [string] $ActAs
 )
 Add-Type -AssemblyName System.Web
 # pwsh -File passes -Days 30,90,365 as one string: split it.
@@ -37,6 +44,7 @@ $RelatedLinks = @(
 # there with a switch the analyzer forbids. A certificate on https://localhost is the developer's own.
 $handler = [System.Net.Http.HttpClientHandler]::new()
 $handler.UseDefaultCredentials = $true
+if ($ActAs) { $handler.CookieContainer.Add([System.Net.Cookie]::new('cgw.actas', $ActAs, '/', ([uri] $Url).Host)) }
 $handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
 $client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromMinutes(5)

@@ -275,4 +275,49 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
         var note = await appDb.InTransactionAsync(u => SeatSyncService.TakeSnapshotAsync(u, SeatSettings.Default, new DateTime(2026, 12, 2), null, force: true));
         Assert.Null(note);
     }
+    [Fact]
+    public async Task The_reporting_view_gives_todays_seats_by_line_of_business()
+    {
+        using var c = db.Admin();
+        var (a, _) = await ArrangeAsync(c);
+        var (service, appDb, _) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+        await service.RunAsync(null, default);
+        using var w = await appDb.OpenSystemAsync();
+        var today = DateTime.UtcNow.Date;
+        var view = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats, int OverSeats, int UnusedReservedSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, AssignedSeats, OverSeats, UnusedReservedSeats FROM rpt.vSeatReservationCurrent")).ToList();
+        var fn = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats, int OverSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, AssignedSeats, OverSeats FROM rpt.fn_SeatPosition(@today)", new { today })).ToList();
+        Assert.Equal(fn.Count, view.Count);
+        Assert.Equal(fn.Sum(x => x.ReservedSeats), view.Sum(x => x.ReservedSeats));
+        Assert.Equal(fn.Sum(x => x.AssignedSeats), view.Sum(x => x.AssignedSeats));
+        var rowA = view.Single(x => x.FundingOwnerId == a);
+        Assert.Equal(Math.Max(0, rowA.ReservedSeats - rowA.AssignedSeats), rowA.UnusedReservedSeats);
+        // One certified month for every row, so their amounts add up to one month.
+        Assert.True(await w.ExecuteScalarAsync<int>("SELECT COUNT(DISTINCT LastCertifiedMonth) FROM rpt.vSeatReservationCurrent") <= 1);
+    }
+    [Fact]
+    public async Task The_monthly_draft_charges_seats_no_line_of_business_claims_to_the_owner_Finance_named()
+    {
+        using var c = db.Admin();
+        var (_, b) = await ArrangeAsync(c);
+        var (service, appDb, _) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+        await service.RunAsync(null, default);
+        var code = await c.ExecuteScalarAsync<string>("SELECT Code FROM core.FundingOwner WHERE FundingOwnerId = @b", new { b });
+        try
+        {
+            await c.ExecuteAsync("UPDATE ref.Setting SET SettingValue = @code WHERE SettingKey = 'Seats.NoLobChargedTo'", new { code });
+            var today = new DateTime(2027, 1, 3);   // a month no other test certifies
+            await appDb.InTransactionAsync(async u => await SeatSyncService.TakeSnapshotAsync(u, await SeatSettings.LoadAsync(u), today, null, true));
+            using var w = await appDb.OpenSystemAsync();
+            var rows = (await w.QueryAsync<(int? FundingOwnerId, int AssignedSeats, int OverSeats, int ChargeSeats)>(
+                "SELECT FundingOwnerId, AssignedSeats, OverSeats, ChargeSeats FROM core.SeatChargeSnapshot WHERE PeriodMonth = '2026-12-01'")).ToList();
+            Assert.DoesNotContain(rows, r => r.FundingOwnerId is null);   // no row charged to no one
+            var lobB = rows.Single(r => r.FundingOwnerId == b);
+            Assert.Equal(3, lobB.AssignedSeats);                         // its own tracking group's seats
+            Assert.Equal(1, lobB.OverSeats);                             // person 5's seat, on top
+            Assert.Equal(6, lobB.ChargeSeats);                           // 5 reserved + 1
+        }
+        finally { await c.ExecuteAsync("UPDATE ref.Setting SET SettingValue = N'' WHERE SettingKey = 'Seats.NoLobChargedTo'"); }
+    }
 }
