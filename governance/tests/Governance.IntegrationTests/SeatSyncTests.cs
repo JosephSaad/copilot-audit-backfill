@@ -275,4 +275,23 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
         var note = await appDb.InTransactionAsync(u => SeatSyncService.TakeSnapshotAsync(u, SeatSettings.Default, new DateTime(2026, 12, 2), null, force: true));
         Assert.Null(note);
     }
+    [Fact]
+    public async Task The_reporting_view_gives_todays_seats_by_line_of_business()
+    {
+        using var c = db.Admin();
+        var (a, _) = await ArrangeAsync(c);
+        var (service, appDb, _) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc));
+        await service.RunAsync(null, default);
+        using var w = await appDb.OpenSystemAsync();
+        var today = DateTime.UtcNow.Date;
+        var view = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats, int OverSeats, int UnusedReservedSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, AssignedSeats, OverSeats, UnusedReservedSeats FROM rpt.vSeatReservationCurrent")).ToList();
+        var fn = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats, int OverSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, AssignedSeats, OverSeats FROM rpt.fn_SeatPosition(@today)", new { today })).ToList();
+        Assert.Equal(fn.Count, view.Count);
+        Assert.Equal(fn.Sum(x => x.ReservedSeats), view.Sum(x => x.ReservedSeats));
+        Assert.Equal(fn.Sum(x => x.AssignedSeats), view.Sum(x => x.AssignedSeats));
+        var rowA = view.Single(x => x.FundingOwnerId == a);
+        Assert.Equal(Math.Max(0, rowA.ReservedSeats - rowA.AssignedSeats), rowA.UnusedReservedSeats);
+    }
 }

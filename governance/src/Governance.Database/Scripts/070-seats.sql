@@ -233,7 +233,10 @@ USING (VALUES
     ('Seats.IncreaseEffective',      N'DECISION_DATE', N'When an approved increase takes effect: DECISION_DATE or NEXT_MONTH. Open Finance parameter (Section 6.10).'),
     ('Seats.ChargebackYear',         N'CALENDAR', N'Chargeback commitment period: CALENDAR (January to December). Open Finance parameter: how it lines up with the April EA cycle (Section 6.10).'),
     ('Seats.InactiveDays',           N'60',    N'A seat with no Copilot activity for this many days is proposed for reclaim.'),
-    ('Seats.UsagePeriod',            N'D90',   N'Period read from the Copilot usage report (D7, D30, D90, D180).')
+    ('Seats.UsagePeriod',            N'D90',   N'Period read from the Copilot usage report (D7, D30, D90, D180).'),
+    ('Seats.NoLobChargedTo',         N'',      N'Who pays for seats no line of business claims: a funding owner''s code, or empty for a row of their own, charged to no line of business. Open Finance decision.'),
+    ('Seats.PurchaseGatePercent',    N'95',    N'Purchase gate: the share of the unassigned seats counted at the baseline to assign before more seats are bought.'),
+    ('Seats.GateBaselineUnassigned', N'0',     N'Purchase gate: the unassigned seats counted when the gate started. 0 until an administrator sets it.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey
 WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, Description) VALUES (s.SettingKey, s.SettingValue, s.Description)
@@ -291,4 +294,19 @@ RETURN
                       JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
                            AND g.EffectiveFrom <= @AsOf AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @AsOf)
                       WHERE gm.MemberObjectId = s.MemberObjectId);
+GO
+
+------------------------------------------------------------------------------------------------
+-- Today's Copilot seats by line of business, for Power BI and Grafana (gov_reader reads rpt): reserved, assigned,
+-- over and unused, and the latest certified chargeback. The seats no line of business claims are one row of their own.
+------------------------------------------------------------------------------------------------
+CREATE OR ALTER VIEW rpt.vSeatReservationCurrent
+AS
+SELECT p.FundingOwnerId, p.Code, p.Name AS LineOfBusiness, p.TrackingGroup, p.ReservedSeats, p.AssignedSeats, p.OverSeats,
+       CASE WHEN p.ReservedSeats > p.AssignedSeats THEN p.ReservedSeats - p.AssignedSeats ELSE 0 END AS UnusedReservedSeats,
+       c.PeriodMonth AS LastCertifiedMonth, c.ChargeSeats AS LastCertifiedChargeSeats, c.Amount AS LastCertifiedAmount, c.Currency
+FROM rpt.fn_SeatPosition(CAST(SYSUTCDATETIME() AS date)) AS p
+OUTER APPLY (SELECT TOP (1) s.PeriodMonth, s.ChargeSeats, s.Amount, s.Currency FROM core.SeatChargeSnapshot AS s
+             WHERE s.Status = 'CERTIFIED' AND (s.FundingOwnerId = p.FundingOwnerId OR (s.FundingOwnerId IS NULL AND p.FundingOwnerId IS NULL))
+             ORDER BY s.PeriodMonth DESC) AS c;
 GO

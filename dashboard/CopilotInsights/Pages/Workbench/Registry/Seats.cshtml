@@ -37,6 +37,11 @@
     <p>Next anniversary: <strong>@Ui.Date(s.NextAnniversary)</strong>. The true-down window @(s.WindowOpen ? "is open now" : "opens on " + Ui.Date(s.WindowOpens)) (@s.Settings.TrueDownWindowDays days before).
         @if (s.WindowOpen) { <span class="pill pill-ok">Decreases can be approved</span> } else { <span class="pill">Decreases wait for the window</span> }</p>
 </div>
+<div class="card mt">
+    <div class="card-head"><h2>Purchase gate and Finance's choices <help>The seat policy's one rule set, shown the same on Leadership › Copilot reservations. No more seats are bought until the gate's share of the unassigned seats counted at its baseline is assigned. Who pays for seats no line of business claims, and when an increase takes effect, are Finance's choices; all are set in Workbench settings › Seat groups.</help></h2></div>
+    <p>@(s.Purchased is int bought && s.Consumed is int held ? Governance.Application.Seats.SeatPolicy.PurchaseGateSentence(s.Settings, bought, held) : "Not known until the license read-back has run.")</p>
+    <p class="small muted">Seats no line of business claims: @(s.Settings.NoLobChargedTo.Length == 0 ? "charged to no line of business, a row of their own, until Finance names who pays (Seats.NoLobChargedTo)" : "charged to the funding owner " + s.Settings.NoLobChargedTo). Increases take effect @(s.Settings.IncreaseEffective == "NEXT_MONTH" ? "on the first day of the next month" : "on the decision date").</p>
+</div>
 <div class="table-wrap mt">
     <table class="stack">
         <thead>

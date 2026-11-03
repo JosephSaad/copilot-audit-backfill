@@ -333,8 +333,12 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
         var drafts = await uow.ScalarAsync<int>("SELECT COUNT(*) FROM core.SeatChargeSnapshot WHERE PeriodMonth = @month", new { month });
         if (!force && (drafts > 0 || today > monthEnd.AddDays(7))) return null;
 
-        var rows = (await uow.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats)>(
+        var position = (await uow.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int AssignedSeats)>(
             "SELECT FundingOwnerId, ReservedSeats, AssignedSeats FROM rpt.fn_SeatPosition(@monthEnd)", new { monthEnd })).ToList();
+        /* Seats no line of business claims: to the funding owner Finance named, or a row of their own. */
+        var noLobOwner = settings.NoLobChargedTo.Length == 0 ? null
+            : await uow.ScalarAsync<int?>("SELECT FundingOwnerId FROM core.FundingOwner WHERE Code = @code", new { code = settings.NoLobChargedTo });
+        var rows = SeatPolicy.ChargedRows(position, noLobOwner);
         await uow.ExecuteAsync("DELETE FROM core.SeatChargeSnapshot WHERE PeriodMonth = @month AND Status = 'DRAFT'", new { month });
         foreach (var r in rows)
         {

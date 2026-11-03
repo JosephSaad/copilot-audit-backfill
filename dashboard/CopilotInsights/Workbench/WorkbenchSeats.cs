@@ -66,7 +66,7 @@ public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState sta
             months.Add(new SeatMonth(m, rows.All(r => r.Status == "CERTIFIED"), charged.Sum(r => r.ReservedSeats), charged.Sum(r => r.AssignedSeats),
                 charged.Sum(r => r.ChargeSeats), charged.Sum(r => r.Amount), rows[0].Currency, charged));
         }
-        return new SeatPosition(summary, lobs, settings.Currency, settings.RatePerSeatMonth, months);
+        return new SeatPosition(summary, lobs, settings.Currency, settings.RatePerSeatMonth, months) { Settings = settings };
     }
 
     /// <summary>Where a figure opens in the Workbench, for this viewer: null where the Workbench page would refuse them or show another number.</summary>
@@ -137,6 +137,8 @@ public sealed record SeatMonth(DateTime Month, bool Certified, int Reserved, int
 /// <summary>The seat position by line of business today, with the months kept.</summary>
 public sealed record SeatPosition(SeatSummary? Summary, IReadOnlyList<SeatLobRow> Lobs, string Currency, decimal Rate, IReadOnlyList<SeatMonth> Months)
 {
+    /// <summary>The seat policy's settings, one rule set for the Workbench's pages and these.</summary>
+    public Governance.Application.Seats.SeatSettings? Settings { get; init; }
     public IEnumerable<SeatLobRow> Charged => Lobs.Where(l => l.FundingOwnerId is not null);
     public SeatLobRow? NoLob => Lobs.FirstOrDefault(l => l.FundingOwnerId is null);
     public int Reserved => Charged.Sum(l => l.ReservedSeats);

@@ -113,7 +113,9 @@ Work through every step, in this order, before tagging.
    1. Rebuild the demo database.
    2. Run the dashboard.
    3. Run `ui/ui_audit.py` until it reports 0 issues.
-   4. Run `ui/Test-FigureLinks.ps1` at 30, 90 and 365 days until no figure is missing from its page.
+   4. Run `ui/Test-FigureLinks.ps1` at 30, 90 and 365 days until no figure is missing from its page. With the
+      Governance Workbench set up, run it again as a test persona who sees every line of business, so the seat
+      figures that open Workbench pages are checked too: `-Pages /leadership/reservations,/licensing/reservation-holders -ActAs <persona PublicId>`.
    5. Look at the screenshots of any page whose layout changed.
 6. **Power BI.**
    1. Run `python powerbi/generate_model.py`.
