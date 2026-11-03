@@ -21,6 +21,7 @@ The roadmap's later milestones (M13 to M15) would add changes in Microsoft 365 i
 ## Contents
 
 - [What each persona gets](#what-each-persona-gets)
+- [Governance Workbench pages](#governance-workbench-pages)
 - [Who sees what](#who-sees-what)
 - [Periods](#periods)
 - [Premium use and the license rules](#premium-use-and-the-license-rules)
@@ -134,6 +135,57 @@ An L2 manager, who reports directly to the CEO, sees the whole organization. The
 
 The pages whose scope is *Tenant* (License pool, Budget and renewal) are the tenant's in every figure, for a viewer with the Licensing role and their own part of the organization too (2.4.12): they set that viewer's own part's use against the tenant's seats, which made a renewal figure that was neither. The Board pack shows the tenant's seats bought and assigned only to the viewers License pool shows them to, the whole-organization view and the Licensing role, and says they are the whole tenant's when it is printed for a part of the organization.
 
+## Governance Workbench pages
+
+From 3.0.0 the dashboard also serves the Governance Workbench: requests and approvals for Copilot workloads, routed by a RACI matrix, and the registry of who owns and funds them. Its pages are under `/workbench/...` and its sections come after the dashboard's in the navigation. They exist only when the site's settings name the Workbench's database (`ConnectionStrings:Governance`); otherwise every `/workbench` address is *Page not found* and the dashboard is as before. [OPERATIONS.md](OPERATIONS.md#governance-workbench) covers turning it on and the roles; [GOVERNANCE-USER-GUIDE.md](GOVERNANCE-USER-GUIDE.md) says where each person starts.
+
+Which sections a person sees comes from their grants in Admin › Access: **Governance**, **GovernanceOperator**, **GovernanceAuditor** and **Admin**. What they may do on a page (approve, record a decision, see one line of business's seats) comes from their roles inside the Workbench. These grants open no usage data. A page someone may not open says *This page is not available to you* and who grants it.
+
+| Workbench section | Workbench page | Address | What it is for | Who sees it |
+|---|---|---|---|---|
+| Ownership and approvals | Start | `/workbench/Start` | Where to begin: the journeys you can start, and the setup steps left before intake opens | Everyone |
+| | My work | `/workbench/MyWork` | The tasks waiting for you or your queues, oldest first, with what each needs | Everyone |
+| | Requests | `/workbench/Requests` | Every request you started or can see, with its stage and who acts next | Everyone |
+| | Report a consumption problem | `/workbench/Events/Report` | Report an agent or workload using more than it should | Everyone |
+| | Recertification | `/workbench/Recertification` | Confirm or change each workload you own: need, audience, funding and outcome | Everyone |
+| | Exceptions | `/workbench/Exceptions` | Approved exceptions to a control, each with its expiry | Everyone |
+| | Retirement | `/workbench/Retirement` | Workloads being retired and what is left to do for each | Everyone |
+| | Your Workbench roles | `/workbench/Me` | Your Workbench roles, the lines of business they cover, and your delegations | Everyone |
+| Approval queues | Intake | `/workbench/Queues/Intake` | New requests for the intake team to check for completeness | Governance, GovernanceOperator, Admin |
+| | Classification | `/workbench/Queues/Classification` | Complete requests waiting to be classified by risk and route | Governance, GovernanceOperator, Admin |
+| | Specialist reviews | `/workbench/Queues/Reviews` | Architecture, risk and licensing reviews waiting for an answer | Governance, GovernanceOperator, Admin |
+| | Decisions | `/workbench/Queues/Decisions` | Requests ready for the accountable role's decision | Governance, GovernanceOperator, Admin |
+| | Fulfillment and verification | `/workbench/Queues/Fulfillment` | Approved changes being carried out through ITSM, and their verification | Governance, GovernanceOperator, Admin |
+| Ownership registry | Funding owners | `/workbench/Registry/FundingOwners` | The lines of business and Enterprise Shared that own and fund Copilot workloads | Everyone |
+| | Workloads | `/workbench/Registry/Workloads` | Each approved Copilot workload, its owner, funding and approved setting | Everyone |
+| | Envelopes | `/workbench/Registry/Envelopes` | Each funding owner's approved consumption envelope and what it has committed | Everyone |
+| | Copilot seats | `/workbench/Registry/Seats` | Paid Microsoft 365 Copilot seats per line of business: reserved, assigned, over and unused | Seat roles: FinOps, the Platform Owner and auditors for every line of business; a line of business's own roles and seat admins for theirs |
+| | Services | `/workbench/Registry/Services` | The approved service catalog workloads are built from | Everyone |
+| | Control templates | `/workbench/Registry/Templates` | The control template each approved service must meet | Everyone |
+| | Cost centers | `/workbench/Registry/CostCenters` | Cost centers chargeback lands on, by funding owner | Governance, GovernanceOperator, Admin |
+| | Commercial | `/workbench/Registry/Commercial` | Licenses, packs, P3 plans and pay-as-you-go scopes, with renewal dates | Governance, GovernanceOperator, Admin |
+| | Discovery | `/workbench/Registry/Discovery` | What exists in the tenant but is not registered yet: register it or claim it | Governance, GovernanceOperator, Admin |
+| Governance operations | Consumption events | `/workbench/Operations/Events` | Spikes, budget alerts and reported problems, with their acknowledgement | Governance, GovernanceOperator, Admin |
+| | Drift and findings | `/workbench/Operations/Findings` | Drift from the approved setting, unregistered agents and seat findings to follow up | Governance, GovernanceOperator, Admin |
+| | Sync and freshness | `/workbench/Operations/Sync` | When each read from Microsoft and ITSM last ran, and running one now | GovernanceOperator |
+| | Attestations | `/workbench/Operations/Attestations` | Settings no API can read back, attested by a second operator | GovernanceOperator |
+| | Governance KPIs | `/workbench/Reports/Kpis` | The Workbench's own measures: cycle times, SLAs met, findings closed | Governance, GovernanceOperator, GovernanceAuditor |
+| | Audit trail | `/workbench/Reports/Audit` | Who did what in the Workbench, from the tamper-evident ledger, with export | Governance, GovernanceOperator, GovernanceAuditor |
+| | Seat chargeback | `/workbench/Reports/SeatChargeback` | Monthly Copilot seat chargeback per line of business, drafted by the worker and certified by FinOps | Governance, GovernanceOperator, GovernanceAuditor |
+| Workbench settings | RACI | `/workbench/Admin/Raci` | Who is responsible, accountable, consulted and informed for each activity | Admin; Platform Owner and Steering |
+| | Workflows | `/workbench/Admin/Workflows` | The stages of each journey and who acts at each | Admin |
+| | SLAs and escalation | `/workbench/Admin/Sla` | How long each stage may take, the reminders and the escalation ladder | Admin |
+| | Notifications | `/workbench/Admin/Notifications` | Which notices go to whom, by email and Teams | Admin |
+| | Workbench roles | `/workbench/Admin/Roles` | Who holds each Workbench role (RACI positions, delegations, LOB seat admins) | Admin; Platform Owner and Steering |
+| | Seat groups | `/workbench/Admin/SeatGroups` | The Copilot license group, each line of business's tracking group, and the seat settings | Admin; Platform Owner and Steering |
+| | Integrations | `/workbench/Admin/Integrations` | The Microsoft, ITSM, mail and Teams connections and their health | Admin |
+| | Intake switch | `/workbench/Admin/Intake` | Open or close intake, with the setup steps it needs first | Admin; Platform Owner and Steering |
+| | Wording | `/workbench/Admin/Text` | Change the wording of help and notices | Admin; Platform Owner and Steering |
+
+Pages reached from these, not listed in the navigation: a request (`/workbench/Requests/{id}`), a new request (`/workbench/Requests/New/{journey}`), a funding owner, a workload, a control template, one line of business's seats (`/workbench/Registry/Seats/{id}`), one consumption event, one sync run, a piece of evidence, and the Teams tab's start page. *Act as a test persona* (`/workbench/ActAs`) exists only in Development, with `Testing:AllowActAs` set, for an Insights administrator ([GOVERNANCE-TEST-ENVIRONMENT.md](GOVERNANCE-TEST-ENVIRONMENT.md)).
+
+<!-- 3.0.0: seats section pending (Leadership › Copilot reservations and Licensing › Reservation holders read the Workbench's seats by line of business when it is on) -->
+
 ## Who sees what
 
 **Leaders are never on a revoke or train list (2.4.6).** Levels 1 to N of the organization (Admin › Access › *Never on revoke or train lists*; 5 unless changed) are left out of every list that recommends taking a license away, moving to pay-as-you-go, or training: the pages, their CSVs and removal files, the counts in the digests, Board pack and Budget and renewal, and the data API. Each such list says so above it. Lists of accounts nobody can use (disabled and departed accounts, departures ahead, non-human accounts) keep everyone.
@@ -172,6 +224,7 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 | Compliance | The Compliance section; in it, named people who worked with labeled content, personal OneDrive site names, and one person's record |
 | Agents | The Agents section; in it, the named users of an agent |
 | Enablement | The Enablement section; in it, named people by engagement segment |
+| Governance, GovernanceOperator, GovernanceAuditor | Governance Workbench pages (3.0.0), when it is on: [Governance Workbench pages](#governance-workbench-pages). **No usage data,** and they do not let anyone past the level limit |
 
 **Small groups.** A breakdown never shows a group smaller than the minimum group size (default 5): those groups are folded into "Smaller groups" or left out, so no total describes one person. What is folded or left out reaches the minimum too (2.4.12): when the small groups together are still under it, the smallest groups shown join them, so neither the "Smaller groups" row nor the total minus the rows shown is one person. The rule is the same on every page, digest, extract and API call, and the people who used one agent are such a group: their count is shown only at the minimum or more.
 
