@@ -87,7 +87,7 @@
     box.addEventListener('input', function () {
       var q = box.value.replace(/\s+/g, ' ').trim();
       window.clearTimeout(timer);
-      if (q.replace(/[^0-9A-Za-zÀ-￿]/g, '').length < min) { asked = ''; offer([]); return; }
+      if (q.replace(/[^0-9A-Za-z\u00C0-\uFFFF]/g, '').length < min) { asked = ''; offer([]); return; }
       // Choosing a name puts its sign-in in the box: that is an answer, not a search.
       for (var i = 0; i < list.options.length; i++) if (list.options[i].value === box.value) return;
       if (q === asked) return;
@@ -115,9 +115,9 @@
     if (v !== null && v !== '') return { n: parseFloat(v), t: v };
     var t = td.textContent.trim();
     // A leading arrow carries the sign of a change ("▼ 12%" is -12); so does a minus, plain or typographic.
-    var m = /^([▲▼↑↓]?)\s*([-+−]?)\s*[$€£]?\s?(\d[\d,]*(\.\d+)?)/.exec(t);
+    var m = /^([\u25B2\u25BC\u2191\u2193]?)\s*([-+\u2212]?)\s*[$\u20AC\u00A3]?\s?(\d[\d,]*(\.\d+)?)/.exec(t);
     var n = m ? parseFloat(m[3].replace(/,/g, '')) : null;
-    if (m && (m[1] === '▼' || m[1] === '↓' || m[2] === '-' || m[2] === '−')) n = -n;
+    if (m && (m[1] === '\u25BC' || m[1] === '\u2193' || m[2] === '-' || m[2] === '\u2212')) n = -n;
     return { n: n, t: t.toLowerCase() };
   }
   document.querySelectorAll('table.sortable').forEach(function (table) {

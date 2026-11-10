@@ -47,6 +47,8 @@ CFG = {
     "report_approx_count": True,    # False: beta status omits approximateReturnedRecordCount, as a live tenant did
     "stall_page_body": 0,           # >0: that page (by pages served) sends its headers and half its body, then goes silent
     "stall_seconds": 600,           # ...for this long, as a proxy that drops a connection without a reset
+    "fail_every_query": False,     # True: every search ends failed, as Microsoft's did from November 2026
+    "failed_with_records": False,  # True: a failed search still reports its records and serves them
 }
 if len(sys.argv) > 2:
     CFG.update(json.loads(sys.argv[2]))
@@ -310,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
                 e = parse_ts(body["filterEndDateTime"])
                 assert "CopilotInteraction" in body["operationFilters"], body
                 fail_at = parse_ts(CFG["fail_first_query_covering"])
-                fail = (not state["failed_once"]) and s <= fail_at < e
+                fail = CFG["fail_every_query"] or ((not state["failed_once"]) and s <= fail_at < e)
                 if fail:
                     state["failed_once"] = True
                 state["queries"][qid] = {"start": s, "end": e, "polls": 0, "fail": fail,
@@ -477,7 +479,7 @@ class Handler(BaseHTTPRequestHandler):
         obj = {"id": qid, "status": status,
                "filterStartDateTime": q["start"].strftime("%Y-%m-%dT%H:%M:%SZ"),
                "filterEndDateTime": q["end"].strftime("%Y-%m-%dT%H:%M:%SZ")}
-        if ver == "beta" and status == "succeeded":
+        if ver == "beta" and (status == "succeeded" or (status == "failed" and CFG["failed_with_records"])):
             n = count_in(q["start"], q["end"])
             obj["recordCountLimit"] = CFG["cap"]
             obj["isRecordCountLimitExceeded"] = n > CFG["cap"]
@@ -496,7 +498,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(429, {"error": {"code": "TooManyRequests"}},
                                       {"Retry-After": str(CFG["page_retry_after"])})
         try:
-            if q["status"] != "succeeded":
+            if q["status"] != "succeeded" and not (q["status"] == "failed" and CFG["failed_with_records"]):
                 return self.send_json(400, {"error": {"code": "BadRequest", "message": "query not complete"}})
             if random.random() < CFG["page_503_rate"]:
                 with lock:

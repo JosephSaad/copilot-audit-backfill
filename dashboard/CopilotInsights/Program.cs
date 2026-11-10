@@ -167,6 +167,8 @@ app.Use(async (ctx, next) =>
 app.MapRazorPages();
 /* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
+/* The Workbench's home is its Start page; /workbench on its own was a page not found. */
+app.MapGet("/workbench", () => Results.Redirect("/workbench/Start"));
 /* My Copilot's pages are gone: links to them in earlier emails land on the start page. */
 app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
 /* Pages merged in 2.7.6: the old addresses (bookmarks, emails, alerts) land on the page that took them, their query kept. */

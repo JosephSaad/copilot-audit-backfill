@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Since 3.0.1. Not released yet.
+
+### Fixed
+- **Purview searches marked failed that still have their records.** Since November 2026 some tenants' audit searches
+  end `failed` although they found records, and the records still download. The loader retried and split such a
+  window until it was written off, so nothing loaded for days. A failed search that reports records is now taken as
+  complete and loaded (one over the record cap is split as usual), with a warning in the log. A search that failed
+  with no records is retried as before, and the log and the window's `LastError` now carry Microsoft's whole answer.
+- **The menu stopped folding when the scripts were re-encoded.** A copy of the source that reached a build server in
+  another encoding turned a character in a regular expression of `site.js` into one the browser refused, and the
+  whole script stopped on every page. The scripts now write such characters as `\u` escapes, and a test keeps their
+  code plain ASCII.
+- **`/workbench` on its own** was a page not found; it now opens the Workbench's Start page.
+
+### Added
+- **Audit search settings for the nightly run.** `AuditSearchTimeoutMinutes` (how long a search may run before it
+  is submitted again, 240 by default) and `AuditSearchesInFlight` (8 by default) in the settings file reach every
+  Purview load. The loader takes `-QueryTimeoutMinutes`.
 ## [3.0.1] - 2026-11-02
 
 The rest of the 3.0.0 plan: one rule set for Copilot seats, Copilot Credits charged to the Workbench's lines of

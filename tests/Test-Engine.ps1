@@ -423,6 +423,28 @@ try {
 finally { Stop-MockGraph $mock }
 
 # ---------------------------------------------------------------------------
+# K. Microsoft marks every search failed, yet each reports and serves its records
+# ---------------------------------------------------------------------------
+
+Write-Host "`nK. Every search ends 'failed' but still has its records" -ForegroundColor Cyan
+$mock = Start-MockGraph @{ days = 4; fail_every_query = $true; failed_with_records = $true; page_503_rate = 0 }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 5, 0, 0, 0, [DateTimeKind]::Utc)
+    $expected = Get-ExpectedId $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logK = [System.Collections.Generic.List[string]]::new()
+    $run = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logK
+
+    Assert-That ($run.Task.Status -eq 'RanToCompletion') "completed ($($run.Task.Status))"
+    Assert-That (@($logK | Where-Object { $_ -match 'marked the search failed but it found' }).Count -ge 1) 'a failed search that found records is taken as complete, and the log says so'
+    $retried = @($logK | Where-Object { $_ -match 'audit search failed' })
+    Assert-That ($retried.Count -eq 0) "none of them is retried; one over the record cap is split as usual ($(@($store.Snapshot() | Where-Object Status -eq 'Split').Count) split) ($($retried | Select-Object -First 1))"
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'K')
+}
+finally { Stop-MockGraph $mock }
+# ---------------------------------------------------------------------------
 
 Write-Host ''
 if ($script:Failures.Count) {

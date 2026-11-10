@@ -304,7 +304,7 @@ Each finding ends with OK, WARN or ACTION, and the check closes with what to run
 |---|---|
 | ~1,000,000 records per search, after which it stops silently and still reports `succeeded` | Sizes each search to ~600K from observed density. Reads the service's `isRecordCountLimitExceeded` and splits any over-cap search **before downloading it**. If that flag is unavailable, it detects a capped result by row count. |
 | ~200 search submissions per rolling 24 h, **tenant-wide** | Caps itself at 150/24 h (`-MaxSubmissionsPer24h`), counted across restarts, which leaves headroom for colleagues. Honors `Retry-After` on any submission 429. |
-| ~50 queued/running searches tenant-wide; 10 per user in the portal | 8 in flight (`-MaxQueriesInFlight`). |
+| ~50 queued/running searches tenant-wide; 10 open per app in some tenants | 8 in flight (`-MaxQueriesInFlight`, or `AuditSearchesInFlight` in the settings file for the nightly run). A tenant that answers a submission with 429 while fewer than 8 run allows fewer: set it lower. |
 | Page throttling, rate not published | Starts at 4 streams, adds one after each run of clean pages, halves on a 429, and pauses every stream for `Retry-After`. |
 
 ## 7. Tuning
@@ -315,6 +315,7 @@ Each finding ends with OK, WARN or ACTION, and the check closes with what to run
 | `-InitialWindowHours` | 24 | Only matters until density is known. Lower it if a single day exceeds ~1M records. |
 | `-TargetRecordsPerWindow` | 600,000 | Lower it if searches keep splitting. |
 | `-MaxSubmissionsPer24h` | 150 | Lower it if other teams run audit searches through the API. |
+| `-QueryTimeoutMinutes` | 240 | How long a search may stay queued or running before it is submitted again. Raise it (600, for example) when the log shows `audit search still 'running' after 240 minutes`: resubmitting starts the search from nothing, and the old one stays open on Microsoft's side, holding a place. For the nightly run, `AuditSearchTimeoutMinutes` in the settings file. |
 | `-SqlWriters` / `-BatchRows` | 4 / 2,000 | Raise writers if rows/s written lags rows/s downloaded. Memory is roughly writers × batch × 8 KB. |
 
 ## 8. Troubleshooting
@@ -327,6 +328,8 @@ Each finding ends with OK, WARN or ACTION, and the check closes with what to run
 | `A connection was successfully established with the server, but then an error occurred during the login process` | The words in brackets after it name the cause. *certificate chain … not trusted*: add `-TrustServerCertificate`. *target principal name is incorrect*: use the server's name as its certificate carries it. *forcibly closed by the remote host*: a TLS mismatch, usually Windows PowerShell 5.1 against a SQL Server that requires TLS 1.2; run the script in PowerShell 7. See [DEPLOYMENT.md](docs/DEPLOYMENT.md#connecting-to-sql-server). |
 | `The login already has an account under a different user name` | Before 2.4.1: the service account is already in the database under another name, usually `dbo` because it created and so owns the database. From 2.4.1 the installers use that user. On an older release, run `Install-CopilotAudit.ps1` without `-ServiceAccount` (an owner has every right already), and the job-server setup with `-SkipDatabase`. |
 | `#Requires` … `7.2` / `The term 'pwsh' is not recognized` | The script needs PowerShell 7, or it isn't installed. Install it next to Windows PowerShell 5.1; see [Which PowerShell runs what](docs/DEPLOYMENT.md#which-powershell-runs-what). |
+| `Microsoft marked the search failed but it found ~N records` | Since November 2026 some tenants' searches end `failed` although they found records, and the records still download. The loader takes such a search as complete and loads them; one over the record cap is split as usual. A search that failed with no records is retried, and the log shows Microsoft's whole answer after `audit search failed:`. |
+| `audit search still 'running' after 240 minutes` | Microsoft is slow to run searches. Raise `-QueryTimeoutMinutes` (or `AuditSearchTimeoutMinutes` in the settings file) so a slow search is not thrown away and submitted again (section 7). |
 | `Submission budget reached` | Normal. Downloads continue; submissions resume on their own when the 24 h window rolls. |
 | The nightly run takes hours | `.\tools\Measure-CopilotNightly.ps1 -SqlServer <server>` shows each stage's time and the statements that ran longest ([docs/OPERATIONS.md](docs/OPERATIONS.md#a-slow-nightly-run)). Before 2.5.4 the session build and the `bi` refresh each worked out every license SKU change from the records every night, and the session build looked each session up in them without an index: with a large license history both took long, whatever the night's load (40 minutes of a lab night, over 4,000,000 license events). From 2.5.4 the changes are kept in a table as the license events are shredded, and sought. |
 | Old windows load 0 rows | Retention boundary (section 1). The summary reports the oldest record found. |

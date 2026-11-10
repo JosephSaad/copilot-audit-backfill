@@ -229,7 +229,18 @@ $dn0 = Get-PipelineStep -Setting ($s + @{ DepartmentAttribute = @() }) -Today $t
 Assert-That (-not $dn0[0].Arguments.ContainsKey('DepartmentAttribute')) 'an empty DepartmentAttribute passes nothing'
 
 $h = Get-PipelineStep -Setting $s -History -Today $today -Root 'R:'
-Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
+# The audit search settings: how long a Purview search may run before it is submitted again, and how many run at once.
+Assert-That (-not $n[2].Arguments.ContainsKey('QueryTimeoutMinutes') -and -not $n[3].Arguments.ContainsKey('MaxQueriesInFlight')) `
+    'with no search settings in the file, the searches keep the loader''s own defaults (240 minutes, 8 at once)'
+$sn = Get-PipelineStep -Setting ($s + @{ AuditSearchTimeoutMinutes = 600; AuditSearchesInFlight = '4' }) -Today $today -Root 'R:'
+$sh = Get-PipelineStep -Setting ($s + @{ AuditSearchTimeoutMinutes = 600; AuditSearchesInFlight = '4' }) -History -Today $today -Root 'R:'
+$searches = @($sn + $sh | Where-Object { $_.Script -like '*Invoke-CopilotAuditBackfill.ps1' })
+Assert-That ($searches.Count -eq 4 -and @($searches | Where-Object { $_.Arguments.QueryTimeoutMinutes -ne 600 -or $_.Arguments.MaxQueriesInFlight -ne 4 }).Count -eq 0) `
+    'AuditSearchTimeoutMinutes and AuditSearchesInFlight reach every audit search load, nightly and history'
+Assert-That (@($sn + $sh | Where-Object { $_.Script -notlike '*Invoke-CopilotAuditBackfill.ps1' -and ($_.Arguments.ContainsKey('QueryTimeoutMinutes') -or $_.Arguments.ContainsKey('MaxQueriesInFlight')) }).Count -eq 0) `
+    'and no other step'
+$bp = (Get-Command (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1')).Parameters
+Assert-That ($bp.ContainsKey('QueryTimeoutMinutes') -and $bp.ContainsKey('MaxQueriesInFlight')) 'the loader takes both'Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
 Assert-That ($h[0].Arguments.StartDate -eq $today.AddDays(-90) -and $h[0].Arguments.Finalize -and $h[1].Arguments.StartDate -eq $today.AddDays(-90)) 'history: HistoryDays back, finalized'
 Assert-That ((Get-PipelineStep -Setting $s -History -Days 30 -Today $today)[0].Arguments.StartDate -eq $today.AddDays(-30)) '-Days overrides the settings'
 $b = $h[4].Arguments

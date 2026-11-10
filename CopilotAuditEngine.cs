@@ -984,6 +984,13 @@ namespace CopilotAudit
                     }
 
                     var status = (st.Status ?? "").ToLowerInvariant();
+                    // Microsoft can mark a search failed although it found records, and they still download. Load them
+                    // rather than retry a window that will fail the same way; one over the record cap is split as usual.
+                    if (status == "failed" && (st.ApproxRecords ?? 0) > 0)
+                    {
+                        Log("WARN", w + ": Microsoft marked the search failed but it found ~" + st.ApproxRecords + " records - " + (st.CapExceeded == true ? "treating it as complete." : "loading them."));
+                        status = "succeeded";
+                    }
                     if (status == "succeeded")
                     {
                         inFlight.Remove(w);
@@ -1018,7 +1025,9 @@ namespace CopilotAudit
                     else if (status == "failed" || status == "cancelled")
                     {
                         inFlight.Remove(w);
-                        w.LastError = "audit search " + status;
+                        var raw = st.Raw ?? "";
+                        w.LastError = "audit search " + status + (raw.Length == 0 ? "" : ": " + raw.Substring(0, Math.Min(1500, raw.Length)));
+                        Log("WARN", w + ": " + w.LastError);
                         await RetryOrSplitAsync(w, pending, ct).ConfigureAwait(false);
                     }
                     else if (w.SubmittedUtc.HasValue && DateTime.UtcNow - w.SubmittedUtc.Value > TimeSpan.FromMinutes(_o.QueryTimeoutMinutes))
@@ -1282,6 +1291,7 @@ namespace CopilotAudit
             public bool? CapExceeded;
             public long? RecordCap;
             public long? ApproxRecords;
+            public string Raw;   // Microsoft's whole answer, for the log when a search fails
         }
 
         async Task<QueryState> GetQueryStateAsync(string queryId, CancellationToken ct)
@@ -1320,6 +1330,7 @@ namespace CopilotAudit
                     (ex.ValueKind == JsonValueKind.True || ex.ValueKind == JsonValueKind.False)) s.CapExceeded = ex.GetBoolean();
                 if (r.TryGetProperty("recordCountLimit", out var cap) && cap.ValueKind == JsonValueKind.Number) s.RecordCap = cap.GetInt64();
                 if (r.TryGetProperty("approximateReturnedRecordCount", out var ap) && ap.ValueKind == JsonValueKind.Number) s.ApproxRecords = ap.GetInt64();
+                s.Raw = json;
                 return s;
             }
         }

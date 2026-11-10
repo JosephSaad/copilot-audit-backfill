@@ -166,6 +166,7 @@ param(
     [ValidateRange(1, 32)]        [int]    $InitialDownloadStreams = 4,
     [ValidateRange(1, 40)]        [int]    $MaxQueriesInFlight     = 8,
     [ValidateRange(1, 200)]       [int]    $MaxSubmissionsPer24h   = 150,
+    [ValidateRange(30, 1440)]     [int]    $QueryTimeoutMinutes    = 240,
     [ValidateRange(10000, 5000000)][long]  $TargetRecordsPerWindow = 600000,
     [ValidateRange(0.25, 168)]    [double] $InitialWindowHours     = 24,
     [ValidateRange(1, 16)]        [int]    $SqlWriters             = 4,
@@ -931,6 +932,7 @@ function Invoke-AuditDownload {
     $o.TargetRecordsPerWindow = $TargetRecordsPerWindow
     $o.MaxQueriesInFlight     = $MaxQueriesInFlight
     $o.MaxSubmissionsPer24h   = $MaxSubmissionsPer24h
+    $o.QueryTimeoutMinutes    = $QueryTimeoutMinutes
     $o.InitialDownloadStreams = [math]::Min($InitialDownloadStreams, $MaxDownloadStreams)
     $o.MaxDownloadStreams     = $MaxDownloadStreams
     $o.SqlWriters             = $SqlWriters
