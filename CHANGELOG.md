@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Built on 3.0.1 (not on 3.0.2).
+
+**Install over 3.0.1:** run `Install-CopilotAudit.ps1 -Dashboard` on the job server (or `sql\Create-CopilotDashboardSchema.sql`
+on the Copilot database), which widens the role checks on `dash.RoleGrant` and `dash.AccessProfileRole` to take the new
+role; nothing already granted changes. Then deploy the dashboard from this build on each web server.
+
+### Added
+- **The Restricted role,** for a group that should see only some sections. It narrows instead of opening: its holder
+  sees Start, Leadership and the sections their other roles open, and nothing else. *Restricted* with *Agents* is Start,
+  Leadership and Agents. Regions, People, App owners and Governance, which belong to no role, and the Workbench (unless
+  they also hold a Workbench role or Admin) are gone from their menu, start page and links, and refused at their address
+  with a page that says why. It never lets anyone past the dashboard's level limit on its own, widens nothing, and
+  changes nothing for anyone who does not hold it. Admin › Access, access profiles and `-Task GrantRole` offer it.
+  docs\OPERATIONS.md, *A group that sees only some sections*.
+- **See all reports,** for a restricted person who sees the whole organization (the Organization role, level 1 or 2, or
+  a persona role granted across the whole organization): under Start in the menu, it lifts the restriction for them
+  until they choose *Show only my reports*. It never opens a section whose role they lack; each switch is audited; a
+  cookie set by anyone else changes nothing.
+
+### Changed
+- **A review of the change** before it was kept: the daily pre-cache's stand-in viewer, which holds every role, would
+  have held Restricted too and skipped the unguarded sections (it leaves Restricted out); the seat figures on Leadership
+  › Copilot reservations and Licensing › Reservation holders linked a restricted viewer to Workbench pages they would be
+  refused (no links for them now).
+
 ## [3.0.1] - 2026-11-02
 
 The rest of the 3.0.0 plan: one rule set for Copilot seats, Copilot Credits charged to the Workbench's lines of

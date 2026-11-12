@@ -206,6 +206,9 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
 
 public sealed class PrincipalMiddleware(RequestDelegate next)
 {
+    /// <summary>Set on a request refused because the viewer holds the Restricted role: the refusal page says so.</summary>
+    public const string RestrictedKey = "workbench-restricted";
+
     public async Task InvokeAsync(HttpContext http, PrincipalLoader loader, WebPrincipal principal)
     {
         if (http.User.Identity?.IsAuthenticated == true)
@@ -213,6 +216,16 @@ public sealed class PrincipalMiddleware(RequestDelegate next)
             /* In the Workbench's own tenant, whatever tenant the site's pages show (WorkbenchState). */
             var tenants = http.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();
             tenants.Use(http.RequestServices.GetRequiredService<WorkbenchState>().Home(tenants));
+            /* A holder of the Restricted role without a Workbench role or Admin: the Workbench is not theirs to see.
+               Refused before they are recorded in it, so a refused visit leaves no person behind. */
+            var viewer = await http.RequestServices.GetRequiredService<ViewerService>().GetAsync();
+            if (viewer.WorkbenchHidden && !IsOpenToAll(http.Request.Path))
+            {
+                http.Items[RestrictedKey] = true;
+                await http.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.AuditLog>().WriteAsync(viewer, "Denied", http.Request.Path, null, "restricted: the Workbench is not among their reports");
+                http.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
             await loader.LoadAsync(http, principal);
             /* Someone the Workbench cannot record (not in the directory yet) reaches only the page that says so. */
             if (!principal.IsAuthenticated && !IsOpenToAll(http.Request.Path))

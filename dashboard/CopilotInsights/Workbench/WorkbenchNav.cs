@@ -64,6 +64,8 @@ public static class WorkbenchNav
     public static async Task<IReadOnlyList<NavGroup>> ForAsync(HttpContext ctx, WebPrincipal me, bool on)
     {
         if (!on || ctx.User.Identity?.IsAuthenticated != true) return [];
+        /* A holder of the Restricted role without a Workbench role or Admin sees none of its sections. */
+        if ((await ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.ViewerService>().GetAsync()).WorkbenchHidden) return [];
         if (me.IsAuthenticated) return For(me, on);
         /* Only in the Workbench's own tenant: its roles are that tenant's grants. */
         var tenants = ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();

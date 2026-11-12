@@ -294,7 +294,7 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         Principal     NVARCHAR(256)   NOT NULL,   -- a UPN, or DOMAIN\Group
         PrincipalType VARCHAR(8)      NOT NULL CONSTRAINT CK_DashRoleGrant_Type CHECK (PrincipalType IN ('User', 'Group')),
         Role          VARCHAR(32)     NOT NULL CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor')),
+                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted')),
         Note          NVARCHAR(400)   NULL,
         GrantedBy     NVARCHAR(256)   NOT NULL,
         GrantedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashRoleGrant_Granted DEFAULT (SYSUTCDATETIME()),
@@ -315,16 +315,17 @@ BEGIN
     ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
     UPDATE dash.RoleGrant SET Role = 'Admin' WHERE Role = 'Persona';
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor'));
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
 END;
 
-/* The Governance Workbench's three page roles (Governance, GovernanceOperator, GovernanceAuditor) join the eight: a
-   database whose check names only the eight has it widened. Nothing already granted changes. */
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%GovernanceAuditor%')
+/* The Governance Workbench's three page roles (Governance, GovernanceOperator, GovernanceAuditor) join the eight, and
+   Restricted, the role that narrows what its holder sees, joins them: a database whose check lacks any of them has it
+   widened. Nothing already granted changes. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%Restricted%')
 BEGIN
     ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor'));
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
 END;
 
 /* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
@@ -357,16 +358,16 @@ IF OBJECT_ID(N'dash.AccessProfileRole', N'U') IS NULL
     (
         ProfileId   INT             NOT NULL CONSTRAINT FK_DashAccessProfileRole_Profile REFERENCES dash.AccessProfile (ProfileId) ON DELETE CASCADE,
         Role        VARCHAR(32)     NOT NULL CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
-                        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor')),
+                        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted')),
         OrgWide     BIT             NOT NULL CONSTRAINT DF_DashAccessProfileRole_OrgWide DEFAULT (0),
         Pages       NVARCHAR(1000)  NULL,       -- for Admin: the Admin pages, as on dash.RoleGrant; NULL is every page
         CONSTRAINT PK_DashAccessProfileRole PRIMARY KEY (ProfileId, Role)
     );
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%GovernanceAuditor%')
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%Restricted%')
 BEGIN
     ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
     ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
-        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor'));
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
 END;
 IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NULL
     CREATE TABLE dash.ProfileGrant
