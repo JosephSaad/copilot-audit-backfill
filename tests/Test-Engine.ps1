@@ -441,7 +441,31 @@ try {
     Assert-That (@($logK | Where-Object { $_ -match 'marked the search failed but it found' }).Count -ge 1) 'a failed search that found records is taken as complete, and the log says so'
     $retried = @($logK | Where-Object { $_ -match 'audit search failed' })
     Assert-That ($retried.Count -eq 0) "none of them is retried; one over the record cap is split as usual ($(@($store.Snapshot() | Where-Object Status -eq 'Split').Count) split) ($($retried | Select-Object -First 1))"
+    $noted = @($store.Snapshot() | Where-Object { $_.Status -eq 'Loaded' -and $_.LastError -match 'loaded from a search Microsoft marked failed' })
+    Assert-That ($noted.Count -ge 1 -and $noted.Count -eq @($store.Snapshot() | Where-Object Status -eq 'Loaded').Count) `
+        "each window loaded from a failed search keeps a note in LastError ($($noted.Count))"
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'K')
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# L. A failed search reports records but refuses to serve them
+# ---------------------------------------------------------------------------
+
+Write-Host "`nL. A failed search reports records, then refuses the download" -ForegroundColor Cyan
+$mock = Start-MockGraph @{ days = 4; failed_with_records = $true; failed_download_refused = $true; page_503_rate = 0; fail_first_query_covering = '2026-08-02T12:00:00Z' }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 5, 0, 0, 0, [DateTimeKind]::Utc)
+    $expected = Get-ExpectedId $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logL = [System.Collections.Generic.List[string]]::new()
+    $run = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logL
+
+    Assert-That ($run.Task.Status -eq 'RanToCompletion') "the load is not stopped: it completed ($($run.Task.Status)) $(if ($run.Task.Exception) { $run.Task.Exception.GetBaseException().Message })"
+    Assert-That (@($logL | Where-Object { $_ -match 'records could not be downloaded.*searching it again' }).Count -ge 1) 'the window is searched again, and the log says why'
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'L')
 }
 finally { Stop-MockGraph $mock }
 # ---------------------------------------------------------------------------

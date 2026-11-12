@@ -240,7 +240,13 @@ Assert-That ($searches.Count -eq 4 -and @($searches | Where-Object { $_.Argument
 Assert-That (@($sn + $sh | Where-Object { $_.Script -notlike '*Invoke-CopilotAuditBackfill.ps1' -and ($_.Arguments.ContainsKey('QueryTimeoutMinutes') -or $_.Arguments.ContainsKey('MaxQueriesInFlight')) }).Count -eq 0) `
     'and no other step'
 $bp = (Get-Command (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1')).Parameters
-Assert-That ($bp.ContainsKey('QueryTimeoutMinutes') -and $bp.ContainsKey('MaxQueriesInFlight')) 'the loader takes both'Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
+Assert-That ($bp.ContainsKey('QueryTimeoutMinutes') -and $bp.ContainsKey('MaxQueriesInFlight')) 'the loader takes both'
+foreach ($bad in @(@{ AuditSearchTimeoutMinutes = 10 }, @{ AuditSearchTimeoutMinutes = 5000 }, @{ AuditSearchesInFlight = 50 })) {
+    $k = @($bad.Keys)[0]
+    $msg = try { [void](Get-PipelineStep -Setting ($s + $bad) -Today $today -Root 'R:'); '' } catch { $_.Exception.Message }
+    Assert-That ($msg -match $k) "an out-of-range $k ($($bad[$k])) stops the plan, naming the setting ($msg)"
+}
+Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
 Assert-That ($h[0].Arguments.StartDate -eq $today.AddDays(-90) -and $h[0].Arguments.Finalize -and $h[1].Arguments.StartDate -eq $today.AddDays(-90)) 'history: HistoryDays back, finalized'
 Assert-That ((Get-PipelineStep -Setting $s -History -Days 30 -Today $today)[0].Arguments.StartDate -eq $today.AddDays(-30)) '-Days overrides the settings'
 $b = $h[4].Arguments

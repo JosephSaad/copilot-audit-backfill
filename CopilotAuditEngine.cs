@@ -117,6 +117,7 @@ namespace CopilotAudit
         // runtime only
         internal bool?   CapExceeded;
         internal long    RecordCap = -1;
+        internal bool    FromFailedSearch;   // loaded from a search Microsoft marked failed that found records
 
         public double Hours => (EndUtc - StartUtc).TotalHours;
 
@@ -682,6 +683,9 @@ namespace CopilotAudit
         readonly Channel<RowBatch> _batches;
         readonly ConcurrentQueue<string> _log = new ConcurrentQueue<string>();
         readonly ConcurrentQueue<AuditWindow> _resplit = new ConcurrentQueue<AuditWindow>();
+        // Windows handed back by downloaders to be searched again: a search Microsoft marked failed whose records it
+        // then refused to serve.
+        readonly ConcurrentQueue<AuditWindow> _resubmit = new ConcurrentQueue<AuditWindow>();
         readonly ConcurrentDictionary<long, AuditWindow> _windows = new ConcurrentDictionary<long, AuditWindow>();
         readonly object _submitLock = new object();
         readonly Queue<DateTime> _submitTimes = new Queue<DateTime>();
@@ -960,6 +964,8 @@ namespace CopilotAudit
                 //    and the service did not say whether it truncated).
                 while (_resplit.TryDequeue(out var r))
                     await SplitAsync(r, pending, "download returned ~cap rows; re-querying as two halves", ct).ConfigureAwait(false);
+                while (_resubmit.TryDequeue(out var r))
+                    await RetryOrSplitAsync(r, pending, ct).ConfigureAwait(false);
 
                 // b) Poll queries in flight.
                 foreach (var w in inFlight.ToList())
@@ -986,14 +992,18 @@ namespace CopilotAudit
                     var status = (st.Status ?? "").ToLowerInvariant();
                     // Microsoft can mark a search failed although it found records, and they still download. Load them
                     // rather than retry a window that will fail the same way; one over the record cap is split as usual.
+                    var fromFailed = false;
                     if (status == "failed" && (st.ApproxRecords ?? 0) > 0)
                     {
-                        Log("WARN", w + ": Microsoft marked the search failed but it found ~" + st.ApproxRecords + " records - " + (st.CapExceeded == true ? "treating it as complete." : "loading them."));
+                        fromFailed = true;
+                        Log("WARN", w + ": Microsoft marked the search failed but it found ~" + st.ApproxRecords + " records - " +
+                            (st.CapExceeded == true ? "over the record cap, so handled as a capped search." : "loading them."));
                         status = "succeeded";
                     }
                     if (status == "succeeded")
                     {
                         inFlight.Remove(w);
+                        w.FromFailedSearch = fromFailed;
                         w.ApproxRecords = st.ApproxRecords;
                         w.CapExceeded = st.CapExceeded;
                         if (st.RecordCap.HasValue && st.RecordCap.Value > 0) w.RecordCap = st.RecordCap.Value;
@@ -1095,7 +1105,7 @@ namespace CopilotAudit
 
                 // d) Done when nothing is left anywhere upstream of the writers.
                 if (pending.Count == 0 && inFlight.Count == 0 && _cursor <= _o.RangeStartUtc &&
-                    Volatile.Read(ref _windowsInDownload) == 0 && _resplit.IsEmpty)
+                    Volatile.Read(ref _windowsInDownload) == 0 && _resplit.IsEmpty && _resubmit.IsEmpty)
                 {
                     break;
                 }
@@ -1408,6 +1418,17 @@ namespace CopilotAudit
                 catch (FatalGraphException)
                 {
                     throw;
+                }
+                catch (GraphRequestException gx) when ((gx.StatusCode == 400 || gx.StatusCode == 403) && w.FromFailedSearch)
+                {
+                    // A search Microsoft marked failed reported records but will not serve them: search the window
+                    // again, as a failed search always was, rather than stop the whole load. Rows of this attempt are
+                    // superseded by the next attempt's, as for any re-download.
+                    w.FromFailedSearch = false;
+                    w.LastError = "audit search failed and its records could not be downloaded: " + gx.Message;
+                    Log("WARN", w + ": " + w.LastError + " - searching it again.");
+                    _resubmit.Enqueue(w);                         // enqueue before decrement (planner termination check)
+                    Interlocked.Decrement(ref _windowsInDownload);
                 }
                 catch (GraphRequestException gx) when (gx.StatusCode == 400 || gx.StatusCode == 403)
                 {
@@ -1749,6 +1770,15 @@ namespace CopilotAudit
             w.RowsLoaded = st.Rows;
             w.CompletedUtc = DateTime.UtcNow;
             w.LastError = null;
+            // A window loaded from a search Microsoft marked failed keeps a note in its state row, so a gap it may
+            // leave can be found later; fewer rows than the search reported is said in the log as well.
+            if (w.FromFailedSearch)
+            {
+                w.LastError = string.Format(CultureInfo.InvariantCulture,
+                    "loaded from a search Microsoft marked failed: ~{0:N0} records reported, {1:N0} loaded", w.ApproxRecords ?? 0, st.Rows);
+                if (w.ApproxRecords.HasValue && st.Rows < w.ApproxRecords.Value * 0.9)
+                    Log("WARN", w + ": " + w.LastError + ". Fewer than reported: those hours may be incomplete. The next -Incremental run searches them again if they are inside its -LookbackHours (RUNBOOK section 8).");
+            }
             // The rows actually loaded are the only density signal when the status
             // call reports no approximate count - which a live tenant did for every
             // search, Copilot and Entra alike. Without this, a fresh run plans every

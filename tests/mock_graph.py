@@ -49,6 +49,7 @@ CFG = {
     "stall_seconds": 600,           # ...for this long, as a proxy that drops a connection without a reset
     "fail_every_query": False,     # True: every search ends failed, as Microsoft's did from November 2026
     "failed_with_records": False,  # True: a failed search still reports its records and serves them
+    "failed_download_refused": False,  # True: ...reports them, but refuses to serve them (400)
 }
 if len(sys.argv) > 2:
     CFG.update(json.loads(sys.argv[2]))
@@ -498,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(429, {"error": {"code": "TooManyRequests"}},
                                       {"Retry-After": str(CFG["page_retry_after"])})
         try:
-            if q["status"] != "succeeded" and not (q["status"] == "failed" and CFG["failed_with_records"]):
+            if q["status"] != "succeeded" and not (q["status"] == "failed" and CFG["failed_with_records"] and not CFG["failed_download_refused"]):
                 return self.send_json(400, {"error": {"code": "BadRequest", "message": "query not complete"}})
             if random.random() < CFG["page_503_rate"]:
                 with lock:

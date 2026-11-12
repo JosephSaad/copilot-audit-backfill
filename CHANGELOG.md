@@ -4,9 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.2] - 2026-11-12
 
-Since 3.0.1. Not released yet.
+A fix release: the nightly load keeps loading when Microsoft marks audit searches failed that still have their
+records, two settings for slow audit searches, and the side menu working again where a build server re-encoded the
+scripts.
+
+**Install over 3.0.1:** no schema change and no new setting is required. Disable the nightly task, replace the scripts
+on the job server with this release's (keep `copilot-audit.settings.psd1` and `logs`), and enable the task again.
+Deploy the dashboard from this release's `copilot-insights-v3.0.2.zip` with `dashboard\Install-CopilotInsights.ps1
+-PackagePath` on each web server; it keeps the site's settings. The Workbench's worker has no change: leaving it at 3.0.1 is fine.
+`Install-CopilotAudit.ps1` need not be run.
 
 ### Fixed
 - **Purview searches marked failed that still have their records.** Since November 2026 some tenants' audit searches
@@ -23,7 +31,23 @@ Since 3.0.1. Not released yet.
 ### Added
 - **Audit search settings for the nightly run.** `AuditSearchTimeoutMinutes` (how long a search may run before it
   is submitted again, 240 by default) and `AuditSearchesInFlight` (8 by default) in the settings file reach every
-  Purview load. The loader takes `-QueryTimeoutMinutes`.
+  Purview load. The loader takes `-QueryTimeoutMinutes`. A value out of range (30 to 1440 minutes; 1 to 40 searches)
+  stops the run at its start and names the setting, rather than failing the load's parameters. docs\OPERATIONS.md,
+  *The pipeline*.
+
+### Changed
+- **An adversarial review of 3.0.2** found five issues, fixed before release with tests:
+  - a search Microsoft marked failed that reported records but then refused to serve them (HTTP 400 or 403) stopped
+    the whole load as a fatal error; such a window is now searched again, as a failed search was before;
+  - a window loaded from a failed search left no trace once loaded; its `LastError` now keeps
+    `loaded from a search Microsoft marked failed: ~N records reported, M loaded`, and the log warns when under 90% of
+    the reported records loaded, with how to load those hours again (RUNBOOK section 8);
+  - the log said *treating it as complete* for a failed search over the record cap, which is in fact split;
+  - the two search settings were not described outside the runbook, and a value out of range failed the load with a
+    parameter error that did not name the setting;
+  - a test of the history run's steps (`tests\Test-Provisioning.ps1`) had been joined to the line before it and no
+    longer ran.
+
 ## [3.0.1] - 2026-11-02
 
 The rest of the 3.0.0 plan: one rule set for Copilot seats, Copilot Credits charged to the Workbench's lines of

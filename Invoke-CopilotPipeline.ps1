@@ -182,8 +182,17 @@ function Get-PipelineStep {
         # Every Purview audit search load takes the two search settings, where the settings file sets them:
         # AuditSearchTimeoutMinutes (how long a search may run before it is submitted again) and AuditSearchesInFlight.
         if ($script -eq 'Invoke-CopilotAuditBackfill.ps1') {
-            if (Has 'AuditSearchTimeoutMinutes') { $argsTable.QueryTimeoutMinutes = [int] $Setting.AuditSearchTimeoutMinutes }
-            if (Has 'AuditSearchesInFlight') { $argsTable.MaxQueriesInFlight = [int] $Setting.AuditSearchesInFlight }
+            # Checked here, so a value out of range names its setting rather than failing the load's parameter binding.
+            if (Has 'AuditSearchTimeoutMinutes') {
+                $v = [int] $Setting.AuditSearchTimeoutMinutes
+                if ($v -lt 30 -or $v -gt 1440) { throw "AuditSearchTimeoutMinutes in the settings file is $v; it must be 30 to 1440 minutes." }
+                $argsTable.QueryTimeoutMinutes = $v
+            }
+            if (Has 'AuditSearchesInFlight') {
+                $v = [int] $Setting.AuditSearchesInFlight
+                if ($v -lt 1 -or $v -gt 40) { throw "AuditSearchesInFlight in the settings file is $v; it must be 1 to 40." }
+                $argsTable.MaxQueriesInFlight = $v
+            }
         }
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
