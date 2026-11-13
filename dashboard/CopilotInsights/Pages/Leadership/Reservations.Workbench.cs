@@ -45,7 +45,8 @@ public sealed partial class ReservationsModel
                 return;
             }
             v = await _seats.ReadAsync(_seats.Queries(whole)!, whole);
-            links = WorkbenchSeats.Links(person, whole);
+            /* A restricted viewer without a Workbench role sees the figures, with no links to pages they would be refused. */
+            links = Viewer.WorkbenchHidden ? SeatLinks.None : WorkbenchSeats.Links(person, whole);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

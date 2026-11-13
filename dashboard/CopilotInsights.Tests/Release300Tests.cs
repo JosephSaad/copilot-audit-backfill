@@ -147,8 +147,8 @@ public class Release300Tests
     public void The_role_checks_take_the_Workbench_roles_on_new_and_existing_databases()
     {
         var sql = Read("sql", "Create-CopilotDashboardSchema.sql");
-        Assert.Contains("definition NOT LIKE N'%GovernanceAuditor%'", sql);
-        Assert.Equal(2, Regex.Matches(sql, "DROP CONSTRAINT CK_Dash(RoleGrant|AccessProfileRole)_Role;\\s+ALTER TABLE dash\\.\\w+ ADD CONSTRAINT CK_Dash\\w+_Role CHECK \\(Role IN\\s+\\('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor'\\)\\);\\s+END;").Count);
+        Assert.Contains("definition NOT LIKE N'%Restricted%'", sql);
+        Assert.Equal(2, Regex.Matches(sql, "DROP CONSTRAINT CK_Dash(RoleGrant|AccessProfileRole)_Role;\\s+ALTER TABLE dash\\.\\w+ ADD CONSTRAINT CK_Dash\\w+_Role CHECK \\(Role IN\\s+\\('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'\\)\\);\\s+END;").Count);
     }
 
     [Fact]

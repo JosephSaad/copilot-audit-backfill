@@ -67,7 +67,7 @@ param(
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
     [string] $Principal,
-    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')][string] $Role,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Restricted')][string] $Role,
     [string] $Note,
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,

@@ -237,9 +237,11 @@ public class NavigationTests
     public void Every_page_is_listed_for_someone_holding_every_role()
     {
         var pages = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();
-        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(V(1, roles: Roles.All)).Count);
+        /* Every role that opens something: Restricted narrows instead (RestrictedRoleTests). */
+        var every = Roles.All.Where(r => r != Roles.Restricted).ToArray();
+        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(V(1, roles: every)).Count);
         /* With several tenants, the group overview too. */
-        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: Roles.All), manyTenants: true).SelectMany(g => g.Pages).Count());
+        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: every), manyTenants: true).SelectMany(g => g.Pages).Count());
     }
 }
 

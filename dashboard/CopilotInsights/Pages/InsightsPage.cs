@@ -380,6 +380,9 @@ IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
         else if (!Nav.SectionOpen(Request.Path, Viewer, HiddenReports) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
+        else if (Nav.RestrictedOut(Request.Path, Viewer) is { } cut)
+            Denied = $"Your access is restricted to Start, Leadership and the sections your roles open, so {cut.Persona} pages are not shown to you." +
+                     (Viewer.CanSeeAll ? " You can choose See all reports at the top of the menu." : " An administrator can change it in Admin › Access.");
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
@@ -633,7 +636,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
                 {
                     /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
                     listed = true;
-                    if ((g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                    if (Nav.GroupOpen(g, Viewer) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
                 }
         return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }
