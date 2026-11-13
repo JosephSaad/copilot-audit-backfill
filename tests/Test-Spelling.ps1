@@ -20,8 +20,9 @@ $british = '(?i)\b\w*(licence|organis|honour|recognis|catalogu|colour|behaviour|
 $allowed = @('aria-labelledby', 'status == "cancelled"')
 $text = '\.(cs|cshtml|ps1|psd1|psm1|sql|md|py|json|tmdl|pbir|pbism|yml|css|js|html|txt|csproj)$'
 
+# Breakthis.txt is a copy of the files changed from 3.0.1 to 3.0.3, kept for review: the whole CHANGELOG is in it.
 $files = Get-ChildItem -LiteralPath $root -Recurse -File |
-    Where-Object { $_.FullName -notmatch '[\\/](\.git|bin|obj|node_modules|Modules|out|ui-audit|edge-audit)[\\/]' -and $_.Name -match $text -and $_.Name -ne 'Test-Spelling.ps1' }
+    Where-Object { $_.FullName -notmatch '[\\/](\.git|bin|obj|node_modules|Modules|out|ui-audit|edge-audit)[\\/]' -and $_.Name -match $text -and $_.Name -ne 'Test-Spelling.ps1' -and $_.Name -ne 'Breakthis.txt' }
 
 $found = [System.Collections.Generic.List[string]]::new()
 foreach ($f in $files) {
