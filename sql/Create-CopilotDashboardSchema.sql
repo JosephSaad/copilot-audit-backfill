@@ -294,7 +294,7 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         Principal     NVARCHAR(256)   NOT NULL,   -- a UPN, or DOMAIN\Group
         PrincipalType VARCHAR(8)      NOT NULL CONSTRAINT CK_DashRoleGrant_Type CHECK (PrincipalType IN ('User', 'Group')),
         Role          VARCHAR(32)     NOT NULL CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted')),
+                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections')),
         Note          NVARCHAR(400)   NULL,
         GrantedBy     NVARCHAR(256)   NOT NULL,
         GrantedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashRoleGrant_Granted DEFAULT (SYSUTCDATETIME()),
@@ -318,14 +318,15 @@ BEGIN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
 END;
 
-/* The Governance Workbench's three page roles (Governance, GovernanceOperator, GovernanceAuditor) join the eight, and
-   Restricted, the role that narrows what its holder sees, joins them: a database whose check lacks any of them has it
-   widened. Nothing already granted changes. */
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%Restricted%')
+/* The Governance Workbench's three page roles (Governance, GovernanceOperator, GovernanceAuditor) join the eight; then
+   Restricted, a role that was withdrawn before use (accepted, never read); then Sections, a grant of the menu sections
+   it names (the Sections column below). A database whose check lacks any of them has it widened. Nothing already
+   granted changes. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%''Sections''%')
 BEGIN
     ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections'));
 END;
 
 /* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
@@ -337,6 +338,13 @@ IF COL_LENGTH(N'dash.RoleGrant', N'PrincipalName') IS NULL ALTER TABLE dash.Role
    widens nothing else: other sections, the minimum group size and privacy mode apply as before. 0 on every grant before. */
 IF COL_LENGTH(N'dash.RoleGrant', N'OrgWide') IS NULL
     ALTER TABLE dash.RoleGrant ADD OrgWide BIT NOT NULL CONSTRAINT DF_DashRoleGrant_OrgWide DEFAULT (0);
+/* A Sections grant (Role 'Sections') names the menu sections it opens, comma-separated keys (leadership,licensing,
+   wb-ownership), and whether the lists that name people show in them; OrgWide, held with it, shows those sections for
+   the whole organization. Every section needs a grant that opens it: a section no grant opens is not in the person's
+   menu and its pages are refused. NULL and 0 on every other grant. */
+IF COL_LENGTH(N'dash.RoleGrant', N'Sections') IS NULL ALTER TABLE dash.RoleGrant ADD Sections NVARCHAR(1000) NULL;
+IF COL_LENGTH(N'dash.RoleGrant', N'NamedPeople') IS NULL
+    ALTER TABLE dash.RoleGrant ADD NamedPeople BIT NOT NULL CONSTRAINT DF_DashRoleGrant_NamedPeople DEFAULT (0);
 
 /* Access profiles: a named bundle of roles (each with or without the whole organization) and Admin pages, granted
    to people and groups as one. Changing a profile changes it for everyone who holds it. Grants role by role keep working. */
@@ -358,17 +366,21 @@ IF OBJECT_ID(N'dash.AccessProfileRole', N'U') IS NULL
     (
         ProfileId   INT             NOT NULL CONSTRAINT FK_DashAccessProfileRole_Profile REFERENCES dash.AccessProfile (ProfileId) ON DELETE CASCADE,
         Role        VARCHAR(32)     NOT NULL CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
-                        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted')),
+                        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections')),
         OrgWide     BIT             NOT NULL CONSTRAINT DF_DashAccessProfileRole_OrgWide DEFAULT (0),
         Pages       NVARCHAR(1000)  NULL,       -- for Admin: the Admin pages, as on dash.RoleGrant; NULL is every page
         CONSTRAINT PK_DashAccessProfileRole PRIMARY KEY (ProfileId, Role)
     );
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%Restricted%')
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%''Sections''%')
 BEGIN
     ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
     ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
-        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'));
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections'));
 END;
+/* A profile's Sections row names its sections and whether the named lists show, as a Sections grant does. */
+IF COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL ALTER TABLE dash.AccessProfileRole ADD Sections NVARCHAR(1000) NULL;
+IF COL_LENGTH(N'dash.AccessProfileRole', N'NamedPeople') IS NULL
+    ALTER TABLE dash.AccessProfileRole ADD NamedPeople BIT NOT NULL CONSTRAINT DF_DashAccessProfileRole_NamedPeople DEFAULT (0);
 IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NULL
     CREATE TABLE dash.ProfileGrant
     (

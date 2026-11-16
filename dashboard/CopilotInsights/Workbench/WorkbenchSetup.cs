@@ -54,6 +54,8 @@ public static class WorkbenchSetup
             o.AddPolicy(Policies.Admin, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Admin)));
             o.AddPolicy(Policies.PlatformGovernance, b => b.RequireAuthenticatedUser().AddRequirements(new PlatformGovernanceRequirement()));
             o.AddPolicy(Policies.Auditor, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Auditor, AppRoles.Central)));
+            o.AddPolicy(Policies.Ownership, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.User, AppRoles.Central, AppRoles.Admin)));
+            o.AddPolicy(Policies.Registry, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Registry, AppRoles.Central, AppRoles.Admin)));
         });
         services.Configure<RazorPagesOptions>(o =>
         {
@@ -64,6 +66,12 @@ public static class WorkbenchSetup
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Operations", Policies.Central);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Queues", Policies.Central);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Reports", Policies.Auditor);
+            /* The two everyday sections, each granted in Admin › Access like every other section. */
+            foreach (var page in new[] { "Start", "MyWork", "Me", "Recertification", "Exceptions", "Retirement", "Evidence" })
+                o.Conventions.AuthorizePage($"{PagesFolder}/{page}", Policies.Ownership);
+            o.Conventions.AuthorizeFolder($"{PagesFolder}/Requests", Policies.Ownership);
+            o.Conventions.AuthorizeFolder($"{PagesFolder}/Events", Policies.Ownership);
+            o.Conventions.AuthorizeFolder($"{PagesFolder}/Registry", Policies.Registry);
         });
         services.AddRateLimiter(o =>
         {

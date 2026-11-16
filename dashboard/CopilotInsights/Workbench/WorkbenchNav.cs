@@ -81,7 +81,7 @@ public static class WorkbenchNav
             var groups = me.IsAuthenticated ? For(me, on) : For(new WebPrincipal
             {
                 IsAuthenticated = true,
-                AppRoles = PrincipalLoader.PageRoles((await ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.ViewerService>().GetAsync()).Roles),
+                AppRoles = await PageRolesAsync(ctx),
             }, on);
             cache.Set(key, groups, TimeSpan.FromMinutes(2));
             return groups;
@@ -94,6 +94,13 @@ public static class WorkbenchNav
         }
     }
 
+    /// <summary>The Workbench page roles the signed-in person's Insights grants give, roles and sections.</summary>
+    static async Task<HashSet<string>> PageRolesAsync(HttpContext ctx)
+    {
+        var viewer = await ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.ViewerService>().GetAsync();
+        return PrincipalLoader.PageRoles(viewer.Roles, viewer.SectionKeys);
+    }
+
     /// <summary>The Workbench sections this person may open: none when the Workbench is off or they could not be loaded.</summary>
     public static IReadOnlyList<NavGroup> For(WebPrincipal? me, bool on)
     {
@@ -104,13 +111,13 @@ public static class WorkbenchNav
         var settings = isAdmin || me.HasCentral(Roles.PlatformOwner, Roles.Steering);
         var auditor = me.AppRoles.Contains(AppRoles.Auditor) || me.AppRoles.Contains(AppRoles.Central);
 
-        var groups = new List<NavGroup>
-        {
-            new("Ownership and approvals", "Everyone: requests, approvals and the workloads you own", [
+        /* The two everyday sections need a grant that opens them (Admin › Access), or a central role or Admin. */
+        var groups = new List<NavGroup>();
+        if (me.SeesOwnership)
+            groups.Add(new("Ownership and approvals", "Requests, approvals and the workloads you own", [
                 new("Start", $"{P}/Start"), new("My work", $"{P}/MyWork"), new("Requests", $"{P}/Requests"),
                 new("Report a consumption problem", $"{P}/Events/Report"), new("Recertification", $"{P}/Recertification"),
-                new("Exceptions", $"{P}/Exceptions"), new("Retirement", $"{P}/Retirement"), new("Your Workbench roles", $"{P}/Me")]),
-        };
+                new("Exceptions", $"{P}/Exceptions"), new("Retirement", $"{P}/Retirement"), new("Your Workbench roles", $"{P}/Me")]));
         if (central)
             groups.Add(new("Approval queues", "Intake, specialists and decision makers", [
                 new("Intake", $"{P}/Queues/Intake"), new("Classification", $"{P}/Queues/Classification"), new("Specialist reviews", $"{P}/Queues/Reviews"),
@@ -126,7 +133,7 @@ public static class WorkbenchNav
             registry.Add(new("Commercial", $"{P}/Registry/Commercial"));
             registry.Add(new("Discovery", $"{P}/Registry/Discovery"));
         }
-        groups.Add(new("Ownership registry", "Funding owners, workloads, seats and the service catalog", registry));
+        if (me.SeesRegistry) groups.Add(new("Ownership registry", "Funding owners, workloads, seats and the service catalog", registry));
 
         var ops = new List<NavPage>();
         if (central)

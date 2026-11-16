@@ -18,7 +18,7 @@ public class SeatsModel(SeatQueries seats) : GovPage
     public IReadOnlyList<SeatHolderRow> Unattributed { get; private set; } = Array.Empty<SeatHolderRow>();
     public bool SeesAll => SeatAccess.SeesAll(Principal);
 
-    public static bool CanOpen(Governance.Web.Infrastructure.WebPrincipal p) => SeatAccess.SeesAll(p) || p.FundingOwnersWith(SeatAccess.View).Any();
+    public static bool CanOpen(Governance.Web.Infrastructure.WebPrincipal p) => p.SeesRegistry && (SeatAccess.SeesAll(p) || p.FundingOwnersWith(SeatAccess.View).Any());
 
     public async Task<IActionResult> OnGetAsync()
     {

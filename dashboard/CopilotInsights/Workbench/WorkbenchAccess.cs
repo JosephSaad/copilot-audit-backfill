@@ -14,7 +14,9 @@ public static class WorkbenchAccess
     /// <summary>What each Workbench page role opens, in plain words.</summary>
     public static IReadOnlyList<string> PagesOpened(IReadOnlySet<string> pageRoles)
     {
-        var list = new List<string> { "their own requests, approvals and workloads, and the registry they may see (everyone)" };
+        var list = new List<string>();
+        if (pageRoles.Contains(AppRoles.User) || pageRoles.Contains(AppRoles.Central) || pageRoles.Contains(AppRoles.Admin)) list.Add("Ownership and approvals: their own requests, approvals and workloads");
+        if (pageRoles.Contains(AppRoles.Registry) || pageRoles.Contains(AppRoles.Central) || pageRoles.Contains(AppRoles.Admin)) list.Add("Ownership registry: the parts of it they may see");
         if (pageRoles.Contains(AppRoles.Central)) list.Add("the approval queues, the whole registry, consumption events and findings");
         if (pageRoles.Contains(AppRoles.Operator)) list.Add("sync and freshness, and attestations");
         if (pageRoles.Contains(AppRoles.Auditor) || pageRoles.Contains(AppRoles.Central)) list.Add("the Workbench's reports and audit trail");
@@ -22,11 +24,11 @@ public static class WorkbenchAccess
         return list;
     }
 
-    public static async Task<string> DescribeAsync(IServiceProvider services, string upn, IReadOnlySet<string> insightsRoles, CancellationToken ct)
+    public static async Task<string> DescribeAsync(IServiceProvider services, string upn, IReadOnlySet<string> insightsRoles, CancellationToken ct, IReadOnlySet<string>? sections = null)
     {
         static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
-        var pages = PagesOpened(PrincipalLoader.PageRoles(insightsRoles));
-        var html = $"<p>Governance Workbench pages: {E(string.Join("; ", pages))}.</p>";
+        var pages = PagesOpened(PrincipalLoader.PageRoles(insightsRoles, sections));
+        var html = $"<p>Governance Workbench pages: {(pages.Count == 0 ? "none" : E(string.Join("; ", pages)))}.</p>";
         try
         {
             await using var c = await services.GetRequiredService<Db>().OpenAsync(0, true, ct);

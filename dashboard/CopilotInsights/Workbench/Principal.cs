@@ -17,6 +17,10 @@ public static class Policies
     public const string Admin = "Admin";
     public const string PlatformGovernance = "PlatformGovernance";
     public const string Auditor = "Auditor";
+    /// <summary>The Ownership and approvals pages: the section granted, or a central role or Admin.</summary>
+    public const string Ownership = "Ownership";
+    /// <summary>The Ownership registry's pages: the section granted, or a central role or Admin.</summary>
+    public const string Registry = "Registry";
 }
 
 /// <summary>The person acting in this request, loaded once by <see cref="PrincipalMiddleware"/>.</summary>
@@ -41,6 +45,10 @@ public sealed class WebPrincipal : ICurrentPrincipal
     /// <summary>Development only: the signed-in person (not a persona) is an Insights administrator and may act as a test persona.</summary>
     public bool CanActAs { get; set; }
     public bool HasCentral(params string[] roles) => roles.Any(r => Roles.Any(g => g.RoleCode == r));
+    /// <summary>Opens the Ownership and approvals pages (the section granted in Copilot Insights, or a central role or Admin).</summary>
+    public bool SeesOwnership => AppRoles.Contains(Governance.Domain.AppRoles.User) || AppRoles.Contains(Governance.Domain.AppRoles.Central) || AppRoles.Contains(Governance.Domain.AppRoles.Admin);
+    /// <summary>Opens the Ownership registry's pages (the section granted in Copilot Insights, or a central role or Admin).</summary>
+    public bool SeesRegistry => AppRoles.Contains(Governance.Domain.AppRoles.Registry) || AppRoles.Contains(Governance.Domain.AppRoles.Central) || AppRoles.Contains(Governance.Domain.AppRoles.Admin);
 }
 
 /// <summary>
@@ -52,11 +60,18 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
 {
     public const string ActAsCookie = "cgw.actas";
 
-    /// <summary>The Workbench page roles a set of Insights roles gives. Pure, for the tests.</summary>
-    public static HashSet<string> PageRoles(IReadOnlySet<string> insightsRoles)
+    /// <summary>
+    /// The Workbench page roles a person's Insights grants give. Pure, for the tests. The two everyday sections need a
+    /// grant that opens them (Ownership and approvals, Ownership registry), as every section does; the Governance and
+    /// Governance operator roles and Admin open both, since their work runs through them.
+    /// </summary>
+    public static HashSet<string> PageRoles(IReadOnlySet<string> insightsRoles, IReadOnlySet<string>? sections = null)
     {
         bool Has(string r) => insightsRoles.Contains(r);
-        var set = new HashSet<string> { AppRoles.User };
+        var set = new HashSet<string>();
+        var central = Has(InsightsRoles.Governance) || Has(InsightsRoles.GovernanceOperator) || Has(InsightsRoles.Admin);
+        if (central || sections?.Contains(CopilotInsights.Infrastructure.Sections.WorkbenchOwnership) == true) set.Add(AppRoles.User);
+        if (central || sections?.Contains(CopilotInsights.Infrastructure.Sections.WorkbenchRegistry) == true) set.Add(AppRoles.Registry);
         if (Has(InsightsRoles.Governance) || Has(InsightsRoles.GovernanceOperator)) set.Add(AppRoles.Central);
         if (Has(InsightsRoles.GovernanceOperator)) set.Add(AppRoles.Operator);
         if (Has(InsightsRoles.GovernanceAuditor)) set.Add(AppRoles.Auditor);
@@ -87,7 +102,7 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
         if (!person.AccountEnabled) { log.LogWarning("Disabled account {PersonId} signed in", person.PersonId); return; }
 
         var real = person;
-        var realAppRoles = PageRoles(viewer.Roles);
+        var realAppRoles = PageRoles(viewer.Roles, viewer.SectionKeys);
         // Development-only persona switch, for a signed-in administrator only.
         p.CanActAs = testing.AllowActAs && realAppRoles.Contains(AppRoles.Admin);
 
@@ -156,7 +171,7 @@ public sealed class PrincipalLoader(Db db, ViewerService viewers, TestingOptions
     /// <summary>A test persona's page roles, from its Workbench roles (Development "act as" only).</summary>
     public static HashSet<string> DeriveAppRoles(IReadOnlySet<string> sqlRoles)
     {
-        var set = new HashSet<string> { AppRoles.User };
+        var set = new HashSet<string> { AppRoles.User, AppRoles.Registry };
         if (sqlRoles.Any(r => r is Governance.Domain.Roles.PlatformOwner or Governance.Domain.Roles.IntakeAnalyst or Governance.Domain.Roles.PlatformOperator or Governance.Domain.Roles.Architect
                 or Governance.Domain.Roles.RiskReviewer or Governance.Domain.Roles.FinOpsLead or Governance.Domain.Roles.FinOpsAnalyst or Governance.Domain.Roles.CommercialApprover
                 or Governance.Domain.Roles.SourcingAgent or Governance.Domain.Roles.LicensingOwner or Governance.Domain.Roles.ReportingTeam or Governance.Domain.Roles.Steering))

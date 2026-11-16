@@ -19,7 +19,13 @@ public static class Roles
 
     public static readonly string[] Workbench = [Governance, GovernanceOperator, GovernanceAuditor];
 
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor];
+    /// <summary>
+    /// A grant of menu sections (see <see cref="Infrastructure.Sections"/>): the sections ticked, whole organization or the
+    /// holder's own part, and whether the lists that name people show in them. Held, it lets its holder in at any level.
+    /// </summary>
+    public const string Sections = "Sections";
+
+    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Sections];
 
     public static bool IsWorkbench(string role) => Workbench.Contains(role, StringComparer.OrdinalIgnoreCase);
 
@@ -36,6 +42,7 @@ public static class Roles
         [Governance] = "The Governance Workbench's central pages: the queues, the whole registry, consumption events and findings, and its reports. Shows no usage data.",
         [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
         [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
+        [Sections] = "The menu sections ticked on the grant, for the holder's own part of the organization or the whole of it, with or without the lists that name people.",
     };
 }
 
@@ -83,29 +90,90 @@ public sealed class Viewer
     /// </summary>
     public IReadOnlySet<string> OrgWideRoles { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Set on the viewer of one page whose section's role they hold across the whole organization.</summary>
+    /// <summary>
+    /// The menu sections their grants open, by key (<see cref="Infrastructure.Sections"/>): a Sections grant's ticked
+    /// sections, and each persona role's own. A section not here is not in their menu, and its pages are refused,
+    /// whatever their level.
+    /// </summary>
+    public IReadOnlySet<string> SectionKeys { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The sections they see across the whole organization (a grant with Whole organization), by key.</summary>
+    public IReadOnlySet<string> OrgWideSections { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a grant opens this section for them.</summary>
+    public bool Sees(string? section) => section is not null && SectionKeys.Contains(section);
+
+    /// <summary>Whether they see any section at all; with none, the start page says they have no access yet.</summary>
+    public bool SeesAny => SectionKeys.Count > 0;
+
+    /// <summary>Set on the viewer of one page whose section they hold across the whole organization.</summary>
     public bool WidenedForSection { get; private set; }
 
     /// <summary>
-    /// This viewer as the page reached through <paramref name="role"/>'s section sees them: across the whole organization
-    /// when they hold that role so; otherwise as they are. An Agents grant across the organization widens the Agents pages
-    /// only, never Leadership or another persona's.
+    /// This viewer as the page reached through <paramref name="section"/> sees them: across the whole organization when a
+    /// grant gives them that section so; otherwise as they are. Agents across the organization widens the Agents pages
+    /// only, never Leadership or another section's.
     /// </summary>
-    public Viewer ForSection(string? role)
+    public Viewer ForSection(string? section)
     {
-        if (role is null || OrgWide || !OrgWideRoles.Contains(role) || !Roles.Contains(role)) return this;
+        if (section is null || OrgWide || !OrgWideSections.Contains(section) || !Sees(section)) return this;
         var v = (Viewer)MemberwiseClone();
         v.WidenedForSection = true;
         return v;
     }
 }
 
-/// <summary>The security model's two decisions, kept pure so they can be tested on their own.</summary>
+/// <summary>
+/// What a person's grants give: their roles; the Admin pages of a limited Admin grant; the persona roles held across the
+/// whole organization; the menu sections opened, and those across the whole organization.
+/// </summary>
+public sealed record GrantedAccess(HashSet<string> Roles, HashSet<string> Paths, HashSet<string> OrgWideRoles, HashSet<string> Sections, HashSet<string> OrgWideSections);
+
+/// <summary>The security model's decisions, kept pure so they can be tested on their own.</summary>
 public static class AccessRules
 {
+    /// <summary>
+    /// What the grants that reach a person give them. A limited Admin grant adds its pages and not the Admin role (one
+    /// with no pages named is the whole role, whatever the others say). A Sections grant opens its sections, across the
+    /// whole organization when it says so, and with named people adds the roles their named lists need. A persona role
+    /// (granted before 3.1.0) opens its own section with its named lists, as it did. Organization opens no section: it
+    /// shows whatever sections are open for the whole organization.
+    /// </summary>
+    public static GrantedAccess Resolve(IEnumerable<ViewerService.GrantRow> grants)
+    {
+        var a = new GrantedAccess(new(StringComparer.OrdinalIgnoreCase), new(StringComparer.OrdinalIgnoreCase), new(StringComparer.OrdinalIgnoreCase),
+                                  new(StringComparer.OrdinalIgnoreCase), new(StringComparer.OrdinalIgnoreCase));
+        foreach (var g in grants)
+        {
+            if (string.Equals(g.Role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && CopilotInsights.Data.AdminPages.Limits(g.Pages))
+                a.Paths.UnionWith(CopilotInsights.Data.AdminPages.Parse(g.Pages));
+            else if (string.Equals(g.Role, Roles.Sections, StringComparison.OrdinalIgnoreCase))
+            {
+                var keys = Sections.Parse(g.Sections);
+                if (keys.Count == 0) continue;
+                a.Roles.Add(Roles.Sections);
+                a.Sections.UnionWith(keys);
+                if (g.OrgWide) a.OrgWideSections.UnionWith(keys);
+                if (g.NamedPeople) a.Roles.UnionWith(Sections.NamedRoles(keys));
+                continue;
+            }
+            /* Restricted, withdrawn before use, is accepted by the database and gives nothing. */
+            else if (!string.Equals(g.Role, "Restricted", StringComparison.OrdinalIgnoreCase)) a.Roles.Add(g.Role);
+            var own = Sections.OfRole(Roles.All.FirstOrDefault(r => string.Equals(r, g.Role, StringComparison.OrdinalIgnoreCase)));
+            a.Sections.UnionWith(own);
+            if (g.OrgWide && IsPersona(g.Role))
+            {
+                a.OrgWideRoles.Add(g.Role);
+                a.OrgWideSections.UnionWith(own);
+            }
+        }
+        return a;
+    }
+
     /// <summary>A persona role, whose section "across the whole organization" can widen: not Admin, not Organization.</summary>
     public static bool IsPersona(string role) =>
         Roles.All.Contains(role, StringComparer.OrdinalIgnoreCase) && !Roles.IsWorkbench(role)
+        && !string.Equals(role, Roles.Sections, StringComparison.OrdinalIgnoreCase)
         && !string.Equals(role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Roles.Organization, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Level 1 or 2 below the configured top, or granted Organization. Admin alone is not enough.</summary>
@@ -238,13 +306,15 @@ public sealed class ViewerService(
         var signInName = entra ? EntraClaims.SignInName(user) : user.Identity?.Name ?? "(anonymous)";
         var upn = entra ? await ResolveEntraUpnAsync(user, signInName) : await ResolveUpnAsync(user, signInName);
 
-        var (roles, paths, orgWide) = await RolesForAsync(upn, signInName, user, entra);
-        if (IsBootstrapAdmin(upn, signInName, user) || entra && EntraClaims.HasAppRole(user, _o.Entra.BootstrapAdminRole)) roles.Add(Roles.Admin);
-        return await BuildAsync(signInName, upn, roles, paths, orgWide, entra ? SignIn.Entra : SignIn.Windows);
+        var access = await RolesForAsync(upn, signInName, user, entra);
+        if (IsBootstrapAdmin(upn, signInName, user) || entra && EntraClaims.HasAppRole(user, _o.Entra.BootstrapAdminRole)) access.Roles.Add(Roles.Admin);
+        return await BuildAsync(signInName, upn, access, entra ? SignIn.Entra : SignIn.Windows);
     }
 
-    async Task<Viewer> BuildAsync(string signInName, string? upn, HashSet<string> roles, HashSet<string> paths, HashSet<string> orgWide, string signedInWith)
+    async Task<Viewer> BuildAsync(string signInName, string? upn, GrantedAccess access, string signedInWith)
     {
+        var roles = access.Roles;
+        var paths = access.Paths;
         PersonRow? p = null;
         if (upn is not null)
             p = (await db.QueryAsync<PersonRow>(
@@ -256,7 +326,8 @@ public sealed class ViewerService(
             InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles,
             MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
             AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths,
-            OrgWideRoles = orgWide, SignedInWith = signedInWith,
+            OrgWideRoles = access.OrgWideRoles, SignedInWith = signedInWith,
+            SectionKeys = access.Sections, OrgWideSections = access.OrgWideSections,
         };
     }
 
@@ -265,47 +336,41 @@ public sealed class ViewerService(
         public int? LevelInt => Level;
     }
 
-    /// <summary>One grant as it reaches a viewer: a role given directly, or one of an access profile's.</summary>
-    public sealed record GrantRow(string Principal, string PrincipalType, string Role, string? Pages, bool OrgWide, int? ProfileId);
+    /// <summary>
+    /// One grant as it reaches a viewer: a role given directly, or one of an access profile's. A Sections grant names its
+    /// sections and whether the lists that name people show in them.
+    /// </summary>
+    public sealed record GrantRow(string Principal, string PrincipalType, string Role, string? Pages, bool OrgWide, int? ProfileId, string? Sections = null, bool NamedPeople = false);
 
     /// <summary>
     /// Every grant, the role-by-role ones and each access profile's roles, with the columns a database from before them
-    /// lacks given as they were: no pages (the whole Admin role), not across the organization, no profile.
+    /// lacks given as they were: no pages (the whole Admin role), not across the organization, no profile, no sections.
     /// </summary>
     public static Task<List<GrantRow>> GrantsAsync(Db db) => db.QueryAsync<GrantRow>(@"
 DECLARE @pages NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000))' ELSE N'Pages' END;
 DECLARE @org NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'OrgWide') IS NULL THEN N'CAST(0 AS BIT)' ELSE N'OrgWide' END;
-DECLARE @sql NVARCHAR(MAX) = N'SELECT Principal, PrincipalType, Role, ' + @pages + N' AS Pages, ' + @org + N' AS OrgWide, CAST(NULL AS INT) AS ProfileId FROM dash.RoleGrant';
+DECLARE @sec NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Sections') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000))' ELSE N'Sections' END;
+DECLARE @named NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'NamedPeople') IS NULL THEN N'CAST(0 AS BIT)' ELSE N'NamedPeople' END;
+DECLARE @psec NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000))' ELSE N'r.Sections' END;
+DECLARE @pnamed NVARCHAR(60) = CASE WHEN COL_LENGTH(N'dash.AccessProfileRole', N'NamedPeople') IS NULL THEN N'CAST(0 AS BIT)' ELSE N'r.NamedPeople' END;
+DECLARE @sql NVARCHAR(MAX) = N'SELECT Principal, PrincipalType, Role, ' + @pages + N' AS Pages, ' + @org + N' AS OrgWide, CAST(NULL AS INT) AS ProfileId, '
+    + @sec + N' AS Sections, ' + @named + N' AS NamedPeople FROM dash.RoleGrant';
 IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NOT NULL
-    SET @sql += N' UNION ALL SELECT g.Principal, g.PrincipalType, r.Role, r.Pages, r.OrgWide, g.ProfileId
+    SET @sql += N' UNION ALL SELECT g.Principal, g.PrincipalType, r.Role, r.Pages, r.OrgWide, g.ProfileId, ' + @psec + N', ' + @pnamed + N'
                    FROM dash.ProfileGrant AS g JOIN dash.AccessProfileRole AS r ON r.ProfileId = g.ProfileId';
 EXEC sys.sp_executesql @sql;");
 
     /// <summary>
-    /// The roles granted to the account, its UPN or its groups, directly or through an access profile; the Admin pages
-    /// of every Admin grant among them that is limited to some (such a grant adds its pages and not the Admin role; a
-    /// grant with no pages named is the whole role, whatever the others say); and the persona roles held across the
-    /// whole organization.
+    /// The roles granted to the account, its UPN or its groups, directly or through an access profile, and what they
+    /// open (<see cref="AccessRules.Resolve"/>).
     /// </summary>
-    async Task<(HashSet<string> Roles, HashSet<string> Paths, HashSet<string> OrgWide)> RolesForAsync(string? upn, string signInName, ClaimsPrincipal user, bool entra)
+    async Task<GrantedAccess> RolesForAsync(string? upn, string signInName, ClaimsPrincipal user, bool entra)
     {
         var grants = await GrantsAsync(db);
         var held = await GroupsHeldAsync(grants, upn, user, entra);
-        var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var orgWide = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var g in grants)
-        {
-            /* Whatever the grant says it is: a DOMAIN\name recorded as a user may be a group, and the other way round. */
-            var hit = Same(g.Principal, upn) || Same(g.Principal, signInName) || held.Contains(g.Principal)
-                      || (!entra && IsInGroup(user, g.Principal));
-            if (!hit) continue;
-            if (string.Equals(g.Role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && CopilotInsights.Data.AdminPages.Limits(g.Pages))
-                paths.UnionWith(CopilotInsights.Data.AdminPages.Parse(g.Pages));
-            else roles.Add(g.Role);
-            if (g.OrgWide && AccessRules.IsPersona(g.Role)) orgWide.Add(g.Role);
-        }
-        return (roles, paths, orgWide);
+        /* Whatever the grant says it is: a DOMAIN\name recorded as a user may be a group, and the other way round. */
+        return AccessRules.Resolve(grants.Where(g => Same(g.Principal, upn) || Same(g.Principal, signInName) || held.Contains(g.Principal)
+                                                    || (!entra && IsInGroup(user, g.Principal))));
     }
 
     /// <summary>

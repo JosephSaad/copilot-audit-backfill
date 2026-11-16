@@ -420,17 +420,16 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     });
 
     /// <summary>
-    /// The role a digest's figures need: that of the section it shows, as on the section's pages; none for
-    /// Leadership and Value, whose pages need none.
+    /// The section a digest's figures belong to, as on its pages: Leadership and Value are Leadership's.
     /// </summary>
-    public static string? DigestRole(string report) => report switch
+    public static string DigestSection(string report) => report switch
     {
-        "Adoption" => Roles.Adoption, "Licensing" => Roles.Licensing, "Security" => Roles.Security, _ => null,
+        "Adoption" => Sections.Adoption, "Licensing" => Sections.Licensing, "Security" => Sections.Security, _ => Sections.Leadership,
     };
 
     /// <summary>Why this administrator may not preview or send this digest now, or null.</summary>
-    string? DigestRefusal(string report) => DigestRole(report) is { } role && !Viewer.Has(role)
-        ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin › Access."
+    string? DigestRefusal(string report) => DigestSection(report) is var section && !Viewer.Sees(section)
+        ? $"the {report} digest shows the {Sections.NameOf(section)} section, which is not granted to you. An administrator can grant it in Admin › Access."
         : null;
 
     public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(false, async () =>

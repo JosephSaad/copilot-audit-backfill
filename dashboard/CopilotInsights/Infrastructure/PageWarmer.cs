@@ -133,6 +133,8 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         {
             WindowsName = "(warm-up)", Upn = null, DisplayName = "Warm-up", Level = 1, InDirectory = true, PeopleBelow = 0,
             Roles = new HashSet<string>(Roles.All.Where(r => r != Roles.Admin), StringComparer.OrdinalIgnoreCase),
+            /* Every section: the warm-up builds every report. */
+            SectionKeys = new HashSet<string>(Sections.Keys, StringComparer.OrdinalIgnoreCase),
         };
         List<(CompiledPageActionDescriptor Page, string Path)> pages;
         using (var s0 = scopes.CreateScope()) pages = await PagesAsync(s0.ServiceProvider);

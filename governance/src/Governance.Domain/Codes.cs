@@ -257,6 +257,8 @@ public static class Roles
 public static class AppRoles
 {
     public const string User = "Workbench.User";
+    /// <summary>The Ownership registry's pages (Copilot Insights grants the section, or a central role).</summary>
+    public const string Registry = "Workbench.Registry";
     public const string Central = "Workbench.Central";
     public const string Operator = "Workbench.Operator";
     public const string Admin = "Workbench.Admin";
