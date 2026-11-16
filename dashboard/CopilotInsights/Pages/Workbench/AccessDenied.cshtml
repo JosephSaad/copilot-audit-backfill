@@ -5,15 +5,18 @@
 }
 <div class="card">
     <h1>This page is not available to you</h1>
-    @if (ViewContext.HttpContext.Items.ContainsKey(Governance.Web.Infrastructure.PrincipalMiddleware.RestrictedKey))
-    {
-        <p>Your access is restricted to Start, Leadership and the sections your roles open, and the Workbench is not one of them. Start, in the menu, lists the reports you can open. An administrator can change it in Admin › Access.</p>
-        return;
-    }
     @if (!Model.Principal.IsAuthenticated)
     {
         <p>The Workbench knows people by the user principal name or Entra object ID the directory records, and has neither for your account yet. It is recorded at the next directory load; an administrator can also map your sign-in name to your UPN (Insights:IdentityMap).</p>
     }
-    <p>Your roles do not include this part of the Workbench. The central pages need the Governance, GovernanceOperator or GovernanceAuditor role, and the settings pages the Admin role: an administrator grants them in Admin › Access. Work for a line of business (approvals, seat admin) is given by its business owner or the Platform Owner. <a href="/workbench/Me">See the roles you hold.</a></p>
-    <p><a class="btn" href="/workbench/Start">Back to Start</a></p>
+    <p>Your access does not include this part of the Workbench. Ownership and approvals and the Ownership registry are sections an administrator grants in Admin › Access, as every section of the dashboard is; the central pages need the Governance, GovernanceOperator or GovernanceAuditor role, and the settings pages the Admin role. Work for a line of business (approvals, seat admin) is given by its business owner or the Platform Owner, and needs Ownership and approvals granted as well.</p>
+    @if (Model.Principal.SeesOwnership)
+    {
+        <p><a href="/workbench/Me">See the roles you hold.</a></p>
+        <p><a class="btn" href="/workbench/Start">Back to Start</a></p>
+    }
+    else
+    {
+        <p><a class="btn" href="~/">Back to Copilot Insights</a></p>
+    }
 </div>

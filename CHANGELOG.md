@@ -4,6 +4,77 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-11-16
+
+Every section of the menu now needs a grant. An administrator ticks the sections a person or group sees, laid out as
+the menu is, in Admin › Access; a section nobody granted them is gone from their menu and refused, whatever their level.
+Someone at level 7 with nothing granted sees nothing. The Restricted role of 3.0.3, never put to use, is withdrawn.
+
+**Install over 3.0.3, 3.0.2 or 3.0.1:** disable the nightly task, replace the scripts on the job server with this
+release's (keep `copilot-audit.settings.psd1` and `logs`), and run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard`
+once: it adds the Sections and NamedPeople columns to `dash.RoleGrant` and `dash.AccessProfileRole` and the value
+`Sections` to their role checks; nothing already granted changes. Enable the task again. Then deploy the dashboard
+(docs\BUILD-FROM-SOURCE.md, or `copilot-insights-v3.1.0.zip` with `dashboard\Install-CopilotInsights.ps1 -PackagePath`)
+on each web server; it keeps the site's settings. **From the moment it runs, Leadership, Regions, People, App owners,
+Governance and the Workbench's Ownership and approvals and Ownership registry show only to people granted them**: right
+after installing, open Admin › Access › *Who loses access*, and grant those sections to the groups that need them
+(executives Leadership, line-of-business approvers Ownership and approvals). The roles granted before keep their
+sections. The Workbench's worker has no change in behavior. From 3.0.1, the 3.0.2 notes below apply as well.
+
+### Changed
+- **Every section needs a grant.** Leadership, Adoption, Licensing, Security, Compliance, Agents, Enablement,
+  Forecasting, Regions, People, App owners, Governance, and with the Workbench on its Ownership and approvals and
+  Ownership registry: each shows only to someone a grant opens it to. Without one, the header is gone from the menu and
+  the start page, and its reports, files, data API calls and digests are refused, the top of the organization
+  included. Levels decide how much a granted section shows (levels 1 and 2 the whole organization, everyone else their
+  own part, unless the grant says the whole organization), never whether it shows. Before, Leadership, Regions,
+  People, App owners and Governance were open to everyone the dashboard let in, and anyone granted any role was let
+  in to them at any level.
+- **Admin › Access › Grant access,** in steps: who; a profile to start from; the sections they see, as boxes laid out
+  like the menu, each with an information icon naming its reports and its lists that name people; their own team or
+  the whole organization; the lists that name people; the other roles (Organization, Admin with its pages, the
+  Workbench's work roles). Granting sections again replaces the choice and the message says what it was; *Change*
+  beside a section grant opens it in the form. The persona roles (Adoption, Licensing, Security, Compliance, Agents,
+  Enablement) are no longer offered: those granted keep opening their own section with its named lists (Licensing:
+  Licensing and Forecasting).
+- **Check someone's access** lists every section: whether they see it, how much of the organization, its named lists,
+  and the grant, profile or group behind it.
+- **Access profiles** take the same section boxes. The starters are now Executive, Agent program lead, License
+  manager, Security reviewer, Champion and Dashboard operator, and with the Workbench on, Line-of-business owner.
+- **Organization** opens no section by itself: it shows every section the holder is granted for the whole organization.
+- **The Workbench's two everyday sections** need a grant, as every section does; the Governance and Governance operator
+  roles and Admin open both. Its refused-page message says so. Seat figures on Insights' pages open the Ownership
+  registry only for those who may open it.
+- **The data API** asks for the section of each call: `usage`, `units` and `value` are Leadership's, `targets`
+  Adoption's, `security` Security's, `license-pool` and `leavers` Licensing's, `license-actions` Forecasting's.
+- **Digests:** a digest needs its section granted to the administrator who sets it up, sends or previews it
+  (Leadership and Value: Leadership). The manager digest goes only to managers granted Leadership.
+- **The start page** says *No access yet* to someone with nothing granted, with the administrators' names, and the
+  start page and the "About these reports" panel mark the reports that name people as such (they named the role).
+- **The demo** grants its administrators every section.
+
+### Added
+- **Who loses access** (Admin › Access): section by section, the people who saw one before 3.1.0 and whom no grant opens
+  it to now, a list of them, and *Grant it to a group*, which opens the form with that section ticked. With the
+  Workbench on, the people with Workbench work (a RACI role, seat admin or a delegation) who lack Ownership and
+  approvals, whose task emails would open refused pages.
+- **`-Task GrantRole -Sections`** (`tools\Invoke-CopilotMaintenance.ps1`), with `-NamedPeople` and `-WholeOrganization`;
+  `-Task RevokeRole -Role Sections` removes them.
+- **Schema:** `dash.RoleGrant` and `dash.AccessProfileRole` gain `Sections` (nullable) and `NamedPeople` (default 0),
+  and their role checks take `Sections`. Nothing is dropped or narrowed.
+
+### Removed
+- **The Restricted role and See all reports (3.0.3),** never put to use: section grants do what it was for. The
+  database still accepts the value `Restricted`, and nothing reads it.
+
+### Known limits
+- Power BI is not narrowed by sections: its Organization role reads the database as before.
+- *Who loses access* and the manager digest read AD groups as the nightly directory load records them; *Who loses
+  access* does not count grants to Entra groups (sign-in checks them), so a member of one may be listed and keep the
+  section. The manager digest asks Microsoft Graph for Entra groups where it can.
+- **Licensing › Chargeback's *Charged to no group*** still opens Leavers with a different count, as in 2.7.7.
+- Not tested here: IIS, Entra sign-in with real groups, the Workbench with real approvers, the client's data.
+
 ## [3.0.3] - 2026-11-13
 
 A role for a group that should see only some sections, and See all reports for those of them who see the whole

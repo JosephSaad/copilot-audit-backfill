@@ -14,8 +14,16 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     /// <summary>How current the reports are: the last day with any Copilot use, and when the rollups last finished.</summary>
     public string? Freshness { get; private set; }
 
+    /// <summary>
+    /// Nothing granted: no section opens for them, whatever their level, and they hold no Admin page. The page says so
+    /// and names who can grant access, in place of the list of reports.
+    /// </summary>
+    public bool NoAccess { get; private set; }
+
     protected override async Task BuildAsync()
     {
+        NoAccess = !Viewer.SeesAny && !Viewer.AnyAdmin && !Viewer.Roles.Any(Roles.IsWorkbench);
+        if (NoAccess) Administrators = await AdministratorsAsync();
         OrgTop = Ctx.OrgTopUpn;
         try
         {
@@ -30,6 +38,7 @@ SELECT (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = (SELECT MAX(ud.Da
 
     public string AccessSummary =>
         !Viewer.Admitted ? LimitRefusal(Viewer)
+        : !Viewer.SeesAny ? "No section of the dashboard is granted to you yet."
         : Viewer.OrgWide
             ? Viewer.Has(Roles.Organization) ? "You see the whole organization (granted Organization)." : $"You see the whole organization (Level {Viewer.Level}, at or next to the top)."
             : !Viewer.InDirectory

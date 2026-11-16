@@ -315,9 +315,9 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// Who to ask, on a page that was refused: up to three people granted the Admin role by name, so "an
     /// administrator can grant it" names someone. Nobody is named in privacy mode, and a group grant names no one.
     /// </summary>
-    public IReadOnlyList<string> Administrators { get; private set; } = [];
+    public IReadOnlyList<string> Administrators { get; protected set; } = [];
 
-    async Task<IReadOnlyList<string>> AdministratorsAsync()
+    protected async Task<IReadOnlyList<string>> AdministratorsAsync()
     {
         if (PrivacyMode) return [];
         try
@@ -341,17 +341,29 @@ EXEC sys.sp_executesql @sql;");
     /// </summary>
     public IReadOnlyList<(string Name, string Url)> RequestAccess { get; private set; } = [];
 
-    async Task<IReadOnlyList<(string Name, string Url)>> RequestLinksAsync(string? role)
+    async Task<IReadOnlyList<(string Name, string Url)>> RequestLinksAsync(string? role, string? section = null)
     {
-        if (role is null) return [];
+        if (role is null && section is null) return [];
         try
         {
-            var rows = await Db.QueryAsync<(string Name, string Url, string? Pages)>(@"
+            /* A profile gives the page when it holds the role, or a Sections row that opens the section (with named
+               people, where the page names people). */
+            var rows = await Db.QueryAsync<(string Name, string Url, string Role, string? Pages, string? Sections, bool NamedPeople)>(@"
 IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
-    SELECT p.Name, p.RequestUrl, r.Pages FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId
-    WHERE r.Role = @role AND p.RequestUrl LIKE N'https://%' ORDER BY p.Name;", new { role });
-            return rows.Where(r => role != Roles.Admin || !CopilotInsights.Data.AdminPages.Limits(r.Pages) || CopilotInsights.Data.AdminPages.Parse(r.Pages).Contains(CopilotInsights.Data.AdminPages.Normalize(Request.Path)))
-                .Select(r => (r.Name, r.Url)).Take(3).ToList();
+BEGIN
+    DECLARE @sql NVARCHAR(MAX) = N'SELECT p.Name, p.RequestUrl, r.Role, r.Pages, '
+        + CASE WHEN COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000)), CAST(0 AS BIT)' ELSE N'r.Sections, r.NamedPeople' END + N'
+        FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId
+        WHERE p.RequestUrl LIKE N''https://%'' ORDER BY p.Name;';
+    EXEC sys.sp_executesql @sql;
+END");
+            bool Gives((string Name, string Url, string Role, string? Pages, string? Sections, bool NamedPeople) r) =>
+                string.Equals(r.Role, Roles.Sections, StringComparison.OrdinalIgnoreCase)
+                    ? section is not null && Sections.Parse(r.Sections).Contains(section) && (role is null || (r.NamedPeople && Sections.Find(section)?.NamedRole == role))
+                : string.Equals(r.Role, role, StringComparison.OrdinalIgnoreCase)
+                    ? role != Roles.Admin || !CopilotInsights.Data.AdminPages.Limits(r.Pages) || CopilotInsights.Data.AdminPages.Parse(r.Pages).Contains(CopilotInsights.Data.AdminPages.Normalize(Request.Path))
+                : role is null && section is not null && Sections.OfRole(r.Role).Contains(section);
+            return rows.Where(Gives).Select(r => (r.Name, r.Url)).Distinct().Take(3).ToList();
         }
         catch (Microsoft.Data.SqlClient.SqlException) { return []; }
     }
@@ -364,8 +376,9 @@ IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
 
     protected async Task<bool> PrepareAsync()
     {
-        /* A persona role held across the whole organization widens that role's own pages, and no others. */
-        Viewer = (await S.Viewers.GetAsync()).ForSection(RequiredRole ?? Nav.SectionOf(Request.Path)?.Role);
+        /* A section granted across the whole organization widens that section's own pages, and no others. */
+        var signedIn = await S.Viewers.GetAsync();
+        Viewer = signedIn.ForSection(Nav.SectionFor(Request.Path, signedIn)?.Key);
         Ctx = await S.Contexts.CreateAsync(Viewer, Request, forPage: true);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
@@ -378,11 +391,8 @@ IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
-        else if (!Nav.SectionOpen(Request.Path, Viewer, HiddenReports) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
-            Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
-        else if (Nav.RestrictedOut(Request.Path, Viewer) is { } cut)
-            Denied = $"Your access is restricted to Start, Leadership and the sections your roles open, so {cut.Persona} pages are not shown to you." +
-                     (Viewer.CanSeeAll ? " You can choose See all reports at the top of the menu." : " An administrator can change it in Admin › Access.");
+        else if (!Nav.SectionOpen(Request.Path, Viewer, HiddenReports) && Nav.SectionOf(Request.Path) is { Key: not null } g)
+            Denied = $"The {g.Persona} section is not among those granted to you. An administrator can grant it in Admin › Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
@@ -395,7 +405,7 @@ IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
         if (Denied is not null)
         {
             Administrators = await AdministratorsAsync();
-            if (!turnedOff) RequestAccess = await RequestLinksAsync(AdminOnly ? Roles.Admin : RequiredRole ?? Nav.SectionOf(Request.Path)?.Role);
+            if (!turnedOff) RequestAccess = await RequestLinksAsync(AdminOnly ? Roles.Admin : RequiredRole, AdminOnly ? null : Nav.SectionOf(Request.Path)?.Key);
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
             Response.StatusCode = turnedOff ? 404 : 403;
             return false;
@@ -636,7 +646,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
                 {
                     /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
                     listed = true;
-                    if (Nav.GroupOpen(g, Viewer) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
                 }
         return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }

@@ -27,11 +27,15 @@ public class Release300Tests
     [Fact]
     public void Insights_grants_give_the_Workbench_page_roles()
     {
-        Assert.Equal(Set(AppRoles.User), PrincipalLoader.PageRoles(Set(Roles.Licensing, Roles.Organization)));
-        Assert.Equal(Set(AppRoles.User, AppRoles.Central), PrincipalLoader.PageRoles(Set(Roles.Governance)));
-        Assert.Equal(Set(AppRoles.User, AppRoles.Central, AppRoles.Operator), PrincipalLoader.PageRoles(Set(Roles.GovernanceOperator)));
-        Assert.Equal(Set(AppRoles.User, AppRoles.Auditor), PrincipalLoader.PageRoles(Set(Roles.GovernanceAuditor)));
-        Assert.Equal(Set(AppRoles.User, AppRoles.Admin), PrincipalLoader.PageRoles(Set(Roles.Admin)));
+        /* Since 3.1.0 the two everyday sections need a grant like every section: Insights roles alone open none of them. */
+        Assert.Empty(PrincipalLoader.PageRoles(Set(Roles.Licensing, Roles.Organization)));
+        Assert.Equal(Set(AppRoles.User), PrincipalLoader.PageRoles(Set(Roles.Licensing), Set(CopilotInsights.Infrastructure.Sections.WorkbenchOwnership)));
+        Assert.Equal(Set(AppRoles.Registry), PrincipalLoader.PageRoles(Set(), Set(CopilotInsights.Infrastructure.Sections.WorkbenchRegistry)));
+        /* The central roles and Admin open both, since their work runs through them; the auditor its reports only. */
+        Assert.Equal(Set(AppRoles.User, AppRoles.Registry, AppRoles.Central), PrincipalLoader.PageRoles(Set(Roles.Governance)));
+        Assert.Equal(Set(AppRoles.User, AppRoles.Registry, AppRoles.Central, AppRoles.Operator), PrincipalLoader.PageRoles(Set(Roles.GovernanceOperator)));
+        Assert.Equal(Set(AppRoles.Auditor), PrincipalLoader.PageRoles(Set(Roles.GovernanceAuditor)));
+        Assert.Equal(Set(AppRoles.User, AppRoles.Registry, AppRoles.Admin), PrincipalLoader.PageRoles(Set(Roles.Admin)));
     }
 
     [Fact]
@@ -92,8 +96,13 @@ public class Release300Tests
     public void One_menu_shows_each_person_the_Workbench_sections_their_roles_open()
     {
         static IReadOnlyList<string> Sections(params string[] appRoles) =>
-            WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, AppRoles = Set([AppRoles.User, .. appRoles]) }, on: true).Select(g => g.Persona).ToList();
-        Assert.Equal(["Ownership and approvals", "Ownership registry"], Sections());
+            WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, AppRoles = Set([.. appRoles]) }, on: true).Select(g => g.Persona).ToList();
+        /* Nothing granted: no Workbench section; each everyday section by its own grant. */
+        Assert.Empty(Sections());
+        Assert.Equal(["Ownership and approvals"], Sections(AppRoles.User));
+        Assert.Equal(["Ownership registry"], Sections(AppRoles.Registry));
+        Assert.Equal(["Ownership and approvals", "Ownership registry"], Sections(AppRoles.User, AppRoles.Registry));
+        Assert.Equal(["Governance operations"], Sections(AppRoles.Auditor));
         Assert.Equal(["Ownership and approvals", "Approval queues", "Ownership registry", "Governance operations"], Sections(AppRoles.Central));
         Assert.Contains("Workbench settings", Sections(AppRoles.Admin));
         var central = WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, AppRoles = Set(AppRoles.User, AppRoles.Central) }, true).SelectMany(g => g.Pages).ToList();
@@ -129,7 +138,7 @@ public class Release300Tests
         Assert.Contains("WorkbenchStatusPages.UseWorkbenchStatusPages(app)", program);
         Assert.Contains("frame-ancestors https://teams.microsoft.com", program);
         Assert.Contains("if (!teams) h[\"X-Frame-Options\"] = \"DENY\";", program);
-        Assert.Contains("an administrator grants them in Admin › Access", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "AccessDenied.cshtml"));
+        Assert.Contains("an administrator grants in Admin › Access", Read("dashboard", "CopilotInsights", "Pages", "Workbench", "AccessDenied.cshtml"));
     }
 
     [Fact]
@@ -147,8 +156,9 @@ public class Release300Tests
     public void The_role_checks_take_the_Workbench_roles_on_new_and_existing_databases()
     {
         var sql = Read("sql", "Create-CopilotDashboardSchema.sql");
-        Assert.Contains("definition NOT LIKE N'%Restricted%'", sql);
-        Assert.Equal(2, Regex.Matches(sql, "DROP CONSTRAINT CK_Dash(RoleGrant|AccessProfileRole)_Role;\\s+ALTER TABLE dash\\.\\w+ ADD CONSTRAINT CK_Dash\\w+_Role CHECK \\(Role IN\\s+\\('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted'\\)\\);\\s+END;").Count);
+        /* Widened since: Restricted (3.0.3, withdrawn before use and still accepted) and Sections (3.1.0). */
+        Assert.Contains("definition NOT LIKE N'%''Sections''%'", sql);
+        Assert.Equal(2, Regex.Matches(sql, "DROP CONSTRAINT CK_Dash(RoleGrant|AccessProfileRole)_Role;\\s+ALTER TABLE dash\\.\\w+ ADD CONSTRAINT CK_Dash\\w+_Role CHECK \\(Role IN\\s+\\('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections'\\)\\);\\s+END;").Count);
     }
 
     [Fact]
@@ -242,8 +252,10 @@ public class Release300Tests
     [Fact]
     public void Review_Workbench_roles_are_refused_on_the_server_while_it_is_off()
     {
-        Assert.Contains("Roles.All.Contains(r) && (workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
-        Assert.Contains(".Where(r => workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Profiles.cs"));
+        Assert.Contains("Roles.All.Contains(r) && r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
+        Assert.Contains(".Where(r => r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r)))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Profiles.cs"));
+        /* The Workbench's sections too. */
+        Assert.Contains("Where(k => workbenchOn || Sections.Find(k)?.Workbench != true)", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
     }
 
     [Fact]

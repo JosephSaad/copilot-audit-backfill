@@ -184,8 +184,6 @@ app.MapGet("/adoption/leaderboard", (HttpRequest r) => Moved(r, "/adoption/depar
 app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
 app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
-/* A restricted viewer who sees the whole organization switches between their own reports and all of them. */
-ViewChoice.Map(app);
 /* Signed in through Entra ID, a way out: of the dashboard and of Entra ID, back to the start page. */
 if (entraSignIn) app.MapGet(EntraSignIn.SignOutPath, EntraSignIn.SignOut);
 /* The load balancer's probe: no sign-in, nothing named, only whether this server answers and reaches its database. */

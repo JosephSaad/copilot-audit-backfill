@@ -26,6 +26,7 @@ public class Release280Tests
         WindowsName = "a@contoso.com", Upn = "a@contoso.com", Level = level, InDirectory = true,
         Roles = roles.ToHashSet(StringComparer.OrdinalIgnoreCase),
         OrgWideRoles = (wide ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase),
+        SectionKeys = Granted.Access(roles, wide).Sections, OrgWideSections = Granted.Access(roles, wide).OrgWideSections,
     };
 
     static ClaimsPrincipal Entra(params (string Type, string Value)[] claims) =>
@@ -216,7 +217,7 @@ public class Release280Tests
         Assert.Equal(["Agents, whole organization", "Security and Compliance"], offered.Where(p => !p.Starter).Select(p => p.Name));
         Assert.Equal(["a@contoso.com", "CONTOSO\\agents"], offered[0].Holders);
         /* A starter that gives what is offered already, or whose name is taken, is left out. */
-        Assert.Equal(["License manager"], offered.Where(p => p.Starter).Select(p => p.Name));
+        Assert.Equal(["Executive", "Agent program lead", "License manager", "Security reviewer", "Champion"], offered.Where(p => p.Starter).Select(p => p.Name));
         Assert.DoesNotContain(offered, p => AccessProfiles.Key(p.Roles) == "Licensing");
     }
 
@@ -246,7 +247,8 @@ public class Release280Tests
         var viewer = Read("dashboard", "CopilotInsights", "Infrastructure", "Viewer.cs");
         Assert.Contains("FROM dash.ProfileGrant AS g JOIN dash.AccessProfileRole AS r ON r.ProfileId = g.ProfileId", viewer);
         Assert.Contains("CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'OrgWide') IS NULL THEN N'CAST(0 AS BIT)'", viewer);
-        Assert.Contains("if (g.OrgWide && AccessRules.IsPersona(g.Role)) orgWide.Add(g.Role);", viewer);
+        Assert.Contains("if (g.OrgWide && IsPersona(g.Role))", viewer);
+        Assert.Contains("a.OrgWideRoles.Add(g.Role);", viewer);
         /* AD groups under Entra sign-in come from the nightly list, never from the request. */
         Assert.Contains("SELECT GroupName FROM audit.GroupMember WHERE UserPrincipalName = @upn;", viewer);
     }

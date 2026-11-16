@@ -14,8 +14,12 @@
                                (every day when omitted).
     -Task SetAppCategory       Put -App in -Category (Copilot Chat or In-App Copilot). Add -Apply
                                to rebuild sessions and bi with it now rather than on the next load.
-    -Task GrantRole            Give -Principal (a UPN, DOMAIN\user or DOMAIN\Group) a dashboard -Role.
-    -Task RevokeRole           Take it away again.
+    -Task GrantRole            Give -Principal (a UPN, DOMAIN\user or DOMAIN\Group) a dashboard -Role, or
+                               the menu sections in -Sections (with -NamedPeople for the lists that
+                               name people, -WholeOrganization for everyone rather than their own
+                               team). Every section needs a grant: one nobody granted is not shown.
+                               Granting -Sections again replaces the principal's sections.
+    -Task RevokeRole           Take it away again (-Role Sections removes their sections).
     -Task SetOrgTop            Make -Upn the top of the organization for the dashboard, or -Clear
                                to go back to the one found in the org chart. Rebuilds the org chart.
     -Task SetDashboardSetting  Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost,
@@ -49,6 +53,8 @@
     .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task SetAppCategory -App 'Copilot Notebooks' -Category 'Copilot Chat' -Apply
 .EXAMPLE
     .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task GrantRole -Principal 'CONTOSO\Copilot-Insights-Admins' -Role Admin
+.EXAMPLE
+    .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task GrantRole -Principal 'CONTOSO\Executives' -Sections leadership -WholeOrganization
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -67,7 +73,14 @@ param(
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
     [string] $Principal,
-    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Restricted')][string] $Role,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Sections')][string] $Role,
+    # GrantRole: the menu sections to grant, by key (the dashboard's Admin > Access page names them).
+    [ValidateSet('leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'wb-ownership', 'wb-registry')]
+    [string[]] $Sections,
+    # GrantRole -Sections: show the lists that name people in them.
+    [switch] $NamedPeople,
+    # GrantRole -Sections: show them for the whole organization, not the principal's own team.
+    [switch] $WholeOrganization,
     [string] $Note,
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
@@ -204,7 +217,10 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
         else { Write-Host 'It applies from the next load; add -Apply to rebuild sessions and bi with it now.' }
     }
     'GrantRole' {
+        if ($Sections -and -not $Role) { $Role = 'Sections' }
         Need 'Principal' $Principal; Need 'Role' $Role
+        if ($Role -eq 'Sections' -and -not $Sections) { throw '-Role Sections needs -Sections: the menu sections to grant.' }
+        if ($Sections -and $Role -ne 'Sections') { throw '-Sections is a grant of its own: leave out -Role, or give -Role Sections.' }
         if (-not $Principal.Contains('@') -and -not $Principal.Contains('\')) { throw '-Principal is a UPN, DOMAIN\user or DOMAIN\Group.' }
         # DOMAIN\name: a group if AD says so, else a user.
         $type = if ($PrincipalType) { $PrincipalType } else { 'User' }
@@ -215,6 +231,22 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
                 if ([System.DirectoryServices.AccountManagement.GroupPrincipal]::FindByIdentity($pc, $Principal)) { $type = 'Group' }
             }
             catch { Write-Warning "Could not ask AD whether $Principal is a group; recorded as a user (-PrincipalType Group to say otherwise). The dashboard matches it either way." }
+        }
+        if ($Role -eq 'Sections') {
+            # In the menu's order, each once: what the dashboard stores.
+            $order = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'wb-ownership', 'wb-registry'
+            $list = ($order | Where-Object { $Sections -contains $_ }) -join ','
+            $has = [int] (Invoke-Sql -Scalar -Sql "SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Sections') IS NULL THEN 0 ELSE 1 END")
+            if ($has -eq 0) { throw 'Granting sections needs the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard first.' }
+            Invoke-Sql -Parameters @{ '@p' = $Principal; '@t' = $type; '@s' = $list; '@w' = [bool] $WholeOrganization; '@np' = [bool] $NamedPeople; '@n' = $Note; '@by' = $me } -Sql @"
+UPDATE dash.RoleGrant SET Sections = @s, OrgWide = @w, NamedPeople = @np, Note = COALESCE(@n, Note), GrantedBy = @by, GrantedUtc = SYSUTCDATETIME()
+WHERE Principal = @p AND Role = 'Sections';
+IF @@ROWCOUNT = 0
+    INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, OrgWide, Sections, NamedPeople) VALUES (@p, @t, 'Sections', @n, @by, @w, @s, @np);
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'Granted the sections ', @s, N' to ', @p));
+"@
+            Write-Host ("$Principal ($type) has the sections $list" + $(if ($WholeOrganization) { ', whole organization' } else { ', their own team' }) + $(if ($NamedPeople) { ', with named people.' } else { '.' }))
+            break
         }
         Invoke-Sql -Parameters @{ '@p' = $Principal; '@t' = $type; '@r' = $Role; '@n' = $Note; '@by' = $me } -Sql @"
 IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @p AND Role = @r)

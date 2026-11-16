@@ -66,15 +66,24 @@ public class NavigationTests
     static HashSet<string> R(params string[] roles) => new(roles, StringComparer.OrdinalIgnoreCase);
 
     static Viewer V(int? level, bool inDirectory = true, params string[] roles) =>
-        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = level, InDirectory = inDirectory, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = level, InDirectory = inDirectory, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase),
+                SectionKeys = Granted.Sections(roles) };
+
+    /// <summary>A viewer granted these sections (a Sections grant) and these roles.</summary>
+    static Viewer VS(int? level, string[] sections, params string[] roles) =>
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = level, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase),
+                SectionKeys = Granted.Sections(roles, sections) };
 
     static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
 
     [Fact]
     public void A_manager_without_roles_sees_no_named_lists_and_no_admin()
     {
-        var paths = Paths(V(4));
+        /* Nothing granted: nothing in the menu, Leadership included, whatever their level. */
+        Assert.Empty(Paths(V(4)));
+        var paths = Paths(VS(4, [Sections.Leadership, Sections.Licensing]));
         Assert.Contains("/leadership", paths);
+        Assert.Contains("/licensing", paths);
         Assert.DoesNotContain("/licensing/unused", paths);
         Assert.DoesNotContain("/licensing/payg", paths);
         Assert.DoesNotContain("/licensing/swap", paths);
@@ -84,7 +93,7 @@ public class NavigationTests
         Assert.DoesNotContain("/licensing/overlap", paths);
         Assert.DoesNotContain("/licensing/departures", paths);
         Assert.DoesNotContain("/security/flags", paths);
-        Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(4)), g => g.Persona == "Admin");
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(VS(4, [Sections.Leadership])), g => g.Persona == "Admin");
     }
 
     [Theory]
@@ -106,11 +115,19 @@ public class NavigationTests
     }
 
     [Fact]
-    public void Sections_without_a_role_stay_open_to_everyone_in_the_directory()
+    public void Every_section_needs_a_grant_whatever_the_level()
     {
-        var personas = CopilotInsights.Pages.Nav.For(V(5)).Select(g => g.Persona).ToList();
+        /* The top of the organization, a manager and someone at level 7 see nothing until a section is granted. */
+        Assert.Empty(CopilotInsights.Pages.Nav.For(V(1)));
+        Assert.Empty(CopilotInsights.Pages.Nav.For(V(5)));
+        Assert.Empty(CopilotInsights.Pages.Nav.For(V(7)));
+        var personas = CopilotInsights.Pages.Nav.For(VS(5, [Sections.Leadership, Sections.Regions, Sections.People, Sections.AppOwners, Sections.Governance])).Select(g => g.Persona).ToList();
         Assert.Equal(["Leadership", "Regions", "People", "App owners", "Governance"], personas);
-        Assert.Null(CopilotInsights.Pages.Nav.SectionOf("/leadership")?.Role);
+        /* Only the sections ticked: Leadership alone is Leadership alone. */
+        Assert.Equal(["Leadership"], CopilotInsights.Pages.Nav.For(VS(7, [Sections.Leadership])).Select(g => g.Persona));
+        /* Every Insights section has a key a grant can tick, and every key is a section. */
+        Assert.All(CopilotInsights.Pages.Nav.Groups.Where(g => g.Persona != "Admin"), g => Assert.NotNull(g.Key));
+        Assert.Equal(Sections.All.Where(s => !s.Workbench).Select(s => s.Key), CopilotInsights.Pages.Nav.Groups.Where(g => g.Key is not null).Select(g => g.Key));
     }
 
     [Fact]
@@ -151,7 +168,7 @@ public class NavigationTests
         /* 2.4.4 removed My Copilot: its use, its email choices and saved views. */
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.Groups, g => g.Persona == "My Copilot");
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/me" || p.Path.StartsWith("/me/"));
-        Assert.Equal("Leadership", CopilotInsights.Pages.Nav.For(V(5))[0].Persona);
+        Assert.Equal("Leadership", CopilotInsights.Pages.Nav.For(VS(5, Granted.All))[0].Persona);
         Assert.Contains("/licensing/changes", Paths(V(5, roles: Roles.Licensing)));   // in the Licensing section, which needs the role
         Assert.DoesNotContain("/licensing/changes", Paths(V(5)));
     }
@@ -194,7 +211,7 @@ public class NavigationTests
 
     static Viewer Outside(params string[] roles) =>
         new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 9, InDirectory = true, Roles = R(roles), MaxLevel = 7,
-                Admitted = AccessRules.MayUseDashboard(9, R(roles), 7) };
+                Admitted = AccessRules.MayUseDashboard(9, R(roles), 7), SectionKeys = Granted.Sections(roles) };
 
     [Fact]
     public void Outside_the_levels_nothing_is_listed()
@@ -217,7 +234,8 @@ public class NavigationTests
         var v = Outside(Roles.Licensing);
         Assert.True(v.Admitted);
         Assert.Contains("/licensing/unused", Paths(v));
-        Assert.Contains("/leadership", Paths(v));
+        /* Their role's sections only: Leadership is not granted to them, so it is not theirs (before 3.1.0 it was). */
+        Assert.DoesNotContain("/leadership", Paths(v));
     }
 
     [Fact]
@@ -231,17 +249,15 @@ public class NavigationTests
 
     [Fact]
     public void Nobody_sees_an_empty_group() =>
-        Assert.All(CopilotInsights.Pages.Nav.For(V(5)), g => Assert.NotEmpty(g.Pages));
+        Assert.All(CopilotInsights.Pages.Nav.For(VS(5, Granted.All)), g => Assert.NotEmpty(g.Pages));
 
     [Fact]
     public void Every_page_is_listed_for_someone_holding_every_role()
     {
         var pages = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();
-        /* Every role that opens something: Restricted narrows instead (RestrictedRoleTests). */
-        var every = Roles.All.Where(r => r != Roles.Restricted).ToArray();
-        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(V(1, roles: every)).Count);
+        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(VS(1, Granted.All, Roles.All)).Count);
         /* With several tenants, the group overview too. */
-        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: every), manyTenants: true).SelectMany(g => g.Pages).Count());
+        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(VS(1, Granted.All, Roles.All), manyTenants: true).SelectMany(g => g.Pages).Count());
     }
 }
 
@@ -266,7 +282,8 @@ public class NonHumanTests
         Assert.Equal("Guest, In a service-account group", CopilotInsights.Data.NonHuman.Why(true, false, false, false, true));
 
     static Viewer V(params string[] roles) =>
-        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 3, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 3, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase),
+                SectionKeys = Granted.Sections(roles) };
 
     static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
 

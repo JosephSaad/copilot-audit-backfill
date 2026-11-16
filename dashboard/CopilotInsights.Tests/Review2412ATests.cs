@@ -144,20 +144,21 @@ public class TenantFormTests
     }
 }
 
-/// <summary>The digest preview and Send now need the role of the section the digest shows, and the preview is audited.</summary>
+/// <summary>The digest preview and Send now need the section the digest shows granted, and the preview is audited.</summary>
 public class DigestRoleTests
 {
     [Fact]
-    public void Each_digest_needs_its_section_s_role()
+    public void Each_digest_needs_its_section()
     {
-        Assert.Equal(Roles.Security, NotificationsModel.DigestRole("Security"));
-        Assert.Equal(Roles.Licensing, NotificationsModel.DigestRole("Licensing"));
-        Assert.Equal(Roles.Adoption, NotificationsModel.DigestRole("Adoption"));
-        Assert.Null(NotificationsModel.DigestRole("Leadership"));
-        Assert.Null(NotificationsModel.DigestRole("Value"));
-        /* Every digest's role is one a page section has. */
-        var sections = CopilotInsights.Pages.Nav.Groups.Select(g => g.Role).ToHashSet();
-        Assert.All(OpsReports.DigestKinds.Keys, k => Assert.True(NotificationsModel.DigestRole(k) is null || sections.Contains(NotificationsModel.DigestRole(k)), k));
+        Assert.Equal(Sections.Security, NotificationsModel.DigestSection("Security"));
+        Assert.Equal(Sections.Licensing, NotificationsModel.DigestSection("Licensing"));
+        Assert.Equal(Sections.Adoption, NotificationsModel.DigestSection("Adoption"));
+        /* Leadership and Value are Leadership's figures: since 3.1.0 Leadership is a section that needs a grant too. */
+        Assert.Equal(Sections.Leadership, NotificationsModel.DigestSection("Leadership"));
+        Assert.Equal(Sections.Leadership, NotificationsModel.DigestSection("Value"));
+        /* Every digest's section is one the menu has. */
+        var sections = CopilotInsights.Pages.Nav.Groups.Select(g => g.Key).ToHashSet();
+        Assert.All(OpsReports.DigestKinds.Keys, k => Assert.Contains(NotificationsModel.DigestSection(k), sections));
     }
 
     [Fact]

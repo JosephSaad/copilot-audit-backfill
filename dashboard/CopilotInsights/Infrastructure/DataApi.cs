@@ -5,8 +5,8 @@ namespace CopilotInsights.Infrastructure;
 /// <summary>
 /// The read-only data API, /api/v1: the dashboard's figures as JSON for other tools (a service
 /// desk, an HR system, a SIEM). Same Windows sign-in, same scope and roles as the pages:
-/// aggregates for anyone with data to see, named lists only with the page's role and never in
-/// privacy mode. ?d= is the period (7 to 365 days) and ?org= a manager's UPN, as on the pages.
+/// each call needs the section its figures belong to (usage, units and value are Leadership's), named lists the
+/// page's role too, and never in privacy mode. ?d= is the period (7 to 365 days) and ?org= a manager's UPN, as on the pages.
 /// Every call is written to the audit log. Off when the ApiEnabled setting is 0.
 /// </summary>
 public static class DataApi
@@ -21,14 +21,14 @@ public static class DataApi
         {
             endpoints = new object[]
             {
-                new { path = "/api/v1/usage", what = "totals and the trend (days up to 30, else weeks) for the period and scope" },
-                new { path = "/api/v1/units", what = "people, licenses and use by unit one level down" },
-                new { path = "/api/v1/security", what = "security signals by day or week (Security role)" },
-                new { path = "/api/v1/license-pool", what = "seats bought and assigned per SKU (Licensing role)" },
-                new { path = "/api/v1/value", what = "estimated hours saved and their value, by app and department" },
-                new { path = "/api/v1/targets", what = "adoption targets and where each stands (Adoption role)" },
-                new { path = "/api/v1/license-actions?kind=upgrade|train|revoke", what = "named: the people behind a recommendation (Licensing role)" },
-                new { path = "/api/v1/leavers", what = "named: licenses on disabled or departed accounts (Licensing role)" },
+                new { path = "/api/v1/usage", what = "totals and the trend (days up to 30, else weeks) for the period and scope (Leadership section)" },
+                new { path = "/api/v1/units", what = "people, licenses and use by unit one level down (Leadership section)" },
+                new { path = "/api/v1/security", what = "security signals by day or week (Security section)" },
+                new { path = "/api/v1/license-pool", what = "seats bought and assigned per SKU (Licensing section)" },
+                new { path = "/api/v1/value", what = "estimated hours saved and their value, by app and department (Leadership section)" },
+                new { path = "/api/v1/targets", what = "adoption targets and where each stands (Adoption section)" },
+                new { path = "/api/v1/license-actions?kind=upgrade|train|revoke", what = "named: the people behind a recommendation (Forecasting section, with named people)" },
+                new { path = "/api/v1/leavers", what = "named: licenses on disabled or departed accounts (Licensing section, with named people)" },
                 new { path = "/api/v1/health", what = "pipeline runs and freshness (administrators)" },
             },
         })));
@@ -38,7 +38,7 @@ public static class DataApi
         api.MapGet("/usage", (HttpContext h, CancellationToken _) => Run(h, "usage", null, async (x, c) =>
         {
             var m = x.GetRequiredService<Metrics>();
-            bool sec = c.Viewer.Has(Roles.Security), comp = c.Viewer.Has(Roles.Compliance);
+            bool sec = c.Viewer.Sees(Sections.Security), comp = c.Viewer.Sees(Sections.Compliance);
             var trend = (await m.TrendAsync(c)).Select(p => new
             {
                 p.Bucket, p.Active, p.ActiveLicensed, p.ActiveUnlicensed, p.Interactions, p.Prompts, p.Sessions, p.MultiTurn, p.Chat, p.Agent, p.Web, p.Licensed,
@@ -46,11 +46,11 @@ public static class DataApi
                 labeled = comp ? p.Labeled : (long?)null,
             });
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, totals = await m.TotalsAsync(c), trend };
-        }));
+        }, section: Sections.Leadership));
 
         api.MapGet("/units", (HttpContext h, CancellationToken _) => Run(h, "units", null, async (x, c) =>
         {
-            bool sec = c.Viewer.Has(Roles.Security), comp = c.Viewer.Has(Roles.Compliance);
+            bool sec = c.Viewer.Sees(Sections.Security), comp = c.Viewer.Sees(Sections.Compliance);
             var shown = SmallGroups.Fold(await x.GetRequiredService<Metrics>().UnitsAsync(c), u => u.People, r => Metrics.Combine(r, "Smaller groups"), c.MinGroupSize, out var foldedUnits);
             return new
             {
@@ -63,17 +63,17 @@ public static class DataApi
                     flags = sec ? u.Flags : (long?)null, labeled = comp ? u.Labeled : (long?)null,
                 }),
             };
-        }));
+        }, section: Sections.Leadership));
 
         api.MapGet("/security", (HttpContext h, CancellationToken _) => Run(h, "security", null, async (x, c) =>
         {
             var t = await x.GetRequiredService<Metrics>().TrendAsync(c);
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, days = c.Daily,
                          points = t.Select(p => new { p.Bucket, p.Jailbreak, p.Injection, p.Blocked, p.Labeled, p.Interactions }) };
-        }, section: Roles.Security));
+        }, section: Sections.Security));
 
         api.MapGet("/license-pool", (HttpContext h, CancellationToken _) => Run(h, "license-pool", null, async (x, _) =>
-            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.IsSuite, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }, section: Roles.Licensing));
+            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.IsSuite, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }, section: Sections.Licensing));
 
         api.MapGet("/value", (HttpContext h, CancellationToken _) => Run(h, "value", null, async (x, c) =>
         {
@@ -81,12 +81,12 @@ public static class DataApi
             /* Departments folded as the page folds them: the API returned every one, down to one person. */
             var byDepartment = SmallGroups.Fold(v.ByDepartment, d => d.People, OpsReports.CombineValue, c.MinGroupSize, out var foldedDepartments);
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize, hourlyCost = v.HourlyCost, defaultMinutes = v.DefaultMinutes, byApp = v.ByApp, byDepartment };
-        }));
+        }, section: Sections.Leadership));
 
         /* The targets for the caller's part of the organization, as the Targets page shows them (see OpsReports.Visible):
            every target went to anyone with the Adoption role, the whole organization's and other executives' parts too. */
         api.MapGet("/targets", (HttpContext h, CancellationToken _) => Run(h, "targets", null, async (x, c) =>
-            new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }, section: Roles.Adoption));
+            new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }, section: Sections.Adoption));
 
         api.MapGet("/license-actions", (HttpContext h, CancellationToken _) => Run(h, "license-actions", Roles.Licensing, async (x, c) =>
         {
@@ -103,10 +103,10 @@ LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey
 WHERE {Pages.Forecasting.ActionsModel.Kinds[kind].Where} AND ISNULL(du.AccountEnabled, 1) = 1
 ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
             return new { kind, asOf = c.End, people = rows.Select(r => new { upn = r.Upn, name = r.Name, department = r.Department, daysUsed30 = r.Days, interactions30 = r.Interactions }) };
-        }));
+        }, section: Sections.Forecasting));
 
         api.MapGet("/leavers", (HttpContext h, CancellationToken _) => Run(h, "leavers", Roles.Licensing, async (x, c) =>
-            new { people = (await x.GetRequiredService<OpsData>().LeaversAsync(c.Root)).Select(r => new { upn = r.UserPrincipalName, name = r.DisplayName, department = r.Department, reason = r.Reason, licensedSince = r.LicensedSinceUtc, lastUsed = r.LastUsed }) }));
+            new { people = (await x.GetRequiredService<OpsData>().LeaversAsync(c.Root)).Select(r => new { upn = r.UserPrincipalName, name = r.DisplayName, department = r.Department, reason = r.Reason, licensedSince = r.LicensedSinceUtc, lastUsed = r.LastUsed }) }, section: Sections.Licensing));
 
         api.MapGet("/health", (HttpContext h, CancellationToken _) => Run(h, "health", Roles.Admin, async (x, _) =>
         {
@@ -123,7 +123,8 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         var sp = h.RequestServices;
         var settings = sp.GetRequiredService<Settings>();
         if (await settings.StringAsync("ApiEnabled") == "0") return Results.NotFound();
-        var viewer = await sp.GetRequiredService<ViewerService>().GetAsync();
+        /* A section granted across the whole organization widens that section's calls, as it widens its pages. */
+        var viewer = (await sp.GetRequiredService<ViewerService>().GetAsync()).ForSection(section);
         var c = await sp.GetRequiredService<ReportContextFactory>().CreateAsync(viewer, h.Request);
         var audit = sp.GetRequiredService<AuditLog>();
         var path = "/api/v1/" + name;
@@ -134,7 +135,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
         else if (c.OrgWhy == OrgRefusal.Privacy) refusal = "privacy mode is on: no report on a manager's part of the organization";
         else if (c.OrgWhy == OrgRefusal.TooSmall) refusal = $"that part of the organization has fewer than {c.MinGroupSize} people, the minimum group size";
-        else if (section is not null && !viewer.Has(section)) refusal = $"needs the {section} role";   // the page's section needs it too
+        else if (section is not null && !viewer.Sees(section)) refusal = $"needs the {Sections.NameOf(section)} section, granted in Admin › Access";   // the page's section needs it too
         else if (role is not null && await settings.PrivacyModeAsync()) refusal = "privacy mode is on: nothing that names people";
         else if (role is not null && !viewer.Has(role)) refusal = $"needs the {role} role";
         if (refusal is not null)

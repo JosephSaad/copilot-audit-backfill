@@ -55,7 +55,12 @@ public static partial class FieldTips
         ["principal"] = "A person's name or sign-in (UPN), or a group as DOMAIN\\Group: the role reaches the group's members.",
         ["who"] = "A person's name or sign-in (UPN): what they may see, and why.",
         ["entraGroup"] = "An Entra ID group, by its name: the grant is kept by its object ID, and reaches its members, nested groups included, checked through Microsoft Graph at sign-in.",
-        ["orgWide"] = "The persona roles ticked show their own pages for the whole organization, where otherwise a holder sees their own part of it.",
+        ["orgWide"] = "Their own team: the ticked sections show the person and everyone under them in the directory. Whole organization: they show everyone. People at levels 1 and 2 always see the whole organization.",
+        ["section"] = "Each box is a header in the menu. Ticked, the header and its reports appear; not ticked, the header is gone and its reports are refused, whatever the person's level.",
+        ["named"] = "Adds the lists that name people (who has not started, unused licenses, flagged interactions) in the ticked sections that have them. Off: the figures only. Privacy mode still hides every name.",
+        ["role"] = "Organization: every section the person has shows the whole organization, and Power BI's Organization role follows it. Admin: the Admin pages. Governance, GovernanceOperator, GovernanceAuditor: work in the Governance Workbench.",
+        ["/admin/access|profile"] = "An access profile to grant as well: a named set of sections and roles kept in Admin › Access profiles. Change the profile and everyone who holds it changes with it.",
+        ["/admin/access|type"] = "User for one person; Group for an AD group (DOMAIN\\Group) or an Entra group, whose members get the grant.",
         /* Admin › Access profiles. */
         ["/admin/profiles|name"] = "The profile's name, as people ask for it (Agent program lead).",
         ["/admin/profiles|description"] = "What the profile is for, and who should hold it (optional).",

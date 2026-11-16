@@ -79,9 +79,9 @@ public sealed class WorkbenchSeats(IServiceProvider services, WorkbenchState sta
         var list = whole ? all : Governance.Web.Pages.Registry.SeatsModel.CanOpen(p);
         return new SeatLinks(
             list ? "/workbench/Registry/Seats" : null,
-            all ? "/workbench/Registry/Seats?show=nolob#nolob" : null,
+            all && p.SeesRegistry ? "/workbench/Registry/Seats?show=nolob#nolob" : null,
             reports && (all || !whole) ? "/workbench/Reports/SeatChargeback" : null,
-            fo => SeatAccess.CanView(p, fo));
+            fo => p.SeesRegistry && SeatAccess.CanView(p, fo));
     }
 }
 

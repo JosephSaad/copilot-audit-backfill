@@ -85,7 +85,12 @@ public class Release300SeatTests
         Assert.Equal("/workbench/Registry/Seats/" + g, all.Lob(new SeatLobRow { FundingOwnerId = 7, PublicId = g, Name = "Retail" }));
 
         /* A seat admin for one line of business: the whole organization's figures link nowhere, their own line opens. */
-        var admin = new WebPrincipal { IsAuthenticated = true, ScopedPermissions = new Dictionary<int, IReadOnlySet<string>> { [5] = new HashSet<string> { SeatAccess.View } } };
+        var admin = new WebPrincipal { IsAuthenticated = true, ScopedPermissions = new Dictionary<int, IReadOnlySet<string>> { [5] = new HashSet<string> { SeatAccess.View } },
+                                       AppRoles = new HashSet<string> { Governance.Domain.AppRoles.Registry } };
+        /* Without the Ownership registry granted, no figure opens it, their own line included. */
+        var ungranted = new WebPrincipal { IsAuthenticated = true, ScopedPermissions = admin.ScopedPermissions };
+        Assert.Null(WorkbenchSeats.Links(ungranted, false).Seats);
+        Assert.Null(WorkbenchSeats.Links(ungranted, false).Lob(new SeatLobRow { FundingOwnerId = 5, PublicId = Guid.NewGuid(), Name = "Mine" }));
         var mine = WorkbenchSeats.Links(admin, true);
         Assert.Null(mine.Seats);
         Assert.Null(mine.NoLob);

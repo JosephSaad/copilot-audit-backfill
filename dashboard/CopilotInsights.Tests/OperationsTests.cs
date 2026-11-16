@@ -286,13 +286,17 @@ public class SignInTests
 
 public class PrivacyNavigationTests
 {
-    static Viewer V(params string[] roles) =>
-        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 3, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
+    static Viewer V(params string[] roles) => VS([], roles);
+
+    /// <summary>A viewer granted these sections (a Sections grant) and these roles.</summary>
+    static Viewer VS(string[] sections, params string[] roles) =>
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 3, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase),
+                SectionKeys = Granted.Sections(roles, sections) };
 
     [Fact]
     public void Privacy_mode_hides_every_page_that_names_people()
     {
-        var paths = Pages.Nav.For(V(Roles.All), privacyMode: true).SelectMany(g => g.Pages).ToList();
+        var paths = Pages.Nav.For(VS(Granted.All, Roles.All), privacyMode: true).SelectMany(g => g.Pages).ToList();
         /* The person record stays: a data-subject request is about one named person, on request. */
         Assert.Equal(["/compliance/person"], paths.Where(p => p.Role is not null).Select(p => p.Path));
         Assert.Contains(paths, p => p.Path == "/leadership");
@@ -303,7 +307,7 @@ public class PrivacyNavigationTests
     public void A_report_turned_off_is_gone_for_everyone_and_an_admin_page_cannot_be()
     {
         var hidden = new HashSet<string>(["/adoption/cohorts", "/Leadership/", "/admin/health"], StringComparer.OrdinalIgnoreCase);
-        var paths = Pages.Nav.For(V(Roles.All), hidden: hidden).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+        var paths = Pages.Nav.For(VS(Granted.All, Roles.All), hidden: hidden).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
         Assert.DoesNotContain("/adoption/cohorts", paths);
         Assert.Contains("/adoption", paths);
         Assert.True(Pages.HiddenReports.Is(hidden, "/adoption/cohorts/"));
@@ -393,7 +397,7 @@ public class PrivacyNavigationTests
     [Fact]
     public void Your_most_used_offers_only_reports_the_viewer_may_open_now()
     {
-        var groups = Pages.Nav.For(V(Roles.Adoption), hidden: new HashSet<string>(["/adoption/cohorts"], StringComparer.OrdinalIgnoreCase));
+        var groups = Pages.Nav.For(VS([Sections.Leadership, Sections.Regions], Roles.Adoption), hidden: new HashSet<string>(["/adoption/cohorts"], StringComparer.OrdinalIgnoreCase));
         /* Most opened first: an admin page, the start page, a report turned off, one of a section they do not hold, and one twice. */
         var picked = MostUsed.Pick(["/admin/health", "/adoption/", "/", "/adoption/cohorts", "/licensing/unused", "/leadership", "/adoption", "/regions"], groups);
         Assert.Equal(["/adoption", "/leadership", "/regions"], picked.Select(p => p.Path));

@@ -295,6 +295,25 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Sendin
             _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN ISNULL(@settled, 'Sent') ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
 WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent, settled });
 
+        /// <summary>
+        /// What a manager's grants give them without a sign-in: their own, their AD groups' as the directory load records
+        /// them, and their Entra groups' as Microsoft Graph answers now, where it can be asked.
+        /// </summary>
+        async Task<GrantedAccess> ManagerAccessAsync(GrantMap map, EntraGraph? graph, string upn)
+        {
+            IReadOnlySet<Guid>? entra = null;
+            if (map.EntraGroups.Count > 0 && graph is { Available: true })
+                try
+                {
+                    var oid = await _db.ScalarAsync<Guid?>(
+                        "IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL EXEC sys.sp_executesql N'SELECT TOP (1) ObjectId FROM dash.Person WHERE Upn = @u', N'@u NVARCHAR(256)', @u = @upn;",
+                        new { upn });
+                    if (oid is { } id) entra = await graph.MemberOfAsync(id, map.EntraGroups, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "The Entra groups of {Upn} could not be read for the manager digest.", upn); }
+            return map.For(upn, entra);
+        }
+
         public async Task ManagerDigestsAsync()
         {
             var freq = await _settings.StringAsync("ManagerDigest");
@@ -319,10 +338,21 @@ WHERE p.AccountEnabled = 1 AND p.PeopleBelow >= @min AND ISNULL(pref.ManagerDige
   AND " + ReportContextFactory.EnabledInPartSql("p.Upn") + @" >= @minGroup
 ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup, period = round.Period, kind = "Manager" });
             int sent = 0, failed = 0, skipped = 0;
+            /* Only managers a grant opens Leadership to: the digest is Leadership's figures for their part, and its figures
+               go no further than its pages do. */
+            var grantMap = await GrantMap.LoadAsync(_db);
+            var graph = sp.GetService<EntraGraph>();
             foreach (var m in managers)
             {
                 ct.ThrowIfCancellationRequested();   // no new claim once the site is stopping
                 if (!await ClaimAsync(m.Upn, "Manager", round.Period)) continue;
+                if (!(await ManagerAccessAsync(grantMap, graph, m.Upn)).Sections.Contains(Sections.Leadership))
+                {
+                    /* Settled for the period, so the next round does not pick them again. */
+                    await MarkAsync(m.Upn, "Manager", round.Period, true, "Skipped");
+                    skipped++;
+                    continue;
+                }
                 string status;
                 try
                 {
