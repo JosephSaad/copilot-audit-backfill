@@ -47,9 +47,14 @@ public sealed class ProfilesModel(PageServices s) : AdminPage(s)
 
     async Task<bool> InstalledAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.AccessProfile', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;
 
+    /// <summary>Whether this database has 3.1.0's section grants on profiles (dash.AccessProfileRole.Sections).</summary>
+    async Task<bool> HasSectionsAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL THEN 0 ELSE 1 END;") == 1;
+
     async Task<Dictionary<int, List<ProfileRole>>> RolesAsync() =>
-        (await Db.QueryAsync<(int ProfileId, string Role, bool OrgWide, string? Pages)>("SELECT ProfileId, Role, OrgWide, Pages FROM dash.AccessProfileRole;"))
-            .GroupBy(r => r.ProfileId).ToDictionary(g => g.Key, g => AccessProfiles.Normalize(g.Select(r => new ProfileRole(r.Role, r.OrgWide, r.Pages))));
+        (await Db.QueryAsync<(int ProfileId, string Role, bool OrgWide, string? Pages, string? Sections, bool NamedPeople)>(await HasSectionsAsync()
+            ? "SELECT ProfileId, Role, OrgWide, Pages, Sections, NamedPeople FROM dash.AccessProfileRole;"
+            : "SELECT ProfileId, Role, OrgWide, Pages, CAST(NULL AS NVARCHAR(1000)), CAST(0 AS BIT) FROM dash.AccessProfileRole;"))
+            .GroupBy(r => r.ProfileId).ToDictionary(g => g.Key, g => AccessProfiles.Normalize(g.Select(r => new ProfileRole(r.Role, r.OrgWide, r.Pages, r.Sections, r.NamedPeople))));
 
     protected override async Task BuildAsync()
     {
@@ -87,15 +92,25 @@ FROM dash.AccessProfile AS p ORDER BY p.Name;");
         var current = editing is null ? [] : Of(editing.ProfileId);
         /* The Workbench's roles only where the Workbench is set up. */
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
-        var offered = Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))).ToList();
+        /* Sections are ticked in their own step. The roles offered are Organization, Admin and the Workbench's work roles,
+           and a persona role the profile gives already (granted before 3.1.0), so it can be kept or taken off. */
+        var offered = Roles.All.Where(r => r != Roles.Sections && (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))
+                                           && (!AccessRules.IsPersona(r) || r == Roles.Organization || current.Any(c => c.Role == r))).ToList();
+        var hasSections = await HasSectionsAsync();
+        var sectionRow = current.FirstOrDefault(c => c.Role == Roles.Sections);
         var form = new StringBuilder();
         if (editing is not null) form.Append(Hidden("id", editing.ProfileId));
-        form.Append(Input("name", "Name", editing?.Name, 30) + Input("description", "What it is for", editing?.Description, 40));
-        form.Append("<fieldset class=\"roles\"><legend>Roles</legend>" + string.Concat(offered.Select(r =>
+        form.Append("<fieldset class=\"step\"><legend>1. Name</legend><div class=\"row\">" + Input("name", "Name", editing?.Name, 30) + Input("description", "What it is for", editing?.Description, 40) + "</div></fieldset>");
+        if (hasSections)
+            form.Append($"<fieldset class=\"step\"><legend>2. Sections it opens{TipFor("section", "Sections it opens")}</legend>" +
+                SectionPicker.Boxes(new HashSet<string>(Sections.Parse(sectionRow?.Sections), StringComparer.OrdinalIgnoreCase), workbenchOn) + "</fieldset>" +
+                $"<fieldset class=\"step\"><legend>3. How much of the organization{TipFor("orgWide", "How much of the organization")}</legend>" + SectionPicker.Scope(sectionRow?.OrgWide == true) + "</fieldset>" +
+                $"<fieldset class=\"step\"><legend>4. Lists that name people{TipFor("named", "Lists that name people")}</legend>" + SectionPicker.Named(sectionRow?.NamedPeople == true) + "</fieldset>");
+        form.Append($"<fieldset class=\"step\"><legend>{(hasSections ? 5 : 2)}. Other roles (optional){TipFor("role", "Other roles")}</legend><fieldset class=\"roles\"><legend>Roles</legend>" + string.Concat(offered.Select(r =>
         {
             var have = current.FirstOrDefault(c => c.Role == r);
             return $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"{(have is not null ? " checked" : "")}/> {E(r)}</label>" +
-                   (AccessRules.IsPersona(r) ? $"<label class=\"check sub\"><input type=\"checkbox\" name=\"wide\" value=\"{E(r)}\"{(have?.OrgWide == true ? " checked" : "")}/> whole organization</label>" : "");
+                   (AccessRules.IsPersona(r) && r != Roles.Organization ? $"<label class=\"check sub\"><input type=\"checkbox\" name=\"wide\" value=\"{E(r)}\"{(have?.OrgWide == true ? " checked" : "")}/> whole organization</label>" : "");
         })) + "</fieldset>");
         if (Viewer.IsAdmin)
         {
@@ -103,13 +118,15 @@ FROM dash.AccessProfile AS p ORDER BY p.Name;");
             form.Append("<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
                 string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"{(pages.Contains(AdminPages.Normalize(ap.Path)) ? " checked" : "")}/> {E(ap.Title)}</label>")) + "</fieldset>");
         }
+        form.Append("</fieldset><fieldset class=\"step\"><legend>Who answers for it, and where to ask for it</legend><div class=\"row\">");
         form.Append(PersonBox("owner", "Owner", editing?.OwnerUpn, 30, FieldTips.Fixed["/admin/profiles|owner"]) + Input("approver", "Approver", editing?.ApproverPrincipal, 30) +
-                    Input("maxDays", "Access lasts (days)", editing?.MaxDays?.ToString(), 6, "number") + Input("requestUrl", "Request link (My Access)", editing?.RequestUrl, 50));
+                    Input("maxDays", "Access lasts (days)", editing?.MaxDays?.ToString(), 6, "number") + Input("requestUrl", "Request link (My Access)", editing?.RequestUrl, 50) + "</div></fieldset>");
         form.Append(Button(editing is null ? "Add the profile" : "Save the profile",
             editing is not null && editing.Holders > 0 ? $"Change {editing.Name} for the {editing.Holders} people and groups who hold it?" : null));
-        Panels.Add(new(editing is null ? "Add a profile" : $"Change {editing.Name}", new HtmlString(Form("save", form.ToString()) +
+        Panels.Add(new(editing is null ? "Add a profile" : $"Change {editing.Name}", new HtmlString(Form("save", form.ToString()).Replace("<form class=\"admin\"", "<form class=\"admin grantform\"") +
             (editing is null ? "" : $"<p class=\"sub\"><a href=\"{E(Request.Path)}\">Add a new one instead</a></p>")),
-            "Tick the roles it gives. Whole organization beside a persona role shows that role's pages for the whole organization to its holders, where otherwise they see their own part. " +
+            (hasSections ? "Tick the sections it opens, as they are in the menu. " + SectionPicker.Help + " " : "") +
+            "The other roles: Organization shows every section its holder has for the whole organization; Admin opens the Admin pages ticked (none ticked: every page). " +
             "The request link is where people ask for the profile, such as its Entra access package in My Access; anyone refused a page the profile opens is shown it." +
             (Viewer.IsAdmin ? "" : " A profile that gives Admin is made and changed by a full administrator.")));
 
@@ -142,7 +159,7 @@ ORDER BY g.ProfileId, g.Principal;");
         }
 
         /* Offered: the bundles held today role by role, and the starters. */
-        var grants = (await ViewerService.GrantsAsync(Db)).Where(g => g.ProfileId is null).Select(g => (g.Principal, new ProfileRole(g.Role, g.OrgWide, g.Pages)));
+        var grants = (await ViewerService.GrantsAsync(Db)).Where(g => g.ProfileId is null).Select(g => (g.Principal, new ProfileRole(g.Role, g.OrgWide, g.Pages, g.Sections, g.NamedPeople)));
         var proposals = AccessProfiles.Proposals(grants, profiles.Select(p => (IEnumerable<ProfileRole>)Of(p.ProfileId)), profiles.Select(p => p.Name),
                 HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On)
             .Where(p => Viewer.IsAdmin || p.Roles.All(r => r.Role != Roles.Admin)).Take(12).ToList();
@@ -165,14 +182,17 @@ ORDER BY g.ProfileId, g.Principal;");
     /// <summary>The field's information icon, for a field the page writes itself.</summary>
     string TipFor(string name, string label) => FieldTip(name, label);
 
-    List<ProfileRole> Posted(string[]? role, string[]? wide, string[]? adminPage)
+    List<ProfileRole> Posted(string[]? role, string[]? wide, string[]? adminPage, string[]? section = null, bool orgWide = false, bool named = false)
     {
         var wideSet = (wide ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var pages = AdminPages.Format(adminPage);
-        /* The Workbench's roles only where it is set up, whatever the form sent. */
+        /* The Workbench's roles and sections only where it is set up, whatever the form sent. */
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
-        var list = AccessProfiles.Normalize((role ?? []).Where(r => workbenchOn || !Roles.IsWorkbench(r)).Select(r => new ProfileRole(r, wideSet.Contains(r), r == Roles.Admin ? pages : null)));
-        if (list.Count == 0) throw new ArgumentException("tick at least one role.");
+        var sections = Sections.Format((section ?? []).Where(k => workbenchOn || Sections.Find(k)?.Workbench != true));
+        var posted = (role ?? []).Where(r => r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))).Select(r => new ProfileRole(r, wideSet.Contains(r), r == Roles.Admin ? pages : null)).ToList();
+        if (sections is not null) posted.Add(new ProfileRole(Roles.Sections, orgWide, null, sections, named));
+        var list = AccessProfiles.Normalize(posted);
+        if (list.Count == 0) throw new ArgumentException("tick at least one section or role.");
         if (list.Any(r => r.Role == Roles.Admin) && !Viewer.IsAdmin) throw new ArgumentException("only a full administrator can make a profile that gives Admin.");
         return list;
     }
@@ -184,22 +204,26 @@ ORDER BY g.ProfileId, g.Principal;");
 
     async Task WriteRolesAsync(int id, List<ProfileRole> roles)
     {
+        var hasSections = await HasSectionsAsync();
+        if (!hasSections && roles.Any(r => r.Role == Roles.Sections)) throw new ArgumentException("a profile's sections need the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard.");
         await Db.ExecuteAsync("DELETE FROM dash.AccessProfileRole WHERE ProfileId = @id;", new { id });
         foreach (var r in roles)
-            await Db.ExecuteAsync("INSERT INTO dash.AccessProfileRole (ProfileId, Role, OrgWide, Pages) VALUES (@id, @role, @wide, @pages);",
-                new { id, role = r.Role, wide = r.OrgWide, pages = r.Pages });
+            await Db.ExecuteAsync(hasSections
+                    ? "INSERT INTO dash.AccessProfileRole (ProfileId, Role, OrgWide, Pages, Sections, NamedPeople) VALUES (@id, @role, @wide, @pages, @sections, @named);"
+                    : "INSERT INTO dash.AccessProfileRole (ProfileId, Role, OrgWide, Pages) VALUES (@id, @role, @wide, @pages);",
+                new { id, role = r.Role, wide = r.OrgWide, pages = r.Pages, sections = r.Sections, named = r.NamedPeople });
     }
 
     async Task<bool> GivesAdminAsync(int id) => await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AccessProfileRole WHERE ProfileId = @id AND Role = 'Admin';", new { id }) > 0;
 
     public Task<IActionResult> OnPostSaveAsync(int? id, string? name, string? description, string[]? role, string[]? wide, string[]? adminPage,
-        string? owner, string? approver, int? maxDays, string? requestUrl) => AdminChangeAsync(async () =>
+        string? owner, string? approver, int? maxDays, string? requestUrl, string[]? section = null, bool orgWide = false, bool named = false) => AdminChangeAsync(async () =>
     {
         await NeedInstalledAsync();
         name = name?.Trim();
         if (string.IsNullOrEmpty(name) || name.Length > 100) throw new ArgumentException("give the profile a name of up to 100 characters.");
         if (maxDays is < 1 or > 3650) throw new ArgumentException("access lasts 1 to 3,650 days, or leave it empty.");
-        var roles = Posted(role, wide, adminPage);
+        var roles = Posted(role, wide, adminPage, section, orgWide, named);
         var url = AccessProfiles.RequestUrl(requestUrl);
         static string? Cut(string? s, int n) => string.IsNullOrWhiteSpace(s) ? null : s.Trim()[..Math.Min(n, s.Trim().Length)];
         var by = Viewer.Upn ?? Viewer.WindowsName;
@@ -243,7 +267,7 @@ OUTPUT inserted.ProfileId VALUES (@name, @description, @owner, @approver, @maxDa
             var types = (await Db.QueryAsync<(string Principal, string Type, string? Name)>(
                 "SELECT Principal, MAX(PrincipalType), MAX(PrincipalName) FROM dash.RoleGrant GROUP BY Principal;")).ToDictionary(x => x.Principal, StringComparer.OrdinalIgnoreCase);
             foreach (var who in all.GroupBy(g => g.Principal, StringComparer.OrdinalIgnoreCase)
-                         .Where(g => AccessProfiles.Key(g.Select(x => new ProfileRole(x.Role, x.OrgWide, x.Pages))) == want).Select(g => g.Key))
+                         .Where(g => AccessProfiles.Key(g.Select(x => new ProfileRole(x.Role, x.OrgWide, x.Pages, x.Sections, x.NamedPeople))) == want).Select(g => g.Key))
             {
                 var t = types.GetValueOrDefault(who);
                 granted += await Db.ExecuteAsync(@"

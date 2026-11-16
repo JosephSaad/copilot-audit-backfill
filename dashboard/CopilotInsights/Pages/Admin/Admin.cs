@@ -348,7 +348,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
 public sealed class AccessModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Access";
-    public override string Intro => "Who sees what. The dashboard can be limited to the top levels of the organization. Levels 1 and 2 below the top see the whole organization; everyone else their own part of it. Roles add whole-organization access or named detail.";
+    public override string Intro => "Who sees which sections, and how much of the organization. Every section of the menu is granted here: a section no grant opens for a person is not in their menu and its reports are refused, whatever their level. " +
+        "Levels decide how much a section shows: levels 1 and 2 below the top see the whole organization, everyone else their own part of it, unless a grant says the whole organization.";
 
     static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays"];
 
@@ -365,8 +366,13 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         public string? Pages { get; set; }
         public bool OrgWide { get; set; }
         public string? PrincipalName { get; set; }
+        public string? Sections { get; set; }
+        public bool NamedPeople { get; set; }
         public int TotalRows { get; set; }
     }
+
+    /// <summary>Whether this database has 3.1.0's section grants (dash.RoleGrant.Sections).</summary>
+    async Task<bool> HasSectionsAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Sections') IS NULL THEN 0 ELSE 1 END;") == 1;
 
     /// <summary>Whether dash.RoleGrant has the Pages column that limits an Admin grant to some pages (added by the schema script).</summary>
     async Task<bool> HasPagesAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN 0 ELSE 1 END;") == 1;
@@ -416,7 +422,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             $"<label>Open to<select name=\"MaxViewerLevel\">" +
             string.Concat(choices.Select(c => $"<option value=\"{c.Value}\"{(c.Value == max.ToString() ? " selected" : "")}>{E(c.Label)}</option>")) + "</select></label>" +
             Button("Save", "Change who can open the dashboard? It applies from the next page, export and data API call, on every web server, and to the manager digests within a minute."))),
-            $"Level 1 is the top of the organization, level 2 reports to them, and so on. Whatever their level, anyone granted a role other than Admin (Grant a role, below) is let in too: " +
+            $"Level 1 is the top of the organization, level 2 reports to them, and so on. Levels open no section: within them, a person sees only the sections granted to them (Grant access, below), and nothing until one is. Whatever their level, anyone granted a section or a role other than Admin is let in too: " +
             $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages (one limited to some pages, those), so a wrong choice can be put right here. " +
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
             (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
@@ -438,28 +444,45 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         /* Admin can be limited to some of the Admin pages. Only a full administrator gives, limits or removes
            Admin, so someone limited to this page cannot make themselves, or anyone, more than they are. */
         var hasPages = await HasPagesAsync();
-        /* The Workbench's roles only where the Workbench is set up. */
+        /* The Workbench's roles and sections only where the Workbench is set up. */
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
-        var offered = Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))).ToList();
+        /* Sections are ticked in their own step; the roles left are Organization, Admin and the Workbench's work roles. A
+           persona role granted before is kept and listed, and no longer offered: a section with named people gives it. */
+        var offered = Roles.All.Where(r => r == Roles.Organization || (r == Roles.Admin && Viewer.IsAdmin) || (workbenchOn && Roles.IsWorkbench(r))).ToList();
         var pagePicker = !Viewer.IsAdmin || !hasPages ? "" :
             "<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
             string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"/> {E(ap.Title)}</label>")) + "</fieldset>";
         var has28 = await Has28Async();
+        var has31 = await HasSectionsAsync();
         var entraGroups = HttpContext.RequestServices.GetRequiredService<EntraGraph>().Available && has28;
-        Panels.Add(new("Grant a role", new HtmlString(Form("grant",
-            PersonBox("principal", "User (name or UPN) or group (DOMAIN\\Group)", null, 34) +
-            Select("type", "Type", ["User", "Group"], "User") +
-            (entraGroups ? EntraGroupBox() : "") +
-            "<fieldset class=\"roles\"><legend>Roles</legend>" +
-            string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
-            (has28 ? $"<label class=\"check\"><input type=\"checkbox\" name=\"orgWide\" value=\"true\"/> Across the whole organization{FieldTip("orgWide", "Across the whole organization")}</label>" : "") +
-            pagePicker +
-            Input("note", "Why (optional)", null, 30) + Button("Grant")) +
-            "<ul class=\"sub\">" + string.Concat(offered.Select(r => $"<li><b>{E(r)}</b>: {E(Roles.Describe[r])}</li>")) + "</ul>"),
-            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale. " +
-            "To give the same bundle to many people, make it an access profile (Admin › Access profiles) and grant that to a group." +
-            (has28 ? " Across the whole organization: the persona roles ticked (Adoption, Licensing, Security, Compliance, Agents, Enablement) show their own pages for the whole organization, " +
-                     "where otherwise a holder sees their own part of it. It widens nothing else; the minimum group size and privacy mode still apply. Granting a role held already sets this box as ticked now." : "") +
+        /* ?edit= a person or group opens their section grant, ready to change; ?section= ticks a section (from Who loses access). */
+        var edit = Request.Query["edit"].FirstOrDefault()?.Trim();
+        var editing = string.IsNullOrEmpty(edit) || !has31 ? null : (await Db.QueryAsync<GrantRow>(
+            "SELECT GrantId, Principal, PrincipalType, Role, Note, GrantedBy, GrantedUtc, PrincipalName, OrgWide, Sections, NamedPeople FROM dash.RoleGrant WHERE Principal = @edit AND Role = 'Sections';",
+            new { edit })).FirstOrDefault();
+        var ticked = new HashSet<string>(Sections.Parse(editing?.Sections), StringComparer.OrdinalIgnoreCase);
+        if (Request.Query["section"].FirstOrDefault() is { } pre && Sections.Find(pre) is { } preset) ticked.Add(preset.Key);
+        var profiles = await Db.QueryAsync<(int Id, string Name)>("IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL SELECT ProfileId, Name FROM dash.AccessProfile ORDER BY Name;");
+        var step = 0;
+        string Step(string legend, string tipName, string body) =>
+            $"<fieldset class=\"step\"><legend>{++step}. {E(legend)}{FieldTip(tipName, legend)}</legend>{body}</fieldset>";
+        var grantForm =
+            Step("Who", "principal", "<div class=\"row\">" + PersonBox("principal", "Person (name or UPN) or group (DOMAIN\\Group)", editing?.Principal ?? edit, 34) +
+                Select("type", "Type", ["User", "Group"], editing?.PrincipalType ?? "Group") + (entraGroups ? EntraGroupBox() : "") + "</div>") +
+            (profiles.Count == 0 ? "" : Step("Start from a profile (optional)", "profile", "<div class=\"row\">" +
+                Select("profile", "Profile", new List<(string Value, string Label)> { ("", "None: tick the sections below") }.Concat(profiles.Select(p => (p.Id.ToString(), p.Name))), null) + "</div>")) +
+            (has31 ? Step("Sections they see", "section", SectionPicker.Boxes(ticked, workbenchOn)) +
+                     Step("How much of the organization", "orgWide", SectionPicker.Scope(editing?.OrgWide == true)) +
+                     Step("Lists that name people", "named", SectionPicker.Named(editing?.NamedPeople == true)) : "") +
+            Step("Other roles (optional)", "role", "<fieldset class=\"roles\"><legend>Roles</legend>" +
+                string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}{((HtmlString)InfoTip.Icon(Roles.Describe[r], r)).Value}</label>")) + "</fieldset>" + pagePicker) +
+            "<div class=\"row\">" + Input("note", "Why (optional)", editing?.Note, 30) + Button(editing is null ? "Grant access" : "Save the change") + "</div>";
+        Panels.Add(new(editing is null ? "Grant access" : $"Change {editing.PrincipalName ?? editing.Principal}'s sections",
+            new HtmlString("<div id=\"grant\">" + Form("grant", grantForm).Replace("<form class=\"admin\"", "<form class=\"admin grantform\"") +
+                (editing is null ? "" : $"<p class=\"sub\"><a href=\"{E(Request.Path)}#grant\">Grant someone else instead</a></p>") + "</div>"),
+            (has31 ? SectionPicker.Help + " Granting sections again to someone who has them replaces their choice, and the message says what it was. " :
+                     "Sections are granted once this database has the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard. ") +
+            "A profile gives the same bundle to many people: make it in Admin › Access profiles and grant it to a group. A group grant follows AD membership at sign-in, so it is the easiest to run at scale." +
             (entraGroups ? " An Entra group is checked through Microsoft Graph at sign-in, nested groups included, and is kept by its object ID, so renaming it changes nothing." : "") +
             (pagePicker != "" ? " With Admin, tick the Admin pages to limit it to those: the person sees and changes only them. With none ticked, Admin is every page. " +
                                 "Granting Admin again to someone who holds it replaces their pages." : "") +
@@ -483,7 +506,7 @@ GROUP BY g.Principal
         pg.Total = principals.FirstOrDefault().TotalRows;
         var list = principals.Select(x => x.Principal).ToList();
         var grants = list.Count == 0 ? [] : await Db.QueryAsync<GrantRow>(@"
-SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, COALESCE(p.DisplayName" + (has28 ? ", g.PrincipalName" : "") + @") AS DisplayName" + (hasPages ? ", g.Pages" : "") + (has28 ? ", g.OrgWide, g.PrincipalName" : "") + @"
+SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, COALESCE(p.DisplayName" + (has28 ? ", g.PrincipalName" : "") + @") AS DisplayName" + (hasPages ? ", g.Pages" : "") + (has28 ? ", g.OrgWide, g.PrincipalName" : "") + (has31 ? ", g.Sections, g.NamedPeople" : "") + @"
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
         var t = new Table
@@ -499,7 +522,10 @@ WHERE g.Principal IN @list;", new { list });
             var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
-                $"<span class=\"grant\">{E(g.Role)}" + (g.OrgWide ? " <small>(whole organization)</small>" : "") +
+                $"<span class=\"grant\">{E(g.Role)}" +
+                (g.Role == Roles.Sections ? $" <small>({E(Sections.Names(g.Sections))}{(g.OrgWide ? "; whole organization" : "; their own team")}{(g.NamedPeople ? "; named people" : "")})</small>" +
+                    $" <a class=\"btn quiet\" href=\"{E(Request.Path + "?edit=" + Uri.EscapeDataString(g.Principal))}#grant\" title=\"{E($"Change the sections of {g.Principal}")}\">Change</a>"
+                  : g.OrgWide ? " <small>(whole organization)</small>" : "") +
                 (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $" <small>({E(AdminPages.Names(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Admin && !Viewer.IsAdmin ? "" :
                     Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}"))) + "</span>")) +
@@ -577,13 +603,38 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
             if (!AccessRules.MayUseDashboard(p.Level, roles, max))
                 body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}, directly, through a profile or through a group listed below.</p>");
 
+            /* Each section of the menu: whether they see it, how much of it, its named lists, and the grants behind it. */
+            var gives = AccessRules.Resolve(held.Select(x => x.Grant));
+            var workbenchOnHere = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+            var pageRoles = global::Governance.Web.Infrastructure.PrincipalLoader.PageRoles(gives.Roles, gives.Sections);
+            string Source((ViewerService.GrantRow Grant, string? Via) x) =>
+                (x.Grant.ProfileId is int pid ? $"the profile {profileNames.GetValueOrDefault(pid, $"{pid}")}"
+                 : x.Grant.Role == Roles.Sections ? "a section grant" : $"the {x.Grant.Role} role") + (x.Via is "" or null ? "" : $" through {Named(x.Via)}");
+            var st = new Table { Headers = ["Section", "Sees it", "How much", "Named people", "Because of"], Sortable = false, Zone = Zone };
+            foreach (var s in Sections.All.Where(s => workbenchOnHere || !s.Workbench))
+            {
+                var by = held.Where(x => (x.Grant.Role == Roles.Sections && Sections.Parse(x.Grant.Sections).Contains(s.Key)) || Sections.OfRole(x.Grant.Role).Contains(s.Key)).Select(Source).ToList();
+                var sees = gives.Sections.Contains(s.Key);
+                if (s.Workbench && !sees && (s.Key == Sections.WorkbenchOwnership ? pageRoles.Contains(global::Governance.Domain.AppRoles.User) : pageRoles.Contains(global::Governance.Domain.AppRoles.Registry)))
+                {
+                    sees = true;
+                    by.Add("a Governance role or Admin, which open it");
+                }
+                st.Rows.Add([s.Name, sees ? "Yes" : "No",
+                    !sees ? null : s.Workbench ? "As their Workbench roles allow" : org || gives.OrgWideSections.Contains(s.Key) ? "Whole organization" : "Their own part",
+                    !sees || s.NamedRole is null ? null : gives.Roles.Contains(s.NamedRole) && !PrivacyMode ? "Yes" : "No",
+                    by.Count == 0 ? "No grant opens it" : string.Join("; ", by.Distinct())]);
+            }
+            body.Append("<h3>Sections they see</h3>" + st.Render().Value +
+                (gives.Sections.Count == 0 && !roles.Any(Roles.IsWorkbench) ? "<p><b>No section is gives to them</b>: their start page says they have no access yet, whatever their level.</p>" : ""));
+
             var direct = held.Where(x => x.Via == "" && x.Grant.ProfileId is null).Select(x => RoleText(x.Grant)).Distinct().ToList();
-            body.Append($"<p>Roles granted to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct)))}.</p>");
+            body.Append($"<p>Roles gives to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct)))}.</p>");
             var viaProfiles = held.Where(x => x.Grant.ProfileId is not null).GroupBy(x => (x.Grant.ProfileId!.Value, x.Via!)).ToList();
             if (viaProfiles.Count > 0)
                 body.Append("<p>Through access profiles:</p><ul>" + string.Concat(viaProfiles.Select(g =>
                     $"<li><b>{E(profileNames.GetValueOrDefault(g.Key.Item1, $"profile {g.Key.Item1}"))}</b>: {E(string.Join(", ", g.Select(x => RoleText(x.Grant))))}" +
-                    (g.Key.Item2 == "" ? ", granted to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
+                    (g.Key.Item2 == "" ? ", gives to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
             var viaGroups = held.Where(x => x.Via != "" && x.Grant.ProfileId is null).GroupBy(x => x.Via!, StringComparer.OrdinalIgnoreCase).ToList();
             body.Append("<p>Roles from groups" + (membersLoaded && loadedUtc is { } at ? $" (AD groups as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
                 (viaGroups.Count == 0 ? "none. " : "</p><ul>" + string.Concat(viaGroups.Select(g =>
@@ -592,7 +643,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
             if (!membersLoaded && all.Any(g => g.Principal.Contains('\\')))
                 body.Append("<p>AD groups: not known here. Group members are recorded by the nightly directory load (tools\\Export-UsersWithHierarchy-ToSql.ps1), which has not run against this database; Windows still applies group grants when they sign in.</p>");
             if (unexpanded.Count > 0)
-                body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: granted since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
+                body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: gives since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
             if (entraIds.Count > 0 && !graph.Available)
                 body.Append("<p>Entra groups: not checked. The app registration in Insights:Entra is not set up to call Microsoft Graph (docs/ENTRA-SIGN-IN.md).</p>");
             else if (entraIds.Count > 0 && personOid is null)
@@ -602,15 +653,93 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
                 body.Append($"<p>Their Admin role covers: {E(adminGrants.Any(pg => !AdminPages.Limits(pg)) ? AdminPages.Names(null) : AdminPages.Names(string.Join(",", adminGrants.SelectMany(AdminPages.Parse))))}.</p>");
             /* The Governance Workbench, when it is set up: the pages these roles open there, and its own roles. */
             if (HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On)
-                body.Append(await global::Governance.Web.Infrastructure.WorkbenchAccess.DescribeAsync(HttpContext.RequestServices, upn, roles, HttpContext.RequestAborted));
+                body.Append(await global::Governance.Web.Infrastructure.WorkbenchAccess.DescribeAsync(HttpContext.RequestServices, upn, roles, HttpContext.RequestAborted, gives.Sections));
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
 
         var lt = new Table { Headers = ["Level", "People", "Sees"], Numeric = new HashSet<int> { 1 }, Sortable = false };
         foreach (var l in levels)
             lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N,
-                         !AccessRules.MayUseDashboard(l.Level, new HashSet<string>(), max) ? "Nothing, unless granted a role" : l.Level is 1 or 2 ? "Whole organization" : "Their own part"]);
+                         !AccessRules.MayUseDashboard(l.Level, new HashSet<string>(), max) ? "Nothing, unless granted" : l.Level is 1 or 2 ? "The sections granted to them, for the whole organization" : "The sections granted to them, for their own part"]);
         Panels.Add(new("People by level", lt.Render(), null, "half"));
+        await WhoLosesAccessAsync(max);
+    }
+
+    /// <summary>
+    /// Who loses access: the people who saw a section before 3.1.0 without a grant (Leadership, Regions, People, App owners
+    /// and Governance were open to everyone the dashboard let in, and the Workbench's two everyday sections to everyone
+    /// signed in) and whom no grant opens it to now. Worked out on request, from the grants, the directory and the AD
+    /// group members the directory load records; grants to Entra groups are not counted here.
+    /// </summary>
+    async Task WhoLosesAccessAsync(int max)
+    {
+        var link = $"<a class=\"btn quiet\" href=\"{E(Request.Path + "?lose=1")}#lose\">Work out who loses access</a>";
+        if (Request.Query["lose"].FirstOrDefault() != "1")
+        {
+            Panels.Add(new("Who loses access", new HtmlString("<div id=\"lose\">" + link + "</div>"),
+                "Before 3.1.0, Leadership, Regions, People, App owners and Governance were open to everyone the dashboard let in, and the Workbench's Ownership and approvals and Ownership registry to everyone signed in. " +
+                "Now every section needs a grant. This works out, section by section, who saw one before and has no grant that opens it now, so you can grant it to the groups that need it."));
+            return;
+        }
+        var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
+        var map = await GrantMap.LoadAsync(Db);
+        var people = await Db.QueryAsync<(string Upn, string? DisplayName, byte? Level)>("SELECT Upn, DisplayName, Level FROM dash.Person WHERE AccountEnabled = 1;");
+        string[] openBefore = workbenchOn
+            ? [Sections.Leadership, Sections.Regions, Sections.People, Sections.AppOwners, Sections.Governance, Sections.WorkbenchOwnership, Sections.WorkbenchRegistry]
+            : [Sections.Leadership, Sections.Regions, Sections.People, Sections.AppOwners, Sections.Governance];
+        var lose = openBefore.ToDictionary(k => k, _ => new List<(string Upn, string? Name, byte? Level)>());
+        foreach (var p in people)
+        {
+            var a = map.For(p.Upn);
+            var admittedBefore = max <= 0 || p.Level is { } l && l >= 1 && l <= max
+                                 || a.Roles.Any(r => r != Roles.Admin && r != Roles.Sections && !Roles.IsWorkbench(r));
+            var pr = global::Governance.Web.Infrastructure.PrincipalLoader.PageRoles(a.Roles, a.Sections);
+            foreach (var k in openBefore)
+            {
+                var wb = Sections.Find(k)!.Workbench;
+                var sawBefore = wb || admittedBefore;
+                var seesNow = a.Sections.Contains(k) || (k == Sections.WorkbenchOwnership && pr.Contains(global::Governance.Domain.AppRoles.User))
+                              || (k == Sections.WorkbenchRegistry && pr.Contains(global::Governance.Domain.AppRoles.Registry));
+                if (sawBefore && !seesNow) lose[k].Add((p.Upn, p.DisplayName, p.Level));
+            }
+        }
+        var t = new Table { Headers = ["Section", "People who lose it", "", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
+        foreach (var k in openBefore)
+            t.Rows.Add([Sections.NameOf(k), lose[k].Count,
+                lose[k].Count == 0 ? null : new HtmlString($"<a href=\"{E(Request.Path + "?lose=1&losesection=" + k)}#lose\">List them</a>"),
+                new HtmlString($"<a class=\"btn quiet\" href=\"{E(Request.Path + "?section=" + k)}#grant\">Grant it to a group</a>")]);
+        var body = new StringBuilder("<div id=\"lose\">" + t.Render().Value);
+        if (Request.Query["losesection"].FirstOrDefault() is { } ls && lose.TryGetValue(ls, out var list) && list.Count > 0)
+        {
+            const int Shown = 5000;
+            var pt = new Table { Headers = ["Person", "Name", "Level"], Numeric = new HashSet<int> { 2 } };
+            foreach (var x in list.OrderBy(x => x.Level ?? 99).ThenBy(x => x.Name).Take(Shown))
+                pt.Rows.Add([x.Upn, PrivacyMode ? null : x.Name, x.Level is { } lv ? (int)lv : null]);
+            body.Append($"<h3>{E(Sections.NameOf(ls))}: who loses it</h3>" + pt.Render().Value +
+                (list.Count > Shown ? $"<p class=\"sub\">The first {Shown:#,0} of {list.Count:#,0}, top of the organization first.</p>" : ""));
+        }
+
+        /* Workbench work without the section it is done in: approvers and seat admins whose task emails would link to refused pages. */
+        if (workbenchOn)
+        {
+            var workers = await global::Governance.Web.Infrastructure.WorkbenchAccess.PeopleWithWorkAsync(HttpContext.RequestServices, HttpContext.RequestAborted);
+            if (workers is { } w)
+            {
+                var stranded = w.Where(u => !global::Governance.Web.Infrastructure.PrincipalLoader.PageRoles(map.For(u).Roles, map.For(u).Sections).Contains(global::Governance.Domain.AppRoles.User))
+                                .Order(StringComparer.OrdinalIgnoreCase).ToList();
+                body.Append(stranded.Count == 0
+                    ? "<p>Everyone with work in the Workbench (a RACI role, seat admin or a delegation) has Ownership and approvals.</p>"
+                    : $"<div class=\"denied\"><b>Workbench work without Ownership and approvals: {stranded.Count:#,0}.</b> They hold a RACI role, seat admin or a delegation, " +
+                      $"so their tasks arrive by email, but the pages those emails open would be refused: {E(string.Join(", ", stranded.Take(20)))}{(stranded.Count > 20 ? ", and more" : "")}. " +
+                      $"<a href=\"{E(Request.Path + "?section=" + Sections.WorkbenchOwnership)}#grant\">Grant Ownership and approvals</a> to the group they are in.</div>");
+            }
+            else body.Append("<p>Workbench work: not checked; the Workbench database did not answer.</p>");
+        }
+        body.Append("</div>");
+        Panels.Add(new("Who loses access", new HtmlString(body.ToString()),
+            "Counted from the grants, the directory and the AD group members the nightly directory load records" +
+            (map.EntraGroups.Count > 0 ? "; grants to Entra groups are not counted here (their members are checked at sign-in), so someone in one may be listed and still keep the section" : "") +
+            ". Before 3.1.0, the dashboard let in " + (max <= 0 ? "everyone in the directory" : $"levels 1 to {max} and anyone granted a role") + ". Grant a section to the groups that need it; the list changes from the next look."));
     }
 
     /// <summary>The time zone box: the default first, then every zone this server knows, by its offset.</summary>
@@ -687,7 +816,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         return $"Left off revoke and train lists: {Say(before)} before, {Say(ProtectedLevels)} now.";
     });
 
-    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note, bool orgWide = false, string? entraGroup = null) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note, bool orgWide = false, string? entraGroup = null,
+        string[]? section = null, bool named = false, string? profile = null) => AdminChangeAsync(async () =>
     {
         /* An Entra group chosen in its own box is the grant's group, whatever else was typed. */
         if (!string.IsNullOrWhiteSpace(entraGroup)) (principal, type) = (entraGroup, "Group");
@@ -695,8 +825,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN, DOMAIN\\Group or an Entra group.");
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
-        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
-        if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
+        /* Sections are their own grant; Sections and Restricted are never ticked as roles. */
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
+        var sections = Sections.Format((section ?? []).Where(k => workbenchOn || Sections.Find(k)?.Workbench != true));
+        int? profileId = int.TryParse(profile, out var pid) ? pid : null;
+        if (roles.Count == 0 && sections is null && profileId is null) throw new ArgumentException("tick at least one section or role, or choose a profile.");
+        if (sections is not null && !await HasSectionsAsync()) throw new ArgumentException("granting sections needs the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         var (objectId, groupName) = type == "Group" && !principal.Contains('\\') ? await EntraGroupAsync(principal) : ((Guid?)null, (string?)null);
         if (objectId is { } oid) principal = EntraPrincipal.Of(oid);
@@ -743,11 +877,56 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
         var had = roles.Except(added).Where(r => r != Roles.Admin || changed == "").Where(r => !widened.Any(w => w.StartsWith(r + " ", StringComparison.Ordinal))).ToList();
         var who = groupName is null ? principal : $"{groupName} ({principal})";
         var wideAdded = added.Where(r => orgWide && AccessRules.IsPersona(r)).ToList();
+
+        /* The sections: one grant a person or group, its choice replaced when granted again, and the message says what it was. */
+        var sectionsSaid = "";
+        if (sections is not null)
+        {
+            static string Say(string? keys, bool wide, bool withNames) =>
+                $"{Sections.Names(keys)} ({(wide ? "whole organization" : "their own team")}{(withNames ? ", with named people" : "")})";
+            var before = (await Db.QueryAsync<(string? Sections, bool OrgWide, bool NamedPeople)>(
+                "SELECT Sections, OrgWide, NamedPeople FROM dash.RoleGrant WHERE Principal = @principal AND Role = 'Sections';", new { principal })).ToList();
+            var sectionNote = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)];
+            if (before.Count == 0)
+            {
+                await Db.ExecuteAsync(@"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, PrincipalObjectId, PrincipalName, OrgWide, Sections, NamedPeople)
+VALUES (@principal, @type, 'Sections', @sectionNote, @by, @objectId, @groupName, @orgWide, @sections, @named);",
+                    new { principal, type, sectionNote, by, objectId, groupName, orgWide, sections, named });
+                sectionsSaid = $" Granted the sections {Say(sections, orgWide, named)} to {type.ToLowerInvariant()} {who}.";
+            }
+            else if (before[0].Sections == sections && before[0].OrgWide == orgWide && before[0].NamedPeople == named)
+                sectionsSaid = $" {who} already had the sections {Say(sections, orgWide, named)}.";
+            else
+            {
+                await Db.ExecuteAsync(@"
+UPDATE dash.RoleGrant SET Sections = @sections, OrgWide = @orgWide, NamedPeople = @named, Note = COALESCE(@sectionNote, Note), GrantedBy = @by, GrantedUtc = SYSUTCDATETIME()
+WHERE Principal = @principal AND Role = 'Sections';", new { principal, sections, orgWide, named, sectionNote, by });
+                sectionsSaid = $" {who}'s sections were {Say(before[0].Sections, before[0].OrgWide, before[0].NamedPeople)}; they are now {Say(sections, orgWide, named)}.";
+            }
+        }
+
+        /* A profile chosen in step 2: granted as Admin › Access profiles grants it. */
+        var profileSaid = "";
+        if (profileId is { } pr)
+        {
+            var name = await Db.ScalarAsync<string?>("IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL SELECT Name FROM dash.AccessProfile WHERE ProfileId = @pr;", new { pr })
+                       ?? throw new ArgumentException("that profile is gone.");
+            if (await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AccessProfileRole WHERE ProfileId = @pr AND Role = 'Admin';", new { pr }) > 0 && !Viewer.IsAdmin)
+                throw new ArgumentException("only a full administrator can grant a profile that gives Admin.");
+            var n = await Db.ExecuteAsync(@"
+IF NOT EXISTS (SELECT 1 FROM dash.ProfileGrant WHERE Principal = @principal AND ProfileId = @pr)
+    INSERT INTO dash.ProfileGrant (Principal, PrincipalType, PrincipalObjectId, PrincipalName, ProfileId, Note, GrantedBy)
+    VALUES (@principal, @type, @objectId, @groupName, @pr, @note, @by);",
+                new { principal, type, objectId, groupName, pr, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by });
+            profileSaid = n > 0 ? $" Granted the profile {name} to {who}." : $" {who} already holds the profile {name}.";
+        }
+
         return ((added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {who}" +
                     (wideAdded.Count > 0 ? $", {string.Join(", ", wideAdded)} across the whole organization" : "") +
                     (added.Contains(Roles.Admin) && pages is not null ? $", with Admin limited to: {AdminPages.Names(pages)}." : ".") : "")
              + (widened.Count > 0 ? $" {who}: {string.Join("; ", widened)}." : "")
-             + (had.Count > 0 ? $" {who} already had {string.Join(", ", had)}." : "") + changed).Trim();
+             + (had.Count > 0 ? $" {who} already had {string.Join(", ", had)}." : "") + changed + sectionsSaid + profileSaid).Trim();
     });
 
     /// <summary>Whether this database has 2.8.0's grant columns (the whole organization, Entra groups).</summary>

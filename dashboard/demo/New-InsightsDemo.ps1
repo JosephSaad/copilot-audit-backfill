@@ -119,6 +119,9 @@ try {
     }
     Step 'Dashboard settings, names and demo roles' {
         $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
+        # Every section of the menu is granted: the demo's administrators see them all, for the whole organization, with named people.
+        $allSections = 'leadership,adoption,licensing,security,compliance,agents,enablement,forecasting,regions,people,app-owners,governance,wb-ownership,wb-registry'
+        $adminSections = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Sections', N'Demo administrator: every section', N'demo', 1, N'$allSections', 1)" }) -join ",`n"
         Invoke-Batch $conn @"
 UPDATE dash.Setting SET Value = N'avery.morgan@contoso.com', UpdatedBy = N'demo' WHERE Name = 'OrgTopUpn';
 MERGE dash.SensitivityLabel AS t
@@ -141,6 +144,7 @@ FROM (VALUES ('Licensing', N'Procurement'), ('Security', N'Security'), ('Complia
 JOIN audit.UserDirectory AS d ON d.Department = v.Dept AND d.OrgDepth = 2
 WHERE NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = d.UserPrincipalName AND g.Role = v.Role);
 $(if ($admins) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES $admins;" })
+$(if ($adminSections) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, OrgWide, Sections, NamedPeople) VALUES $adminSections;" })
 "@
     }
     Step 'Agent workbook load and authoring records' {

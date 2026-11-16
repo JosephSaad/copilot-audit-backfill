@@ -100,13 +100,18 @@ public class AdminPagesTests
     public void A_limited_grant_adds_pages_and_not_the_admin_role()
     {
         var viewer = Source.Read("Infrastructure", "Viewer.cs");
-        var roles = viewer[viewer.IndexOf(" RolesForAsync(string? upn", StringComparison.Ordinal)..viewer.IndexOf("bool IsBootstrapAdmin", StringComparison.Ordinal)];
+        /* Since 3.1.0 the grants are read in AccessRules.Resolve, pure, which sign-in and the access check both use. */
+        var roles = viewer[viewer.IndexOf("public static GrantedAccess Resolve(", StringComparison.Ordinal)..viewer.IndexOf("public static bool IsPersona(", StringComparison.Ordinal)];
         Assert.Contains("AdminPages.Limits(g.Pages)", roles);
-        Assert.Contains("paths.UnionWith(", roles);
+        Assert.Contains("a.Paths.UnionWith(", roles);
+        Assert.Contains("AccessRules.Resolve(", viewer[viewer.IndexOf(" RolesForAsync(string? upn", StringComparison.Ordinal)..]);
         /* A database from before 2.6.4 has no Pages column: every Admin grant there is the whole role, and nothing fails. */
         Assert.Contains("CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000))'", viewer);
         /* A whole grant beside a limited one wins. */
         Assert.Contains("AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths", viewer);
+        var limited = AccessRules.Resolve([new ViewerService.GrantRow("a", "User", Roles.Admin, "/admin/health", false, null)]);
+        Assert.DoesNotContain(Roles.Admin, limited.Roles);
+        Assert.Contains("/admin/health", limited.Paths);
     }
 
     [Fact]
@@ -118,7 +123,7 @@ public class AdminPagesTests
         Assert.Contains("only a full administrator can remove Admin, and someone selected holds it.", page);
         Assert.Contains("you cannot limit your own Admin role", page);
         /* The Admin tick box is offered to full administrators only. */
-        Assert.Contains("Roles.All.Where(r => (Viewer.IsAdmin || r != Roles.Admin)", page);
+        Assert.Contains("(r == Roles.Admin && Viewer.IsAdmin)", page);
     }
 
     [Fact]

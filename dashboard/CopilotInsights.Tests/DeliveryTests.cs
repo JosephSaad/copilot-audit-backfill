@@ -148,7 +148,8 @@ public class MarkerTests
 /// <summary>The person record is the one role page privacy mode allows.</summary>
 public class PrivacyNavTests
 {
-    static Viewer Compliance() => new() { WindowsName = "C\\x", Upn = "c@contoso.com", InDirectory = true, Roles = new HashSet<string>([Roles.Compliance, Roles.Security]) };
+    static Viewer Compliance() => new() { WindowsName = "C\\x", Upn = "c@contoso.com", InDirectory = true, Roles = new HashSet<string>([Roles.Compliance, Roles.Security]),
+                                           SectionKeys = Granted.Sections([Roles.Compliance, Roles.Security]) };
 
     [Fact]
     public void Privacy_mode_keeps_the_person_record_and_hides_other_named_pages()

@@ -24,6 +24,31 @@ public static class WorkbenchAccess
         return list;
     }
 
+    /// <summary>
+    /// The people with work in the Workbench today, by UPN: a RACI or seat role in force, or an active delegation. Their
+    /// tasks arrive by email and open the Ownership and approvals pages. Null when the Workbench database does not answer.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>?> PeopleWithWorkAsync(IServiceProvider services, CancellationToken ct)
+    {
+        try
+        {
+            await using var c = await services.GetRequiredService<Db>().OpenAsync(0, true, ct);
+            var today = DateTime.UtcNow.Date;
+            return (await c.QueryAsync<string>(
+                """
+                SELECT DISTINCT p.UserPrincipalName FROM sec.Person p
+                WHERE p.AccountEnabled = 1 AND p.IsSynthetic = 0 AND p.UserPrincipalName IS NOT NULL
+                  AND (EXISTS (SELECT 1 FROM sec.RoleAssignment ra WHERE ra.PersonId = p.PersonId AND ra.EffectiveFrom <= @today AND (ra.EffectiveTo IS NULL OR ra.EffectiveTo >= @today))
+                       OR EXISTS (SELECT 1 FROM sec.Delegation d WHERE d.DelegatePersonId = p.PersonId AND d.Status = 'ACTIVE' AND d.EffectiveFrom <= @today AND (d.EffectiveTo IS NULL OR d.EffectiveTo >= @today)))
+                """, new { today })).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            services.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(WorkbenchAccess)).LogWarning(ex, "The people with Workbench work could not be read.");
+            return null;
+        }
+    }
+
     public static async Task<string> DescribeAsync(IServiceProvider services, string upn, IReadOnlySet<string> insightsRoles, CancellationToken ct, IReadOnlySet<string>? sections = null)
     {
         static string E(string? s) => WebUtility.HtmlEncode(s ?? "");

@@ -2,8 +2,11 @@ using CopilotInsights.Infrastructure;
 
 namespace CopilotInsights.Data;
 
-/// <summary>One role an access profile gives: across the whole organization or not, and for Admin, its pages (null: every page).</summary>
-public sealed record ProfileRole(string Role, bool OrgWide = false, string? Pages = null);
+/// <summary>
+/// One role an access profile gives: across the whole organization or not, and for Admin, its pages (null: every page).
+/// The Sections role names its sections and whether the lists that name people show in them.
+/// </summary>
+public sealed record ProfileRole(string Role, bool OrgWide = false, string? Pages = null, string? Sections = null, bool NamedPeople = false);
 
 /// <summary>A bundle offered as a profile: from today's grants (who holds exactly it), or one of the starters.</summary>
 public sealed record ProfileProposal(string Name, IReadOnlyList<ProfileRole> Roles, IReadOnlyList<string> Holders, bool Starter);
@@ -18,28 +21,37 @@ public static class AccessProfiles
     public static ProfileRole Clean(ProfileRole r)
     {
         var role = Infrastructure.Roles.All.First(x => string.Equals(x, r.Role, StringComparison.OrdinalIgnoreCase));
+        if (role == Infrastructure.Roles.Sections) return new(role, r.OrgWide, null, Infrastructure.Sections.Format(Infrastructure.Sections.Parse(r.Sections)), r.NamedPeople);
         return new(role, r.OrgWide && AccessRules.IsPersona(role), role == Infrastructure.Roles.Admin ? AdminPages.Format(AdminPages.Parse(r.Pages)) : null);
     }
 
     /// <summary>The roles in the navigation's order, each once (a role given twice keeps the wider of the two).</summary>
     public static List<ProfileRole> Normalize(IEnumerable<ProfileRole> roles) =>
         roles.Where(r => Infrastructure.Roles.All.Contains(r.Role, StringComparer.OrdinalIgnoreCase)).Select(Clean)
+            .Where(r => r.Role != Infrastructure.Roles.Sections || r.Sections is not null)
             .GroupBy(r => r.Role)
-            .Select(g => new ProfileRole(g.Key, g.Any(r => r.OrgWide), g.Any(r => r.Pages is null) ? null : AdminPages.Format(g.SelectMany(r => AdminPages.Parse(r.Pages)))))
+            .Select(g => g.Key == Infrastructure.Roles.Sections
+                ? new ProfileRole(g.Key, g.Any(r => r.OrgWide), null, Infrastructure.Sections.Format(g.SelectMany(r => Infrastructure.Sections.Parse(r.Sections))), g.Any(r => r.NamedPeople))
+                : new ProfileRole(g.Key, g.Any(r => r.OrgWide), g.Any(r => r.Pages is null) ? null : AdminPages.Format(g.SelectMany(r => AdminPages.Parse(r.Pages)))))
             .OrderBy(r => Array.IndexOf(Infrastructure.Roles.All, r.Role)).ToList();
 
     /// <summary>The bundle as one string: two bundles that give the same are the same.</summary>
     public static string Key(IEnumerable<ProfileRole> roles) =>
-        string.Join("|", Normalize(roles).Select(r => r.Role + (r.OrgWide ? "*" : "") + (r.Pages is null ? "" : $"({r.Pages})")));
+        string.Join("|", Normalize(roles).Select(r => r.Role + (r.OrgWide ? "*" : "") + (r.NamedPeople ? "+" : "") + (r.Pages is null ? "" : $"({r.Pages})") + (r.Sections is null ? "" : $"[{r.Sections}]")));
 
     /// <summary>A bundle back from its key.</summary>
     public static List<ProfileRole> FromKey(string? key) =>
         Normalize((key ?? "").Split('|', StringSplitOptions.RemoveEmptyEntries).Select(p =>
         {
+            var bracket = p.IndexOf('[');
+            var sections = bracket >= 0 ? p[(bracket + 1)..].TrimEnd(']') : null;
+            if (bracket >= 0) p = p[..bracket];
             var paren = p.IndexOf('(');
             var pages = paren >= 0 ? p[(paren + 1)..].TrimEnd(')') : null;
             var head = paren >= 0 ? p[..paren] : p;
-            return new ProfileRole(head.TrimEnd('*'), head.EndsWith('*'), pages);
+            var named = head.EndsWith('+');
+            head = head.TrimEnd('+');
+            return new ProfileRole(head.TrimEnd('*'), head.EndsWith('*'), pages, sections, named);
         }));
 
     /// <summary>What a bundle gives, in words: "Agents across the organization; Admin (Health, Audit log)".</summary>
@@ -47,16 +59,19 @@ public static class AccessProfiles
     {
         var list = Normalize(roles);
         return list.Count == 0 ? "nothing" : string.Join("; ", list.Select(r =>
-            r.Role + (r.OrgWide ? " across the organization" : "") + (r.Role == Infrastructure.Roles.Admin ? $" ({AdminPages.Names(r.Pages)})" : "")));
+            r.Role == Infrastructure.Roles.Sections
+                ? Infrastructure.Sections.Names(r.Sections) + (r.OrgWide ? " for the whole organization" : " for their own team") + (r.NamedPeople ? ", with named people" : "")
+                : r.Role + (r.OrgWide ? " across the organization" : "") + (r.Role == Infrastructure.Roles.Admin ? $" ({AdminPages.Names(r.Pages)})" : "")));
     }
 
     /// <summary>A name for a bundle nobody has named: its roles.</summary>
     public static string SuggestName(IEnumerable<ProfileRole> roles)
     {
         var list = Normalize(roles);
-        var names = list.Select(r => r.Role == Infrastructure.Roles.Admin && r.Pages is not null ? "Admin pages" : r.Role).ToList();
+        var names = list.SelectMany(r => r.Role == Infrastructure.Roles.Sections ? Infrastructure.Sections.Parse(r.Sections).Select(Infrastructure.Sections.NameOf)
+                                         : [r.Role == Infrastructure.Roles.Admin && r.Pages is not null ? "Admin pages" : r.Role]).ToList();
         var name = names.Count switch { 0 => "Profile", 1 => names[0], _ => string.Join(", ", names[..^1]) + " and " + names[^1] };
-        if (list.Any(r => r.OrgWide)) name += list.All(r => r.OrgWide || !AccessRules.IsPersona(r.Role)) ? ", whole organization" : ", partly whole organization";
+        if (list.Any(r => r.OrgWide)) name += list.All(r => r.OrgWide || !(AccessRules.IsPersona(r.Role) || r.Role == Infrastructure.Roles.Sections)) ? ", whole organization" : ", partly whole organization";
         return name.Length <= 100 ? name : name[..100];
     }
 
@@ -66,15 +81,22 @@ public static class AccessProfiles
     /// </summary>
     public static readonly IReadOnlyList<ProfileProposal> Starters =
     [
-        new("Agent program lead", [new(Infrastructure.Roles.Agents, OrgWide: true)], [], true),
-        new("License manager", [new(Infrastructure.Roles.Licensing, OrgWide: true), new(Infrastructure.Roles.Admin, Pages: "/admin/assumptions,/admin/reference")], [], true),
-        new("Security reviewer", [new(Infrastructure.Roles.Security), new(Infrastructure.Roles.Compliance)], [], true),
+        new("Executive", [SectionsOf(true, false, Infrastructure.Sections.Leadership)], [], true),
+        new("Agent program lead", [SectionsOf(true, true, Infrastructure.Sections.Agents)], [], true),
+        new("License manager", [SectionsOf(true, true, Infrastructure.Sections.Licensing, Infrastructure.Sections.Forecasting), new(Infrastructure.Roles.Admin, Pages: "/admin/assumptions,/admin/reference")], [], true),
+        new("Security reviewer", [SectionsOf(false, true, Infrastructure.Sections.Security, Infrastructure.Sections.Compliance)], [], true),
+        new("Champion", [SectionsOf(false, false, Infrastructure.Sections.Adoption, Infrastructure.Sections.Enablement)], [], true),
         new("Dashboard operator", [new(Infrastructure.Roles.Admin, Pages: "/admin/health,/admin/notifications,/admin/audit")], [], true),
     ];
 
     /// <summary>The Governance Workbench's starters, offered when it is set up: its central team, its operators and its auditors.</summary>
+    /// <summary>A Sections row: these sections, for the whole organization or the holder's own team, with or without named people.</summary>
+    public static ProfileRole SectionsOf(bool orgWide, bool named, params string[] keys) =>
+        new(Infrastructure.Roles.Sections, orgWide, null, Infrastructure.Sections.Format(keys), named);
+
     public static readonly IReadOnlyList<ProfileProposal> WorkbenchStarters =
     [
+        new("Line-of-business owner", [SectionsOf(false, false, Infrastructure.Sections.Leadership, Infrastructure.Sections.WorkbenchOwnership, Infrastructure.Sections.WorkbenchRegistry)], [], true),
         new("Governance team", [new(Infrastructure.Roles.Governance)], [], true),
         new("Governance operator", [new(Infrastructure.Roles.GovernanceOperator)], [], true),
         new("Governance auditor", [new(Infrastructure.Roles.GovernanceAuditor)], [], true),

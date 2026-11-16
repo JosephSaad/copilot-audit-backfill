@@ -51,11 +51,12 @@ public static class AuditChange
     public static async Task<Snapshot> SnapshotAsync(Db db)
     {
         var settings = (await db.QueryAsync<(string Name, string? Value)>("SELECT Name, Value FROM dash.Setting;")).ToDictionary(x => x.Name, x => x.Value, StringComparer.OrdinalIgnoreCase);
-        /* A grant as one line: who, which role, and the Admin pages it is limited to where it is. */
+        /* A grant as one line: who, which role, the Admin pages it is limited to where it is, and a section grant's sections. */
         var grants = (await db.QueryAsync<dynamic>("SELECT * FROM dash.RoleGrant;"))
             .Select(g => (IDictionary<string, object?>)g)
             .Select(g => $"{g["Principal"]} {g["Role"]}" + (g.TryGetValue("OrgWide", out var o) && o is true ? " across the organization" : "")
-                         + (g.TryGetValue("Pages", out var p) && p is string s && s.Length > 0 ? $" ({s})" : ""))
+                         + (g.TryGetValue("Pages", out var p) && p is string s && s.Length > 0 ? $" ({s})" : "")
+                         + (g.TryGetValue("Sections", out var sec) && sec is string ss && ss.Length > 0 ? $" [{ss}]" + (g.TryGetValue("NamedPeople", out var np) && np is true ? " with named people" : "") : ""))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         /* Access profiles, as what each gives and who holds it: a change to a profile reaches everyone who holds it. */
         grants.UnionWith(await db.QueryAsync<string>(@"
@@ -67,6 +68,11 @@ IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NOT NULL
     FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId
     UNION ALL
     SELECT CONCAT(N'profile ', p.Name, N' request ', ISNULL(p.RequestUrl, N'none'), N' owner ', ISNULL(p.OwnerUpn, N'none')) FROM dash.AccessProfile AS p;"));
+        /* A profile's sections, where the database has them (3.1.0). */
+        if (await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL THEN 0 ELSE 1 END;") == 1)
+            grants.UnionWith(await db.QueryAsync<string>(@"
+SELECT CONCAT(N'profile ', p.Name, N' sections ', r.Sections, CASE WHEN r.NamedPeople = 1 THEN N' with named people' ELSE N'' END)
+FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId WHERE r.Role = 'Sections';"));
         return new(settings, grants);
     }
 
