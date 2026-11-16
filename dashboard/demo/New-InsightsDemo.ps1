@@ -118,10 +118,11 @@ try {
                     $r.FabricDays, $r.Flows, $r.Activity, $r.Seats, $r.FoundryCostDays)
     }
     Step 'Dashboard settings, names and demo roles' {
-        $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
-        # Every section of the menu is granted: the demo's administrators see them all, for the whole organization, with named people.
+        # Every section of the menu is granted: the demo's administrators see them all, for the whole organization, with named
+        # people. Worked out first: $admins below is the same variable as $Admins (PowerShell names ignore case).
         $allSections = 'leadership,adoption,licensing,security,compliance,agents,enablement,forecasting,regions,people,app-owners,governance,wb-ownership,wb-registry'
         $adminSections = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Sections', N'Demo administrator: every section', N'demo', 1, N'$allSections', 1)" }) -join ",`n"
+        $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
         Invoke-Batch $conn @"
 UPDATE dash.Setting SET Value = N'avery.morgan@contoso.com', UpdatedBy = N'demo' WHERE Name = 'OrgTopUpn';
 MERGE dash.SensitivityLabel AS t

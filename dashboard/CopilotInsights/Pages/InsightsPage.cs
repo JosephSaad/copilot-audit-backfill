@@ -646,7 +646,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
                 {
                     /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
                     listed = true;
-                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
                 }
         return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }

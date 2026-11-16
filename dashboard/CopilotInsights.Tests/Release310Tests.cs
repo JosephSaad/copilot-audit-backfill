@@ -98,6 +98,9 @@ public class Release310Tests
         Assert.False(v.OrgWide);
         Assert.True(v.ForSection(Sections.Leadership).OrgWide);
         Assert.False(v.ForSection(Sections.Adoption).OrgWide);
+        /* Outside the directory, a section granted for the whole organization is listed; one for their own team is not. */
+        var outside = new Viewer { WindowsName = @"CONTOSO\svc", Roles = a.Roles, SectionKeys = a.Sections, OrgWideSections = a.OrgWideSections, InDirectory = false };
+        Assert.Equal(["Leadership"], Nav.For(outside).Select(g => g.Persona));
         /* Levels 1 and 2 see the whole organization in whatever they are granted, as before. */
         Assert.True(V(2, AccessRules.Resolve([Grant(Roles.Sections, "adoption")])).OrgWide);
         /* Organization opens no section by itself. */
@@ -161,7 +164,8 @@ public class Release310Tests
     public void The_data_api_digests_and_the_manager_digest_need_their_section()
     {
         var api = Source.Read("Infrastructure", "DataApi.cs");
-        Assert.Contains("!viewer.ForSection(section).Sees(section)", api);
+        Assert.Contains("!viewer.Sees(section)", api);
+        Assert.Contains("GetAsync()).ForSection(section);", api);
         Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(api, @"\}, section: Sections\.Leadership\)\);").Count);   // usage, units, value
         var delivery = Source.Read("Infrastructure", "Delivery.cs");
         Assert.Contains("(await ManagerAccessAsync(grantMap, graph, m.Upn)).Sections.Contains(Sections.Leadership)", delivery);

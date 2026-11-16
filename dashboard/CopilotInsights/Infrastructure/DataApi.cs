@@ -123,7 +123,8 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         var sp = h.RequestServices;
         var settings = sp.GetRequiredService<Settings>();
         if (await settings.StringAsync("ApiEnabled") == "0") return Results.NotFound();
-        var viewer = await sp.GetRequiredService<ViewerService>().GetAsync();
+        /* A section granted across the whole organization widens that section's calls, as it widens its pages. */
+        var viewer = (await sp.GetRequiredService<ViewerService>().GetAsync()).ForSection(section);
         var c = await sp.GetRequiredService<ReportContextFactory>().CreateAsync(viewer, h.Request);
         var audit = sp.GetRequiredService<AuditLog>();
         var path = "/api/v1/" + name;
@@ -134,7 +135,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
         else if (c.OrgWhy == OrgRefusal.Privacy) refusal = "privacy mode is on: no report on a manager's part of the organization";
         else if (c.OrgWhy == OrgRefusal.TooSmall) refusal = $"that part of the organization has fewer than {c.MinGroupSize} people, the minimum group size";
-        else if (section is not null && !viewer.ForSection(section).Sees(section)) refusal = $"needs the {Sections.NameOf(section)} section, granted in Admin › Access";   // the page's section needs it too
+        else if (section is not null && !viewer.Sees(section)) refusal = $"needs the {Sections.NameOf(section)} section, granted in Admin › Access";   // the page's section needs it too
         else if (role is not null && await settings.PrivacyModeAsync()) refusal = "privacy mode is on: nothing that names people";
         else if (role is not null && !viewer.Has(role)) refusal = $"needs the {role} role";
         if (refusal is not null)

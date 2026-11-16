@@ -122,7 +122,7 @@ public static class Nav
     public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false, IReadOnlySet<string>? hidden = null) =>
         viewer is null ? [] :
         Groups.Where(g => g.OpenTo(viewer))
-              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, Key(g, p))).ToList() })
+              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer.ForSection(g.Key), privacyMode) && !HiddenReports.Is(hidden, Key(g, p))).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
     /// <summary>The role a page's section needs, if any: the section is hidden, and its pages refused, without it.</summary>
