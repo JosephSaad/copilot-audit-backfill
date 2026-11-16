@@ -30,7 +30,7 @@ public sealed partial class ReservationHoldersModel
         {
             /* Every line of business: the page is for the Licensing role. */
             var q = _seats.Queries(true)!;
-            var links = Viewer.WorkbenchHidden ? global::Governance.Web.Infrastructure.SeatLinks.None : WorkbenchSeats.Links(await _seats.PersonAsync(HttpContext), true);
+            var links = WorkbenchSeats.Links(await _seats.PersonAsync(HttpContext), true);
             if (res == NoLob)
             {
                 name = "No line of business";

@@ -5,11 +5,6 @@
 }
 <div class="card">
     <h1>This page is not available to you</h1>
-    @if (ViewContext.HttpContext.Items.ContainsKey(Governance.Web.Infrastructure.PrincipalMiddleware.RestrictedKey))
-    {
-        <p>Your access is restricted to Start, Leadership and the sections your roles open, and the Workbench is not one of them. Start, in the menu, lists the reports you can open. An administrator can change it in Admin › Access.</p>
-        return;
-    }
     @if (!Model.Principal.IsAuthenticated)
     {
         <p>The Workbench knows people by the user principal name or Entra object ID the directory records, and has neither for your account yet. It is recorded at the next directory load; an administrator can also map your sign-in name to your UPN (Insights:IdentityMap).</p>

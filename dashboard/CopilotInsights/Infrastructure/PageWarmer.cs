@@ -132,8 +132,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         var viewer = new Viewer
         {
             WindowsName = "(warm-up)", Upn = null, DisplayName = "Warm-up", Level = 1, InDirectory = true, PeopleBelow = 0,
-            /* Not Restricted, which narrows: the warm-up builds every report, the unguarded sections too. */
-            Roles = new HashSet<string>(Roles.All.Where(r => r != Roles.Admin && r != Roles.Restricted), StringComparer.OrdinalIgnoreCase),
+            Roles = new HashSet<string>(Roles.All.Where(r => r != Roles.Admin), StringComparer.OrdinalIgnoreCase),
         };
         List<(CompiledPageActionDescriptor Page, string Path)> pages;
         using (var s0 = scopes.CreateScope()) pages = await PagesAsync(s0.ServiceProvider);

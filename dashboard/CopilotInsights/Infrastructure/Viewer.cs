@@ -19,15 +19,7 @@ public static class Roles
 
     public static readonly string[] Workbench = [Governance, GovernanceOperator, GovernanceAuditor];
 
-    /// <summary>
-    /// A role that narrows rather than widens: its holder sees Start, Leadership and the sections their other roles open,
-    /// and nothing else; the sections no role guards (Regions, People, App owners, Governance) and the Governance
-    /// Workbench (unless they also hold a Workbench role or Admin) are gone from their menu and refused at their address.
-    /// It never lets anyone past the dashboard's level limit, and it changes nothing for anyone who does not hold it.
-    /// </summary>
-    public const string Restricted = "Restricted";
-
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Restricted];
+    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor];
 
     public static bool IsWorkbench(string role) => Workbench.Contains(role, StringComparer.OrdinalIgnoreCase);
 
@@ -44,7 +36,6 @@ public static class Roles
         [Governance] = "The Governance Workbench's central pages: the queues, the whole registry, consumption events and findings, and its reports. Shows no usage data.",
         [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
         [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
-        [Restricted] = "Narrows what its holder sees to Start, Leadership and the sections their other roles open (with Agents: Start, Leadership and Agents). Regions, People, App owners, Governance and the Workbench are hidden and refused. Lets no one in by itself.",
     };
 }
 
@@ -81,22 +72,6 @@ public sealed class Viewer
     public bool AnyAdmin => IsAdmin || AdminPaths.Count > 0;
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles) || WidenedForSection;
     public bool Has(string role) => Roles.Contains(role);
-    /// <summary>Holds the Restricted role, whether or not they have chosen to see all reports.</summary>
-    public bool HoldsRestricted => Roles.Contains(Infrastructure.Roles.Restricted);
-    /// <summary>
-    /// A restricted viewer who sees the whole organization (the Organization role, level 1 or 2, or a persona role granted
-    /// across the whole organization) may choose to see all reports (<see cref="ViewChoice"/>); others may not.
-    /// </summary>
-    public bool CanSeeAll => HoldsRestricted && (AccessRules.SeesWholeOrganization(Level, Roles) || OrgWideRoles.Count > 0);
-    /// <summary>They chose See all reports (the view choice cookie). It counts only where <see cref="CanSeeAll"/>.</summary>
-    public bool SeeAllChosen { get; init; }
-    /// <summary>
-    /// Restricted now: only Start, Leadership and the sections of their other roles (<see cref="Infrastructure.Roles.Restricted"/>),
-    /// unless they may see all reports and chose to.
-    /// </summary>
-    public bool Restricted => HoldsRestricted && !(SeeAllChosen && CanSeeAll);
-    /// <summary>A restricted viewer still reaches the Workbench with one of its roles, or Admin, which opens its settings.</summary>
-    public bool WorkbenchHidden => Restricted && !IsAdmin && !Roles.Any(Infrastructure.Roles.IsWorkbench);
     public string Name => DisplayName ?? Upn ?? WindowsName;
 
     /// <summary>How they signed in: Windows or Entra (<see cref="SignIn"/>).</summary>
@@ -125,46 +100,13 @@ public sealed class Viewer
     }
 }
 
-/// <summary>
-/// See all reports, for a restricted viewer who sees the whole organization: a cookie that says which view they chose,
-/// read by <see cref="ViewerService"/> and honored only where <see cref="Viewer.CanSeeAll"/>. Each switch is audited.
-/// </summary>
-public static class ViewChoice
-{
-    public const string Cookie = "insights.view";
-    public const string All = "all";
-    public const string AllPath = "/view/all";
-    public const string MinePath = "/view/mine";
-
-    public static void Map(WebApplication app)
-    {
-        app.MapGet(AllPath, (HttpContext h) => SwitchAsync(h, true));
-        app.MapGet(MinePath, (HttpContext h) => SwitchAsync(h, false));
-    }
-
-    static async Task<IResult> SwitchAsync(HttpContext h, bool all)
-    {
-        var viewer = await h.RequestServices.GetRequiredService<ViewerService>().GetAsync();
-        var path = h.Request.PathBase.HasValue ? h.Request.PathBase.Value! : "/";
-        if (all && viewer.CanSeeAll)
-            h.Response.Cookies.Append(Cookie, All, new CookieOptions { HttpOnly = true, Secure = h.Request.IsHttps, SameSite = SameSiteMode.Lax, Path = path, IsEssential = true });
-        else
-            h.Response.Cookies.Delete(Cookie, new CookieOptions { Path = path });
-        if (viewer.HoldsRestricted)
-            await h.RequestServices.GetRequiredService<AuditLog>().WriteAsync(viewer, "View", all ? AllPath : MinePath, null,
-                all ? (viewer.CanSeeAll ? "chose See all reports" : "See all reports refused: not across the whole organization") : "chose their own reports");
-        return Results.Redirect("/");
-    }
-}
-
 /// <summary>The security model's two decisions, kept pure so they can be tested on their own.</summary>
 public static class AccessRules
 {
     /// <summary>A persona role, whose section "across the whole organization" can widen: not Admin, not Organization.</summary>
     public static bool IsPersona(string role) =>
         Roles.All.Contains(role, StringComparer.OrdinalIgnoreCase) && !Roles.IsWorkbench(role)
-        && !string.Equals(role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Roles.Organization, StringComparison.OrdinalIgnoreCase)
-        && !string.Equals(role, Roles.Restricted, StringComparison.OrdinalIgnoreCase);
+        && !string.Equals(role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Roles.Organization, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Level 1 or 2 below the configured top, or granted Organization. Admin alone is not enough.</summary>
     public static bool SeesWholeOrganization(int? level, IReadOnlySet<string> roles) =>
@@ -180,8 +122,7 @@ public static class AccessRules
     public static bool MayUseDashboard(int? level, IReadOnlySet<string> roles, int maxLevel) =>
         maxLevel <= 0
         || level is { } l && l >= 1 && l <= maxLevel
-        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !Roles.IsWorkbench(r)
-                          && !string.Equals(r, Roles.Restricted, StringComparison.OrdinalIgnoreCase));
+        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !Roles.IsWorkbench(r));
 
     /// <summary>
     /// The SID comparison: the directory records no SID for the person, or records exactly the SID in the
@@ -316,8 +257,6 @@ public sealed class ViewerService(
             MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
             AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths,
             OrgWideRoles = orgWide, SignedInWith = signedInWith,
-            /* A view choice, not an identity: it lifts the Restricted role only for a viewer Viewer.CanSeeAll allows. */
-            SeeAllChosen = http.HttpContext?.Request.Cookies[ViewChoice.Cookie] == ViewChoice.All,
         };
     }
 

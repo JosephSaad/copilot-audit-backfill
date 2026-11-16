@@ -37,29 +37,13 @@ public static class Nav
     public static bool SectionOpen(string? path, Viewer viewer, IReadOnlySet<string>? hidden = null)
     {
         var sections = SectionsOf(path);
-        return sections.Count == 0 || sections.Any(g => GroupOpen(g, viewer) && !HiddenReports.Is(hidden, KeyIn(g, path!)));
+        return sections.Count == 0 || sections.Any(g => (g.Role is null || viewer.Has(g.Role)) && !HiddenReports.Is(hidden, KeyIn(g, path!)));
     }
 
     /// <summary>The section a viewer reaches a page through: the first listing it that they may open, and that is not turned off.</summary>
     public static NavGroup? SectionFor(string? path, Viewer? viewer, IReadOnlySet<string>? hidden = null) =>
-        SectionsOf(path).FirstOrDefault(g => GroupOpen(g, viewer) && !HiddenReports.Is(hidden, KeyIn(g, path!)))
-        ?? SectionsOf(path).FirstOrDefault(g => GroupOpen(g, viewer)) ?? SectionOf(path);
-
-    /// <summary>The sections no role guards that a holder of the Restricted role still sees.</summary>
-    public static readonly IReadOnlySet<string> RestrictedSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Leadership" };
-
-    /// <summary>
-    /// Whether a section is open to the viewer: one with a role to its holders; one without, to everyone, but to a holder
-    /// of the Restricted role only Leadership (<see cref="RestrictedSections"/>) and the Admin section, whose pages
-    /// <see cref="Allowed"/> checks on their own.
-    /// </summary>
-    public static bool GroupOpen(NavGroup g, Viewer? viewer) =>
-        g.Role is not null ? viewer?.Has(g.Role) == true
-        : viewer?.Restricted != true || RestrictedSections.Contains(g.Persona) || g.Pages.All(p => p.Admin);
-
-    /// <summary>The section a restricted viewer is refused, for the page that says so; null when it is not that.</summary>
-    public static NavGroup? RestrictedOut(string? path, Viewer viewer) =>
-        viewer.Restricted && SectionsOf(path) is { Count: > 0 } s && s.All(g => g.Role is null && !GroupOpen(g, viewer)) ? s[0] : null;
+        SectionsOf(path).FirstOrDefault(g => (g.Role is null || viewer?.Has(g.Role) == true) && !HiddenReports.Is(hidden, KeyIn(g, path!)))
+        ?? SectionsOf(path).FirstOrDefault(g => g.Role is null || viewer?.Has(g.Role) == true) ?? SectionOf(path);
 
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
@@ -130,7 +114,7 @@ public static class Nav
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
     public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false, IReadOnlySet<string>? hidden = null) =>
         viewer is null ? [] :
-        Groups.Where(g => GroupOpen(g, viewer))
+        Groups.Where(g => g.Role is null || viewer.Has(g.Role))
               .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, Key(g, p))).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
@@ -209,7 +193,7 @@ public static class HiddenReports
         if (sections.Count <= 1) return Is(hidden, path);
         var page = path.TrimEnd('/');
         string Key(NavGroup g) => Nav.Key(g, g.Pages.First(p => string.Equals(p.Path, page, StringComparison.OrdinalIgnoreCase)));
-        var mine = sections.Where(g => Nav.GroupOpen(g, viewer)).ToList();
+        var mine = sections.Where(g => g.Role is null || viewer?.Has(g.Role) == true).ToList();
         return (mine.Count > 0 ? mine : sections).All(g => Is(hidden, Key(g)));
     }
 

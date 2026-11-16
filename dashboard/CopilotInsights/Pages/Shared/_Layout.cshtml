@@ -56,12 +56,6 @@
        each with what it answers; the box at the top finds a report. Without script every section is open. *@
     <nav class="side" aria-label="Reports">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
-        @if (viewer?.CanSeeAll == true)
-        {
-            @* A restricted viewer who sees the whole organization chooses between their own reports and all of them. *@
-            <a class="home viewchoice" href="@(viewer.Restricted ? CopilotInsights.Infrastructure.ViewChoice.AllPath : CopilotInsights.Infrastructure.ViewChoice.MinePath)"
-               data-what="@(viewer.Restricted ? "Show every report your roles and the whole organization open, not only Leadership and your sections." : "Go back to Start, Leadership and the sections your roles open.")">@(viewer.Restricted ? "See all reports" : "Show only my reports")</a>
-        }
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).Concat(await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On)).ToList(); }
         @if (groups.Count > 0)
         {
