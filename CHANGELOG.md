@@ -72,6 +72,7 @@ sections. The Workbench's worker has no change in behavior. From 3.0.1, the 3.0.
 - *Who loses access* and the manager digest read AD groups as the nightly directory load records them; *Who loses
   access* does not count grants to Entra groups (sign-in checks them), so a member of one may be listed and keep the
   section. The manager digest asks Microsoft Graph for Entra groups where it can.
+- **Licensing › Chargeback's *Charged to no group*** still opens Leavers with a different count, as in 2.7.7.
 - Not tested here: IIS, Entra sign-in with real groups, the Workbench with real approvers, the client's data.
 
 ## [3.0.3] - 2026-11-13
