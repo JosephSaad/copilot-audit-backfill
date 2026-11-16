@@ -107,7 +107,7 @@
                             @foreach (var p in sub.Pages)
                             {
                                 var href = Href(p);
-                                <li><a class="@(path == p.Path ? "on" : "")" href="@href"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small>@if (p.Role is not null) { <em>@p.Role role</em> }</span></a></li>
+                                <li><a class="@(path == p.Path ? "on" : "")" href="@href"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small>@if (p.Role is not null) { <em>names people</em> }</span></a></li>
                             }
                         </ul>
                     }

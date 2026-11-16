@@ -1,4 +1,4 @@
-# release 3.0.3
+# release 3.1.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1091,6 +1091,8 @@ C	copilot	dash.AccessProfileRole	U	1	ProfileId	int	0
 C	copilot	dash.AccessProfileRole	U	2	Role	varchar(32)	0	
 C	copilot	dash.AccessProfileRole	U	3	OrgWide	bit	0	D
 C	copilot	dash.AccessProfileRole	U	4	Pages	nvarchar(1000)	1	
+C	copilot	dash.AccessProfileRole	U	5	Sections	nvarchar(1000)	1	
+C	copilot	dash.AccessProfileRole	U	6	NamedPeople	bit	0	D
 C	copilot	dash.Agent	V	1	AgentKey	int	0	
 C	copilot	dash.Agent	V	10	InProduction	bit	1	
 C	copilot	dash.Agent	V	2	AgentId	nvarchar(400)	0	
@@ -1385,6 +1387,8 @@ C	copilot	dash.ResourceDay	U	5	Interactions	int	0
 C	copilot	dash.RoleGrant	U	1	GrantId	int	0	I
 C	copilot	dash.RoleGrant	U	10	PrincipalName	nvarchar(256)	1	
 C	copilot	dash.RoleGrant	U	11	OrgWide	bit	0	D
+C	copilot	dash.RoleGrant	U	12	Sections	nvarchar(1000)	1	
+C	copilot	dash.RoleGrant	U	13	NamedPeople	bit	0	D
 C	copilot	dash.RoleGrant	U	2	Principal	nvarchar(256)	0	
 C	copilot	dash.RoleGrant	U	3	PrincipalType	varchar(8)	0	
 C	copilot	dash.RoleGrant	U	4	Role	varchar(32)	0	

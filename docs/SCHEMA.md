@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-130 tables (plus 2 left over from 1.x), 39 views, 1593 columns, from 22 scripts.
+130 tables (plus 2 left over from 1.x), 39 views, 1597 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -2937,7 +2937,7 @@ Indexes and constraints:
 | 1 | `Upn` | nvarchar(512) | **no** |  |  |
 ### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user), AD groups (DOMAIN\\Group) or Entra groups (entra:&lt;object ID&gt;, 2.8.0). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail, and with OrgWide show their pages for the whole organization (2.8.0); Governance, GovernanceOperator and GovernanceAuditor open Governance Workbench pages and no usage data (3.0.0).
+*Table.* Roles granted to people (UPN or DOMAIN\\user), AD groups (DOMAIN\\Group) or Entra groups (entra:&lt;object ID&gt;, 2.8.0). From 3.1.0 every menu section needs a grant that opens it: a Sections grant names them (the Sections column). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail, and with OrgWide show their pages for the whole organization (2.8.0); Governance, GovernanceOperator and GovernanceAuditor open Governance Workbench pages and no usage data (3.0.0).
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2953,15 +2953,18 @@ Indexes and constraints:
 | 8 | `Pages` | nvarchar(1000) | yes |  | 2.6.4: the Admin pages an Admin grant is limited to, as their paths, comma-separated (/admin/health,/admin/audit); NULL is the whole role, and what every other role has |
 | 9 | `PrincipalObjectId` | uniqueidentifier | yes |  | 2.8.0: an Entra group's object ID; NULL for a UPN or DOMAIN\\name |
 | 10 | `PrincipalName` | nvarchar(256) | yes |  | 2.8.0: the Entra group's name when it was granted, for the lists |
-| 11 | `OrgWide` | bit | **no** | `0` | 2.8.0: a persona role across the whole organization: its pages show the whole organization to the holder; 0 on every grant before |
+| 11 | `OrgWide` | bit | **no** | `0` | 2.8.0: a persona role across the whole organization: its pages show the whole organization to the holder; 0 on every grant before. 3.1.0: on a Sections grant, its sections for the whole organization |
+| 12 | `Sections` | nvarchar(1000) | yes |  | 3.1.0: on a Sections grant, the menu sections it opens, comma-separated keys in the menu's order (leadership,licensing,wb-ownership); NULL on every other grant |
+| 13 | `NamedPeople` | bit | **no** | `0` | 3.1.0: on a Sections grant, whether the lists that name people show in its sections; 0 on every other grant |
 
 Indexes and constraints:
 
 - `PK_DashRoleGrant`: primary key, clustered (GrantId)
 - `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
 - `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
-- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`; from 3.0.0 also `Governance`, `GovernanceOperator` and `GovernanceAuditor`, the Governance Workbench's page roles
+- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`; from 3.0.0 also `Governance`, `GovernanceOperator` and `GovernanceAuditor`, the Governance Workbench's page roles; from 3.0.3 `Restricted` (withdrawn before use: accepted, never read), and from 3.1.0 `Sections`
 - `DF_DashRoleGrant_OrgWide`: default `(0)` on OrgWide
+- `DF_DashRoleGrant_NamedPeople`: default `(0)` on NamedPeople (3.1.0)
 
 ### dash.AccessProfile
 
@@ -2988,7 +2991,7 @@ Indexes and constraints:
 
 ### dash.AccessProfileRole
 
-*Table.* What each access profile gives (2.8.0): a role, across the whole organization or not, and for Admin its pages.
+*Table.* What each access profile gives (2.8.0): a role, across the whole organization or not, and for Admin its pages; from 3.1.0, a Sections row with its sections and named people.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2998,12 +3001,15 @@ Indexes and constraints:
 | 2 | `Role` | varchar(32) | **no** | **PK** |  |
 | 3 | `OrgWide` | bit | **no** | `0` |  |
 | 4 | `Pages` | nvarchar(1000) | yes |  | for Admin: the Admin pages, as on dash.RoleGrant; NULL is every page |
+| 5 | `Sections` | nvarchar(1000) | yes |  | 3.1.0: on a Sections row, the menu sections the profile opens, as on dash.RoleGrant |
+| 6 | `NamedPeople` | bit | **no** | `0` | 3.1.0: on a Sections row, whether the lists that name people show in them |
 
 Indexes and constraints:
 
 - `PK_DashAccessProfileRole`: primary key, clustered (ProfileId, Role)
+- `DF_DashAccessProfileRole_NamedPeople`: default `(0)` on NamedPeople (3.1.0)
 - `FK_DashAccessProfileRole_Profile`: foreign key (ProfileId) to dash.AccessProfile, on delete cascade
-- `CK_DashAccessProfileRole_Role`: check, the roles of dash.RoleGrant (the eight, and from 3.0.0 Governance, GovernanceOperator and GovernanceAuditor)
+- `CK_DashAccessProfileRole_Role`: check, the roles of dash.RoleGrant (the eight, from 3.0.0 Governance, GovernanceOperator and GovernanceAuditor, from 3.0.3 Restricted, and from 3.1.0 Sections)
 
 ### dash.ProfileGrant
 
