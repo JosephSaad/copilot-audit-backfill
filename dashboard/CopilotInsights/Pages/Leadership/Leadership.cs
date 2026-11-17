@@ -30,11 +30,11 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
         Panels.Add(new("People using Copilot",
             Chart.Line(x, [
-                new Series("Premium license holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("Premium license holders", tr.Select(w => (double?)w.Licensed).ToList(), 1, ToEnd: true),
                 new Series("Used Copilot, with a license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
                 new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
             ], Fmt.Count, "Premium license holders, how many of them used Copilot, and people on the free Copilot Chat"),
-            $"Premium license holders: holding a Premium Copilot license at the end of the day or week. Free Copilot Chat only: people without a license who used the free Copilot Chat. {TrendNote}"));
+            $"Premium license holders: holding a Premium Copilot license at the end of the day or week. {ToEndNote} Free Copilot Chat only: people without a license who used the free Copilot Chat. {TrendNote}"));
         Panels.Add(new("Adoption rate: Premium license holders",
             Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate of Premium license holders"),
             $"Premium license holders only. Of the people holding a Premium license at each point, the share who used Copilot in the {Metrics.AdoptionDays} days up to it. " +

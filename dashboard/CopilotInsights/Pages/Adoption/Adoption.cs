@@ -50,9 +50,10 @@ WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()
             TrendNote, "half"));
         Panels.Add(new("Premium license holders, and how many used Copilot",
             Chart.Line(Labels(), [
-                new Series("License holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("License holders", tr.Select(w => (double?)w.Licensed).ToList(), 1, ToEnd: true),
                 new Series("Used Copilot", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
-            ], Fmt.Count, "Licensed and active"), null, "half"));
+            ], Fmt.Count, "Licensed and active"),
+            $"License holders: holding a Premium Copilot license at the end of the day or week. {ToEndNote} Used Copilot: license holders who used it with the license in the day or week. {TrendNote}", "half"));
     }
 }
 

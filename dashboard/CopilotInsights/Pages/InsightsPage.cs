@@ -724,7 +724,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected IReadOnlyList<string> Labels()
     {
         var buckets = Ctx.Buckets();
-        var axis = new Axis(buckets.Select(b => b.Label)) { Note = HeldBack() };
+        var axis = new Axis(buckets.Select(b => b.Label)) { Note = HeldBack(), LastDay = Ctx.Daily ? null : Ctx.End.ToString("d MMM") };
         /* A week the period covers only in part is not drawn (see Axis.Partial), nor a day held back. It
            stays in the trend's rows, which several pages add up for the period's totals. */
         for (var i = 0; i < buckets.Count; i++)
@@ -752,6 +752,10 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     }
     protected string TrendNote => Ctx.Daily ? "Each point is a day." + (HeldBack() is null ? "" : " The two newest days of records are not drawn: Purview can deliver a record up to 48 hours late, so they may not all be in yet. The page's other figures count them.")
         : "Each point is a whole Saturday-to-Friday week, labeled by its Friday. A week the period covers only in part, at its start or not yet over, is not drawn; the page's other figures count its days.";
+
+    /// <summary>Said of a line drawn to the period's last day (<see cref="Series.ToEnd"/>), in its chart's information.</summary>
+    protected string ToEndNote =>
+        $"The license line runs to the period's last day, {Ctx.End:d MMM}, and ends on the same number as the headline: licenses held are counted on a day, so a week not yet over, or a day whose records are still arriving, cannot make that line dip.";
 
     /// <summary>
     /// Said in a line under a daily trend: the day it is shown to, and why it stops short of the period. Each
