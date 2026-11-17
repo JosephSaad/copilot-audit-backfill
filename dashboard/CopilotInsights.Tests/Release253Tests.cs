@@ -114,7 +114,7 @@ public class Release253Tests
     public void Every_daily_trend_and_every_table_of_trends_carries_the_line()
     {
         var page = Source.Read("Pages", "InsightsPage.cs");
-        Assert.Contains("new Axis(buckets.Select(b => b.Label)) { Note = HeldBack() }", page);
+        Assert.Contains("new Axis(buckets.Select(b => b.Label)) { Note = HeldBack(), ", page);
         Assert.Contains("{shown} to {Ctx.DrawnTo:d MMM}. Records from the last 48 hours may not all be in yet, so the newest days are left out.", page);
         Assert.Contains("The two newest days of records are not drawn", page);
         /* A sparkline has no room to say it: the three tables with a trend in each row say it under the table. */

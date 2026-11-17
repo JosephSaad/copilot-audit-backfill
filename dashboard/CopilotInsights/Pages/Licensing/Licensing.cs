@@ -60,8 +60,8 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         await BridgeAsync(t.LicensedNow);
 
         var buckets = Buckets();
-        Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),
-            $"People holding a Copilot license at the end of each day or week. {TrendNote}", "half"));
+        Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1, ToEnd: true)], Fmt.Count, "Licenses held"),
+            $"People holding a Copilot license at the end of each day or week. {ToEndNote} {TrendNote}", "half"));
         Panels.Add(new("Assigned and removed",
             Chart.Columns(Labels(), [
                 new Series("Assigned", buckets.Select(b => (double?)changes.Where(c => c.Bucket == b.Key).Sum(c => c.Added)).ToList(), 1),

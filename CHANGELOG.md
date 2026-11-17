@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2026-11-17
+
+The license line on the trend charts now ends on the same number as the Premium licenses headline beside it.
+
+**Install over 3.1.0:** deploy the dashboard only (docs\BUILD-FROM-SOURCE.md, or `copilot-insights-v3.1.1.zip` with
+`dashboard\Install-CopilotInsights.ps1 -PackagePath`) on each web server; it keeps the site's settings. Nothing in the
+database, the scripts or the Workbench's worker changes. From an earlier release, the 3.1.0 notes below apply first.
+
+### Changed
+
+- **License lines end on the headline's number.** On Leadership › Overview, Adoption › Funnel and trend and Licensing › License inventory, the license line now runs to the period's last day, so it ends on the same number as the Premium licenses headline. Before, it stopped at the last whole week's Friday, a few days earlier, and the licenses assigned or removed in between read as a mismatch (18,056 in the headline against 18,036 on the chart). Licenses held are counted on a day, so a week not yet over cannot make that line dip; it is drawn for the license line alone, under the period's last day ("16 Nov"), and the other lines still stop at the last whole week. On a daily trend, the license line runs through the two days held back for late records, and the line under the chart says so.
+
+### Known limits
+
+- On a weekly chart the last point is spaced as a whole week, though it may be one to six days after the one before it.
+  Where the axis has no room for both, the last whole week's label gives way to the period's last day.
+- Forecasting's projection of license holders keeps stopping at the last whole week, where its forecast starts.
+- Tested on the demo data, not the client's; IIS not tested (nothing in this change touches it).
+
 ## [3.1.0] - 2026-11-16
 
 Every section of the menu now needs a grant. An administrator ticks the sections a person or group sees, laid out as

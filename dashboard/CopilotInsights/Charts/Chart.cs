@@ -7,8 +7,13 @@ namespace CopilotInsights.Charts;
 
 public enum Fmt { Count, Percent, Decimal1, Days }
 
-/// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
-public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
+/// <summary>
+/// One series. Slot is the categorical color (1-8, fixed per entity, never by rank). ToEnd: a count held on a day, such
+/// as licenses, which a line draws to the period's last day, through the points the other lines leave out (a week not
+/// yet over, the days held back). Those are left out because a part-week of use, or a day whose records are still
+/// arriving, dips; a count held on a day does neither, and so its line ends on the same number as the headline.
+/// </summary>
+public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot, bool ToEnd = false);
 
 /// <summary>A bar: Note goes in its tooltip; Shown is printed beside its value, such as "2 of 2" under a rate.</summary>
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1, string? Shown = null);
@@ -48,6 +53,15 @@ public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
     /// of the period. On the page itself, not behind an information icon, so a chart copied out still says it.
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// The period's last day as a label ("16 Nov"), on a weekly trend: where its last week is not over, a line drawn to
+    /// the end (<see cref="Series.ToEnd"/>) ends there, under this label rather than the week's Friday still to come.
+    /// </summary>
+    public string? LastDay { get; set; }
+
+    /// <summary>On an axis as drawn: the first point drawn only for the lines that run to the end (<see cref="Series.ToEnd"/>).</summary>
+    public int? ToEndFrom { get; set; }
 }
 
 /// <summary>
@@ -212,10 +226,28 @@ public static class Chart
     static (IReadOnlyList<string> X, IReadOnlyList<Series> Series) Whole(IReadOnlyList<string> x, IReadOnlyList<Series> series)
     {
         if (Drawn(x) is not { } keep) return (x, series);
-        var axis = new Axis(keep.Select(i => x[i])) { Note = ((Axis)x).Note };
-        foreach (var m in ((Axis)x).Markers)
+        var a = (Axis)x;
+        var labels = keep.Select(i => x[i]).ToList();
+        var note = a.Note;
+        int? from = null;
+        /* A line that runs to the end takes the points after the last one drawn: the week under way, under the
+           period's last day, or the days held back. The other lines have no value there. */
+        var tail = Enumerable.Range(0, x.Count).Where(i => i > (keep.Count > 0 ? keep[^1] : -1)).ToList();
+        if (tail.Count > 0 && series.Where(s => s.ToEnd).ToList() is { Count: > 0 } toEnd)
+        {
+            from = keep.Count;
+            keep = [.. keep, .. tail];
+            labels.AddRange(tail.Select(i => i == x.Count - 1 && a.LastDay is { } day ? day : x[i]));
+            if (note is not null)
+                note += $" {string.Join(" and ", toEnd.Select(s => s.Name))} {(toEnd.Count > 1 ? "run" : "runs")} to {labels[^1]}: a count held on each day, it does not wait for late records.";
+        }
+        var axis = new Axis(labels) { Note = note, ToEndFrom = from };
+        foreach (var m in a.Markers)
             if (keep.IndexOf(m.Index) is var j and >= 0) axis.Markers.Add(m with { Index = j });
-        return (axis, series.Select(s => s with { Values = keep.Select(i => s.Values.ElementAtOrDefault(i)).ToList() }).ToList());
+        return (axis, series.Select(s => s with
+        {
+            Values = keep.Select((i, j) => from is { } f && j >= f && !s.ToEnd ? null : s.Values.ElementAtOrDefault(i)).ToList()
+        }).ToList());
     }
 
     /// <summary>A heatmap's columns as drawn, without the partial points.</summary>
@@ -339,9 +371,11 @@ public static class Chart
             }
         }
         /* Hover: one column per week carrying every series' value. */
+        var toEndFrom = (x as Axis)?.ToEndFrom;
         for (var i = 0; i < x.Count; i++)
         {
-            var tip = x[i] + ": " + string.Join("; ", series.Select(s => $"{s.Name} {Format(s.Values.ElementAtOrDefault(i), f)}"));
+            /* A point drawn only for the lines that run to the end names those lines alone, not the others as "—". */
+            var tip = x[i] + ": " + string.Join("; ", series.Where(s => toEndFrom is not { } te || i < te || s.ToEnd).Select(s => $"{s.Name} {Format(s.Values.ElementAtOrDefault(i), f)}"));
             var w = x.Count == 1 ? 60 : (W - R - L) / (double)(x.Count - 1);
             sb.Append($"<rect class=\"hit\" x=\"{N(X(i) - w / 2)}\" y=\"{T}\" width=\"{N(w)}\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\" data-x=\"{N(X(i))}\"/>");
         }
