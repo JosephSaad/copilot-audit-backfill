@@ -17,15 +17,15 @@ public sealed class ToEndLineTests
         return a;
     }
 
-    static readonly double?[] Licensed = [18000, 18020, 18036, 18056];
-    static readonly double?[] Used = [15000, 15100, 15114, 4000];
+    static readonly double?[] Licensed = [4750, 4770, 4790, 4812];
+    static readonly double?[] Used = [3900, 3950, 3961, 1000];
 
     [Fact]
     public void The_license_line_ends_on_the_last_day_with_the_headline_number()
     {
         var html = Chart.Line(Weeks(), [new Series("Premium license holders", Licensed, 1, ToEnd: true), new Series("Used", Used, 3)], Fmt.Count, "t").Value!;
-        Assert.Contains("Premium license holders 18,056", html);
-        Assert.DoesNotContain("18,036<", html);
+        Assert.Contains("Premium license holders 4,812", html);
+        Assert.DoesNotContain("4,790<", html);
         Assert.Contains(">16 Nov<", html);
         Assert.DoesNotContain("20 Nov", html);
     }
@@ -34,10 +34,10 @@ public sealed class ToEndLineTests
     public void The_other_lines_still_stop_at_the_last_whole_week()
     {
         var html = Chart.Line(Weeks(), [new Series("Premium license holders", Licensed, 1, ToEnd: true), new Series("Used", Used, 3)], Fmt.Count, "t").Value!;
-        Assert.Contains("Used 15,114", html);
-        Assert.DoesNotContain("4,000", html);
+        Assert.Contains("Used 3,961", html);
+        Assert.DoesNotContain("1,000", html);
         /* The last point's tooltip names the license line alone. */
-        Assert.Contains("data-tip=\"16 Nov: Premium license holders 18,056\"", html);
+        Assert.Contains("data-tip=\"16 Nov: Premium license holders 4,812\"", html);
     }
 
     [Fact]

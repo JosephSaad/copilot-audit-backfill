@@ -14,7 +14,7 @@ database, the scripts or the Workbench's worker changes. From an earlier release
 
 ### Changed
 
-- **License lines end on the headline's number.** On Leadership › Overview, Adoption › Funnel and trend and Licensing › License inventory, the license line now runs to the period's last day, so it ends on the same number as the Premium licenses headline. Before, it stopped at the last whole week's Friday, a few days earlier, and the licenses assigned or removed in between read as a mismatch (18,056 in the headline against 18,036 on the chart). Licenses held are counted on a day, so a week not yet over cannot make that line dip; it is drawn for the license line alone, under the period's last day ("16 Nov"), and the other lines still stop at the last whole week. On a daily trend, the license line runs through the two days held back for late records, and the line under the chart says so.
+- **License lines end on the headline's number.** On Leadership › Overview, Adoption › Funnel and trend and Licensing › License inventory, the license line now runs to the period's last day, so it ends on the same number as the Premium licenses headline. Before, it stopped at the last whole week's Friday, a few days earlier, and the licenses assigned or removed in between read as a mismatch (4,812 in the headline against 4,790 on the chart, say). Licenses held are counted on a day, so a week not yet over cannot make that line dip; it is drawn for the license line alone, under the period's last day ("16 Nov"), and the other lines still stop at the last whole week. On a daily trend, the license line runs through the two days held back for late records, and the line under the chart says so.
 
 ### Known limits
 
