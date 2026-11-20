@@ -42,6 +42,8 @@ SCRIPTS = [
      'The dashboard\'s operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers.'),
     ('Create-AgentEventProcedure.sql', 'License events', 'By Install-CopilotAudit.ps1, and after each license-event load',
      'audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each.'),
+    ('Create-WeeklyReport.sql', 'Copilot', 'By Install-CopilotAudit.ps1 (3.1.2)',
+     'WeeklyReportSend and bi.usp_WeeklyCopilotReport: the weekly Copilot report\'s send log and its figures, which tools/Send-CopilotWeeklyReport.ps1 reads.'),
     ('Create-CopilotDashboardProcedure.sql', 'Copilot', 'By hand, once, for the dashboard (step 22)',
      'dash.usp_RefreshDashboard, which the backfill\'s -Incremental run and the CSV importer call after bi.usp_RefreshBi.'),
 ]
@@ -129,6 +131,9 @@ AREAS = [
         ('audit.PowerPlatformUserActivity', 'Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center usage exports.'),
         ('audit.PowerPlatformCapacityDay', 'The Dataverse database, file and log capacity entitled and used, each day it was read (2.6.6).'),
         ('audit.PowerPlatformCreditDay', 'Copilot Credits and AI Builder credits per environment and day (2.6.6), prepaid or pay-as-you-go with its cost.'),
+    ]),
+    ('weekly', 'The weekly report (3.1.2)', 'What tools/Send-CopilotWeeklyReport.ps1 keeps. Its figures come from bi.usp_WeeklyCopilotReport, which reads the bi facts and keeps nothing; WEEKLY-REPORT.md defines each figure.', [
+        ('audit.WeeklyReportSend', 'One row per week the weekly Copilot report was sent or tried, by the Friday that ends it: whether it went, how many tries, to whom, and whether the data had reached the Monday after the week. The script sends a week once and tries a failed send again up to MaxAttempts; a test send with -To is not recorded.'),
     ]),
     ('licdb', 'License events (license-event database)', 'In the separate database the license-operations backfill fills. It also holds the loading, state and final-record tables above; these are added on top.', [
         ('audit.LicenseEvent', 'One row per license-related directory audit record (Change user license, Update user, Add user, Delete user): who changed whom, when, and whether the detail came from chunks.'),
