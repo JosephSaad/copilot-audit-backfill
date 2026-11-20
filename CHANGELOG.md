@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.2] - 2026-11-20
+
+The weekly Copilot report: every Tuesday morning the job server emails the week that ended the Friday before, with
+the table of M365 Copilot and Copilot Chat figures, two 13-week charts and an Excel workbook. Nothing else changes.
+
+**Install over 3.1.1:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`
+and `logs`), and run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, or only
+`sqlcmd -S <server> -d CopilotAudit -E -b -i .\sql\Create-WeeklyReport.sql`: either adds the table
+`audit.WeeklyReportSend` and the procedure `bi.usp_WeeklyCopilotReport`; nothing in place changes. Then set up the
+report as docs\WEEKLY-REPORT.md says (settings, `-Preview`, a test send, `tools\Register-CopilotWeeklyReport.ps1`).
+The dashboard, the Workbench and the nightly run do not change: no new dashboard or worker package is needed. A server
+that installed the 3.1.1 add-on (`copilot-weekly-report-3.1.1.zip`) already has these files and objects.
+
+### Added
+
+- **The weekly Copilot report** (`tools\Send-CopilotWeeklyReport.ps1`, docs\WEEKLY-REPORT.md). For a Saturday-to-Friday
+  week in the reporting time zone, and for all time since the data starts, in two columns: M365 Copilot (use made
+  with a Copilot license) and Copilot Chat (use made without one).
+  - **Number of Users Enabled**: Copilot license holders on the week's last day; for Copilot Chat, everyone seen in
+    the audit log since the data starts (or, with `ChatEnabled = 'Unlicensed'`, those seen using it without a license).
+  - **Active Users**: the dashboard's Active licensed users; for Copilot Chat, people who used it without a license.
+  - **Number of actions taken**: prompts.
+  - **Security Alerts**: the dashboard's Security signals (jailbreak attempts, prompt injections, blocked resources).
+  - **Two charts** over the 13 weeks ending with it (`Weeks`): users enabled and active users as lines, actions taken
+    as an area on a second axis, for Copilot Chat and for M365 Copilot. In the email as images; in the attached
+    workbook as native Excel charts beside the table, every week's figures and how each is counted.
+- **Sent on its own** (`tools\Register-CopilotWeeklyReport.ps1`): a task that runs every hour and sends each week once,
+  on the first run after Tuesday 08:00 in the reporting time zone (`SendDay`, `SendTime`), through clock changes and
+  after a server that was down. It waits up to `MaxWaitHours` (24) for the data to reach the Monday after the week, so
+  records Purview delivers late are in, then sends with a note if it still has not. A send the relay refuses is tried
+  again each hour, up to `MaxAttempts` (8). `-Preview` writes the email, charts and workbook to a folder and sends
+  nothing; `-To` sends a test to one address without recording it.
+- **`bi.usp_WeeklyCopilotReport`** (`sql\Create-WeeklyReport.sql`) returns the figures for any week, so they can be
+  read in SQL Server Management Studio too; **`audit.WeeklyReportSend`** records each week sent or tried.
+
+### Known limits
+
+- The email's charts are drawn with the .NET Framework's chart library: the script runs in Windows PowerShell 5.1
+  (`powershell.exe`), as its task does. In PowerShell 7 it sends without the charts and says so in its log.
+- The figures come from the Copilot database, not the Microsoft 365 admin center, so they differ from its usage
+  reports; they agree with the dashboard and the Power BI model.
+- Tested against SQL Server 2022 with made-up data and a test mail server: the figures, the workbook, the email and
+  its inline images, the send log, the wait for late data and the retry. The charts drawn for the email and the
+  scheduled task are not tested on Windows yet: run `-Preview` first.
+
 ## [3.1.1] - 2026-11-17
 
 The license line on the trend charts now ends on the same number as the Premium licenses headline beside it.

@@ -365,6 +365,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `docs/REPORTING.docx` | The brief reporting guide as a Word document, to hand to a team outside the repository (2.6.1). Each release attaches it again, with `REPORTING-REFERENCE.docx`, made from the Markdown by `tools/dev/schema/build_docx.py`. |
 | `docs/REPORTING-REFERENCE.md` | The reference's guide: how the schema is created and filled, every reporting view column by column, each figure as SQL (2.5.9). Each release attaches it in full, with every table and view and the text of the scripts that create them (2.7.6). |
 | `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
+| `docs/WEEKLY-REPORT.md` | The weekly Copilot report (3.1.2): the Tuesday email with the week's table, two 13-week charts and an Excel workbook; what each figure counts, installing, running and fixing it. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licenses, the nightly job, Power BI and Copilot. |
 | `governance/` | The Governance Workbench (3.0.0): its database scripts, services, worker, test tools and tests. Its pages are in `dashboard/CopilotInsights/Pages/Workbench`. |
 | `docs/GOVERNANCE-USER-GUIDE.md`, `docs/GOVERNANCE-RUNBOOK.md`, `docs/GOVERNANCE-DECISIONS.md`, `docs/GOVERNANCE-TEST-ENVIRONMENT.md` | The Governance Workbench: where each role starts, what to do when something fails, the decisions behind it, and running it on one PC (3.0.0). |

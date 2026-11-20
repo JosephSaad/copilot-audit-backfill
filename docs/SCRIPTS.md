@@ -72,6 +72,8 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `tools\Trace-CopilotNightly.sql` | For the database administrator: what the nightly task is running in SQL Server now, and a recording of every statement that takes a second or longer. The companion of the tool above. | A database administrator |
 | `tools\Import-CopilotAuditCsv.ps1` | Imports a folder of audit log exports from the Purview portal (CSV) into the same tables the Graph backfill fills, for history the API no longer holds or a tenant with no app. | An administrator, as needed |
 | `tools\Export-CopilotSessionCsv.ps1` | Writes the session summary and the weekly rollup as the CSV files the old session script produced, so anything that read those files keeps working. | An administrator, or a scheduled task of your own |
+| `tools\Send-CopilotWeeklyReport.ps1` | (3.1.2) The weekly Copilot report: the week's table (M365 Copilot and Copilot Chat users enabled, active users, actions taken and security alerts, for the week and for all time), two 13-week charts and an Excel workbook, by email. `-Preview` writes them to a folder and sends nothing. Windows PowerShell 5.1. See [WEEKLY-REPORT.md](WEEKLY-REPORT.md). | Its scheduled task, every hour; it sends each week once, after Tuesday 08:00 |
+| `tools\Register-CopilotWeeklyReport.ps1` | (3.1.2) Creates or removes the weekly report's scheduled task, as the nightly task's account. | An administrator, once |
 
 ## SQL scripts
 
@@ -93,6 +95,7 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `Create-CopilotBiProcedure.sql` | Copilot | `bi.usp_RefreshBi`, which fills it each night; `bi.usp_NameAgents`, which names the agents; and from 2.6.3 `bi.usp_MergeAgents`, which makes one agent of the identities the audit log gives the same agent. |
 | `Create-CopilotExternalUsageSchema.sql` | Copilot | The eight tables for AI usage outside Microsoft 365 Copilot (2.6.2): GitHub Copilot and Microsoft Foundry. |
 | `Create-CopilotActivityRollup.sql` | Copilot | (2.6.9) `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which reads the activity database into them and into `audit.PowerPlatformUserActivity`. |
+| `Create-WeeklyReport.sql` | Copilot | (3.1.2) `bi.usp_WeeklyCopilotReport`, the weekly report's figures for a week, its all-time totals and the weeks before it; and `audit.WeeklyReportSend`, the record of each week sent. |
 | `Create-CopilotDashboardSchema.sql` | Copilot | The `dash` schema, with `-Dashboard`: who may see what, settings and reference data, the audit log, the agent inventory, and the rollups the dashboard reads. |
 | `Create-CopilotDashboardProcedure.sql` | Copilot | `dash.usp_RefreshDashboard`, which rebuilds the org chart and the rollups after each `bi` refresh. |
 | `Create-CopilotOperationsSchema.sql` | Copilot | What the dashboard's operations features keep, with `-Dashboard`: email and alerts, digests, targets, license actions, saved views, classifications, extracts, and the `bi` views built on them. |

@@ -20,6 +20,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
 - [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity), [`audit.ActivityUserDay`](#auditactivityuserday), [`audit.DlpDay`](#auditdlpday), [`audit.DlpMatch`](#auditdlpmatch)
+- [The weekly report (3.1.2)](#the-weekly-report-312): [`audit.WeeklyReportSend`](#auditweeklyreportsend)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
@@ -52,6 +53,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun, CostPrice and CostSuite (2.6.6, seeded); the views dash.Agent, dash.CopilotSuiteOnly and dash.CopilotSuiteHolder (2.6.6) and the function dash.fnScopeUsers. |
 | `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, Copilot reservations, their rate, the Technology-funded pool and month-end snapshots (2.6.8), saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
 | `sql/Create-CopilotActivityRollup.sql` | Copilot | By Install-CopilotAudit.ps1 | AIAppUserDay, AIAppResource, the function fnAIAppResourceGuess and usp_RollupActivity (2.6.9), which reads the activity database into them and into PowerPlatformUserActivity. |
+| `sql/Create-WeeklyReport.sql` | Copilot | By Install-CopilotAudit.ps1 (3.1.2) | WeeklyReportSend and bi.usp_WeeklyCopilotReport: the weekly Copilot report's send log and its figures, which tools/Send-CopilotWeeklyReport.ps1 reads. |
 | `sql/Create-ActivitySchema.sql` | Activity | By Install-CopilotAudit.ps1 -ActivityDatabase | AIAppCall and PlatformActivity (2.6.9): the activity database's records, a row each. |
 | `sql/Create-ActivityProcedure.sql` | Activity | By Install-CopilotAudit.ps1 -ActivityDatabase | usp_ShredActivity (2.6.9), which the incremental load runs after each merge. |
 | `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
@@ -1740,6 +1742,32 @@ Indexes and constraints:
 
 - `CCI_DlpMatch`: clustered columnstore
 - `UX_DlpMatch_Record`: unique (RecordId)
+
+## The weekly report (3.1.2)
+
+What tools/Send-CopilotWeeklyReport.ps1 keeps. Its figures come from `bi.usp_WeeklyCopilotReport`, which reads the bi facts and keeps nothing; [WEEKLY-REPORT.md](WEEKLY-REPORT.md) defines each figure.
+
+### audit.WeeklyReportSend
+
+*Table.* One row per week the weekly Copilot report was sent or tried, by the Friday that ends it: whether it went, how many tries, to whom, and whether the data had reached the Monday after the week. The script sends a week once and tries a failed send again up to MaxAttempts; a test send with -To is not recorded.
+
+**Script** `Create-WeeklyReport.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `WeekEnding` | date | **no** | **PK** | the Friday the week ends on |
+| 2 | `Status` | varchar(16) | **no** |  | Sent \| Failed |
+| 3 | `Attempts` | int | **no** | `(0)` |  |
+| 4 | `FirstTryUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 5 | `LastTryUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 6 | `SentUtc` | datetime2(0) | yes |  |  |
+| 7 | `Recipients` | nvarchar(4000) | yes |  | To, Cc and Bcc, separated by semicolons |
+| 8 | `DataComplete` | bit | yes |  | the data reached the Monday after the week when it was sent |
+| 9 | `Detail` | nvarchar(4000) | yes |  | the mail server's error, or a note |
+
+Indexes and constraints:
+
+- `PK_WeeklyReportSend`: primary key, clustered (WeekEnding)
 
 ## License events (license-event database)
 

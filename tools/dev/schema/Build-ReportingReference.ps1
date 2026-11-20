@@ -54,6 +54,7 @@ $scripts = @(
     @{ Path = 'sql/Create-LicenseEventProcedure.sql';        Note = 'License-event database. `audit.usp_ShredLicenseEvents` and `audit.usp_RefreshLicenseSkuChange`.' }
     @{ Path = 'sql/Create-AgentEventProcedure.sql';          Note = 'License-event database. `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: Copilot Studio authoring records.' }
     @{ Path = 'sql/Create-CopilotActivityRollup.sql';         Note = 'Copilot database (2.6.9). `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which copies the activity database into them and into `audit.PowerPlatformUserActivity`.' }
+    @{ Path = 'sql/Create-WeeklyReport.sql';                 Note = 'Copilot database (3.1.2). `audit.WeeklyReportSend` and `bi.usp_WeeklyCopilotReport`: the figures and send log of the weekly Copilot report (`tools/Send-CopilotWeeklyReport.ps1`).' }
     @{ Path = 'sql/Create-ActivitySchema.sql';               Note = 'Activity database (2.6.9). `audit.AIAppCall` and `audit.PlatformActivity`: AI app calls, Power BI and Power Apps activity, a row per record.' }
     @{ Path = 'sql/Create-ActivityProcedure.sql';            Note = 'Activity database (2.6.9). `audit.usp_ShredActivity`.' }
     @{ Path = 'sql/Finalize-CopilotAudit.sql';               Note = 'Both databases. Run by the backfill''s `-Finalize`, not by the installer: builds `audit.CopilotAudit` and `audit.CopilotInteraction` from staging.' }
