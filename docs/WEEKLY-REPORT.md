@@ -1,6 +1,6 @@
 # The weekly Copilot report
 
-An email every Tuesday morning with one table and two charts, and an Excel workbook attached, for the week that ended the Friday before. It runs on the job server with no one present. Part of the release from 3.1.2; for 3.1.1 it was an add-on with the same files (`copilot-weekly-report-3.1.1.zip`), which needs nothing redone on upgrade.
+An email every Tuesday morning with one table and two charts, and an Excel workbook attached, for the week that ended the Friday before. It runs on the job server with no one present. Part of the release from 3.1.2; for 3.1.1 it was an add-on with the same files (`copilot-weekly-report-3.1.1.zip`). On upgrade from the add-on, replace only `tools\Send-CopilotWeeklyReport.ps1` with 3.1.2's: the add-on's copy sends its emails without the charts in Windows PowerShell 5.1.
 
 ## What it sends
 
@@ -128,6 +128,7 @@ It returns the week (dates, the first day of data, the last day with data and wh
 | `No settings file at ...` | Step 3 was not done | Copy and fill in the settings |
 | `Could not find stored procedure 'bi.usp_WeeklyCopilotReport'` | Step 2 was not done | Run `Install-CopilotAudit.ps1`, or `Create-WeeklyReport.sql` alone |
 | `Charts not drawn ...` | The chart library could not load: the script ran in PowerShell 7, or .NET Framework 4.x is missing | Run it with `powershell.exe`; the task does |
+| `Charts not drawn ... Cannot convert value "7/25" to type "System.Double"` | The 3.1.1 add-on's copy of the script | Replace `tools\Send-CopilotWeeklyReport.ps1` with 3.1.2's |
 | `Workbook not written ...` | ImportExcel is not in `Modules` | `tools\Save-CopilotAuditModules.ps1` on a machine with gallery access, then copy `Modules` over |
 | `the email was not sent: ... 5.7.1 ...` or `Connection refused` | The relay refused the job server, or the port is wrong | Ask the mail team to allow the job server to relay; check `SmtpPort` and `SmtpUseSsl` |
 | `data reaches ..., not yet the Monday after the week. Waiting` | The nightly run has not loaded the days after the week | Nothing, unless it lasts: check the nightly run on Admin › Health |

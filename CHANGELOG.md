@@ -15,7 +15,9 @@ and `logs`), and run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard`
 `audit.WeeklyReportSend` and the procedure `bi.usp_WeeklyCopilotReport`; nothing in place changes. Then set up the
 report as docs\WEEKLY-REPORT.md says (settings, `-Preview`, a test send, `tools\Register-CopilotWeeklyReport.ps1`).
 The dashboard, the Workbench and the nightly run do not change: no new dashboard or worker package is needed. A server
-that installed the 3.1.1 add-on (`copilot-weekly-report-3.1.1.zip`) already has these files and objects.
+that installed the 3.1.1 add-on (`copilot-weekly-report-3.1.1.zip`) already has the table and the procedure; it needs
+only this release's `tools\Send-CopilotWeeklyReport.ps1`, since the add-on's copy sends its emails without the charts
+(see Fixed).
 
 ### Added
 
@@ -39,6 +41,12 @@ that installed the 3.1.1 add-on (`copilot-weekly-report-3.1.1.zip`) already has 
 - **`bi.usp_WeeklyCopilotReport`** (`sql\Create-WeeklyReport.sql`) returns the figures for any week, so they can be
   read in SQL Server Management Studio too; **`audit.WeeklyReportSend`** records each week sent or tried.
 
+### Fixed
+
+- **The 3.1.1 add-on's emails went without their charts** in Windows PowerShell 5.1, the shell its task runs in; the
+  log said `Charts not drawn ... Cannot convert value "7/25" to type "System.Double"`. Windows PowerShell chose the
+  chart library's number-only way of adding a point, so a week label could not go in. The points now go in as labels.
+
 ### Known limits
 
 - The email's charts are drawn with the .NET Framework's chart library: the script runs in Windows PowerShell 5.1
@@ -46,8 +54,11 @@ that installed the 3.1.1 add-on (`copilot-weekly-report-3.1.1.zip`) already has 
 - The figures come from the Copilot database, not the Microsoft 365 admin center, so they differ from its usage
   reports; they agree with the dashboard and the Power BI model.
 - Tested against SQL Server 2022 with made-up data and a test mail server: the figures, the workbook, the email and
-  its inline images, the send log, the wait for late data and the retry. The charts drawn for the email and the
-  scheduled task are not tested on Windows yet: run `-Preview` first.
+  its inline images, the send log, the wait for late data and the retry. On Windows, in Windows PowerShell 5.1: the
+  preview, both charts and a test send with them inline. Not tested on Windows: the workbook in Windows PowerShell 5.1
+  (ImportExcel was not installed there) and the scheduled task itself. Run `-Preview` first.
+- Where a week's actions taken and its users enabled sit at the same height on their two scales, their value labels
+  can overlap on the chart; each figure is also in the table and the workbook.
 
 ## [3.1.1] - 2026-11-17
 

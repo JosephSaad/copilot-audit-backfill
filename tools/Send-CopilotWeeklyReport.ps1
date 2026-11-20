@@ -357,11 +357,14 @@ function New-WeeklyChartPng {
         $s['LabelStyle'] = $pair[2]
     }
 
+    # The values go in as objects: with a number as the second argument, Windows
+    # PowerShell picks AddXY(double, double[]) and cannot turn the label "7/25"
+    # into the X number. As an object the label becomes the point's axis label.
     foreach ($r in $Weeks.Rows) {
-        $x = [string] $r['WeekLabel']
-        [void] $sArea.Points.AddXY($x, [double] $r["${Prefix}Prompts"])
-        [void] $sEnabled.Points.AddXY($x, [double] $r["${Prefix}Enabled"])
-        [void] $sActive.Points.AddXY($x, [double] $r["${Prefix}Active"])
+        $x = [object] [string] $r['WeekLabel']
+        [void] $sArea.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Prompts"]))
+        [void] $sEnabled.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Enabled"]))
+        [void] $sActive.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Active"]))
     }
     # Only the last week's value is bold and larger: the one the table reports.
     foreach ($s in $sArea, $sEnabled, $sActive) {
