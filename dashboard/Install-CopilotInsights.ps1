@@ -878,7 +878,11 @@ if ($GrantDatabaseAccess) {
         catch { $runLock.Dispose(); throw }
         if (-not $granted) {
             $runLock.Dispose()
-            throw "Another run is using $db now: the nightly pipeline, Install-CopilotAudit.ps1 or a maintenance rebuild. The site is installed; $db's dashboard schema and grants were not changed. Let it finish (Admin > Health shows the pipeline's runs), then run this again with -GrantDatabaseAccess."
+            # 3.1.3: and who holds it, where the scripts' tools folder is beside this one (it is in the release).
+            $holder = ''
+            $runLockHelper = Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'tools') 'RunLock.ps1'
+            if (Test-Path -LiteralPath $runLockHelper) { . $runLockHelper; $holder = ' ' + (Get-RunLockHolder $lb.ConnectionString) }
+            throw "Another run is using $db now: the nightly pipeline, Install-CopilotAudit.ps1 or a maintenance rebuild. The site is installed; $db's dashboard schema and grants were not changed.$holder Run this again with -GrantDatabaseAccess once it is free."
         }
     }
     $dbConn = New-Object System.Data.SqlClient.SqlConnection $dbConnString

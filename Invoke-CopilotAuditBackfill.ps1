@@ -194,6 +194,7 @@ if (Test-Path -LiteralPath $script:BundledModules -PathType Container) {
 }
 
 . (Join-Path $PSScriptRoot 'Import-CopilotAuditEngine.ps1')
+. (Join-Path $PSScriptRoot 'tools' 'RunLock.ps1')   # who holds the run lock, when it is held (3.1.3)
 
 # ===========================================================================
 # Logging
@@ -335,7 +336,7 @@ function Enter-RunLock {
     catch { $c.Dispose(); throw }
     if (-not $granted) {
         $c.Dispose()
-        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild or another load. Nothing was loaded. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild or another load. Nothing was loaded. $(Get-RunLockHolder $b.ConnectionString)"
     }
     $c
 }

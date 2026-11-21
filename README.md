@@ -338,6 +338,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `tools/Save-CopilotAuditModules.ps1` | Saves the PowerShell modules the scripts need into a `Modules` folder beside them, checking their signatures, for a server with no gallery access. |
 | `tools/Import-CostCsv.ps1` | Loads the Fabric, flow, Power Platform and Copilot Credit exports Leadership › Costs and savings reads (2.6.6). |
 | `tools/DropGuard.ps1` | The delete guard (2.6.5): each load that empties and refills a table refuses a new load that is more than its percentage smaller than the last. |
+| `tools/RunLock.ps1` | Who holds the run lock (3.1.3): a run that finds the database in use names the session holding it, or the permission needed to see it. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of every AD group granted a role, for Power BI and Admin › Access. |
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |

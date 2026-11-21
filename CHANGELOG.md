@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.3] - 2026-11-21
+
+A run that finds the Copilot database in use now says which session holds it.
+
+**Install over 3.1.2:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`
+and `logs`); the new file is `tools\RunLock.ps1`, which the others load. Nothing in the databases, the dashboard or the
+Workbench changes: no installer run and no new dashboard or worker package is needed.
+
+### Changed
+
+- **"Another run is using CopilotAudit now" names the holder.** The nightly run, the installer, the maintenance
+  rebuilds, a load or CSV import run by hand and the dashboard installer's `-GrantDatabaseAccess` each stop when another
+  holds the run lock. The message now adds the session that holds it: the program, the machine and the account, and
+  whether it is working (let it finish) or idle and for how long, with the `KILL` a DBA would run to end it. Before, it
+  said only that another run was using the database, and a query window left open in SQL Server Management Studio
+  stopped every nightly run with nothing in the log to say what held it.
+- **Without the permission to see it, the message says so.** Seeing another session needs VIEW SERVER PERFORMANCE
+  STATE (SQL Server 2022 and later) or VIEW SERVER STATE (before): the message names the account and the permission a
+  DBA would grant. The run is refused exactly as before; nothing else changes.
+
+### Known limits
+
+- The nightly task's account usually lacks that permission, so the nightly log names the permission rather than the
+  holder until a DBA grants it. A run started by an administrator shows the holder.
+- Tested against SQL Server 2022: a holder working, a holder idle, no holder, and an account without the permission;
+  the integration test checks the installer's, the maintenance tool's, the load's and the CSV import's refusals.
+
 ## [3.1.2] - 2026-11-20
 
 The weekly Copilot report: every Tuesday morning the job server emails the week that ended the Friday before, with

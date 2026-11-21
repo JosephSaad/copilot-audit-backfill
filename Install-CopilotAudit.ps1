@@ -112,6 +112,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path (Join-Path $PSScriptRoot 'tools') 'RunLock.ps1')   # who holds the run lock, when it is held (3.1.3)
 $sqlDir = Join-Path $PSScriptRoot 'sql'
 if (-not $LicenseEventDatabases) { $LicenseEventDatabases = if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) } }
 $licList = if ($LicenseEventDatabases) { @($LicenseEventDatabases) -join ',' } else { $null }
@@ -182,7 +183,7 @@ function Enter-RunLock([string] $Catalog) {
     catch { $c.Dispose(); throw }
     if (-not $granted) {
         $c.Dispose()
-        throw "Another run is using $Catalog now: the nightly pipeline, a maintenance rebuild, or this installer in another window. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), disable the nightly task while you upgrade, then run this again."
+        throw "Another run is using $Catalog now: the nightly pipeline, a maintenance rebuild, or this installer in another window. Nothing was changed. $(Get-RunLockHolder $b.ConnectionString) Disable the nightly task while you upgrade."
     }
     $c
 }

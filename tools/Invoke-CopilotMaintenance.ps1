@@ -105,6 +105,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot 'RunLock.ps1')   # who holds the run lock, when it is held (3.1.3)
 $me = "$env:USERDOMAIN\$env:USERNAME"
 
 function Invoke-Sql {
@@ -170,7 +171,7 @@ if ($Task -in 'Reflatten', 'RebuildSessions', 'RebuildBi', 'RebuildValueCatalog'
     $lc.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
     if ([int] $lc.ExecuteScalar() -lt 0) {
         $runLock.Dispose()
-        throw "Another run is using $Database now: the nightly pipeline, the installer or another rebuild. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+        throw "Another run is using $Database now: the nightly pipeline, the installer or another rebuild. Nothing was changed. $(Get-RunLockHolder $lb.ConnectionString)"
     }
 }
 

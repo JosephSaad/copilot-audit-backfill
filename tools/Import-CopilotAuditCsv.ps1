@@ -113,6 +113,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'RunLock.ps1')   # who holds the run lock, when it is held (3.1.3)
 $script:ToolRoot = Split-Path $PSScriptRoot -Parent
 # The parameters given: -SessionLicenseDatabase '' given means none, left out means the last build's.
 $script:Bound = $PSBoundParameters
@@ -451,7 +452,7 @@ function Enter-RunLock {
     catch { $c.Dispose(); throw }
     if (-not $granted) {
         $c.Dispose()
-        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild, a load or another import. Nothing was imported. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild, a load or another import. Nothing was imported. $(Get-RunLockHolder $b.ConnectionString)"
     }
     $c
 }

@@ -107,6 +107,8 @@ $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 
 $script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction'
 # The delete guard's exit code: a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
+# Who holds the run lock, for the message of a run that finds the database in use (3.1.3).
+. (Join-Path $PSScriptRoot 'tools' 'RunLock.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
 function Get-PipelineSetting {
@@ -610,7 +612,9 @@ function Invoke-Main {
             $lock = Enter-PipelineRun $t
             if ($lock) { $ok = Invoke-TenantRun -T $t -Log $log -Label $label }
             else {
-                "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. Run this again when it has finished." |
+                # 3.1.3: and who holds it. A query window left open in SQL Server Management Studio stopped every
+                # nightly run, and this line was all there was to go on.
+                "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. $(Get-RunLockHolder (Get-PipelineConnectionString $t))" |
                     Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
             }
         }

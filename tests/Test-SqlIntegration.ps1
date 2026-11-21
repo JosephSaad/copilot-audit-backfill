@@ -3492,6 +3492,12 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
     $csvRefused = try { & (Join-Path $root 'tools' 'Import-CopilotAuditCsv.ps1') -Path $emptyDir -ConnectionString (New-ConnString $script:ITDatabase) 6>$null | Out-Null; '' } catch { $_.Exception.Message }
     Assert-That ($loadRefused -like 'Another run is using*Nothing was loaded*' -and $csvRefused -like 'Another run is using*Nothing was imported*') `
         "2.4.12: so are a load and a CSV import run by hand ($loadRefused | $csvRefused)"
+    # 3.1.3: each refusal says which session holds the lock (here this run's own, idle; the test signs in as an
+    # administrator, who may see other sessions). Before, it said only that another run was using the database.
+    $heldBy = Get-RunLockHolder (New-ConnString $script:ITDatabase)
+    Assert-That ($heldBy -like 'It is held by session*idle*KILL*') "3.1.3: a refused run names the session that holds the lock ($heldBy)"
+    Assert-That (@($instRefused, $maintRefused, $loadRefused, $csvRefused | Where-Object { $_ -like '*It is held by session*' }).Count -eq 4) `
+        'in the installer''s, the maintenance tool''s, the load''s and the CSV import''s refusals too'
     $env:CopilotAuditRunLock = $heldFor
     $csvUnder = try { & (Join-Path $root 'tools' 'Import-CopilotAuditCsv.ps1') -Path $emptyDir -ConnectionString (New-ConnString $script:ITDatabase) 6>&1 | Out-String } catch { $_.Exception.Message }
     Assert-That ($csvUnder -like '*No files matching*') "but one the pipeline starts runs under its lock ($csvUnder)"
@@ -3503,6 +3509,8 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
     $after = Enter-PipelineRun $setting
     Exit-PipelineRun $after
     Assert-That ($null -ne $after -and -not (Test-Path Env:\CopilotAuditRunLock)) 'and once the run ends, the database is free'
+    $freeNow = Get-RunLockHolder (New-ConnString $script:ITDatabase)
+    Assert-That ($freeNow -like 'No session holds it now*') "3.1.3: and asked then, it says no session holds it ($freeNow)"
 }
 
 # Power BI: row-level security from the org chart, and department figures with small groups hidden.
