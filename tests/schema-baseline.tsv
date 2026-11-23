@@ -1836,6 +1836,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.PowerAutomateFlow
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCapacityDay
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCreditDay
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformUserActivity
+G	copilot	CopilotInsightsApp	SELECT	audit.ReportGroupDay
 G	copilot	CopilotInsightsApp	SELECT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
@@ -2153,6 +2154,7 @@ P	copilot	bi.usp_RefreshBi	P	3	@LicenseEventDatabase	nvarchar(1000)	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	1	@WeekEnding	date	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	2	@Weeks	int	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	3	@ChatEnabled	varchar(16)	0	1
+P	copilot	bi.usp_WeeklyCopilotReport	P	4	@GroupCount	varchar(8)	0	1
 P	copilot	dash.fnReservationMember	IF	1	@AsOf	date	0	0
 P	copilot	dash.fnScopeUsers	IF	1	@RootUpn	nvarchar(256)	0	0
 P	copilot	dash.fnValueName	FN	1	@ColumnId	smallint	0	0
