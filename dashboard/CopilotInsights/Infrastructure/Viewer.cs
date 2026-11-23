@@ -496,7 +496,7 @@ EXEC sys.sp_executesql @sql;");
             catch (Exception ex) { log.LogInformation("No SID match for {Name}: {Message}", windowsName, ex.Message); }
         }
         if (upn is null && _o.IdentityMap.TryGetValue(windowsName, out var mapped)) (upn, source) = (mapped, UpnSource.IdentityMap);
-        if (upn is null && FromDirectory(user, windowsName) is { } found) (upn, source) = (found, UpnSource.Directory);
+        if (upn is null && FromDirectory(user, windowsName, await DirectoryDomainAsync()) is { } found) (upn, source) = (found, UpnSource.Directory);
         if (upn is not null && source != UpnSource.Sid && !await SidAllowsAsync(upn, sid, source))
         {
             if (source == UpnSource.Directory)
@@ -519,21 +519,40 @@ EXEC sys.sp_executesql @sql;");
         return AccessRules.MayBe(source, recorded, sid);
     }
 
-    string? FromDirectory(ClaimsPrincipal user, string windowsName)
+    /// <summary>
+    /// The users' AD domain set on Admin › Directory quality (3.1.3, DirectoryDomain), or null. The dashboard can run in
+    /// another domain than the users, so a lookup never relies on the server's own domain when this is set.
+    /// </summary>
+    async Task<string?> DirectoryDomainAsync()
+    {
+        try { return await settings.StringAsync("DirectoryDomain") is { Length: > 0 } d ? d.Trim() : null; }
+        catch (Exception ex) { log.LogInformation("No directory domain setting: {Message}", ex.Message); return null; }
+    }
+
+    /// <summary>
+    /// The viewer's UPN from AD, by their SID: in the domain of their sign-in name (DOMAIN\user), then in the users'
+    /// domain set on the dashboard (3.1.3). Only when neither is known does it ask the server's own domain.
+    /// </summary>
+    string? FromDirectory(ClaimsPrincipal user, string windowsName, string? usersDomain)
     {
         if (_o.ResolveUpnFromDirectory && OperatingSystem.IsWindows() && user.Identity is WindowsIdentity wi && wi.User is not null)
         {
-            try
+            var signInDomain = windowsName.Contains('\\') ? windowsName[..windowsName.IndexOf('\\')] : null;
+            var domains = new[] { signInDomain, usersDomain }.Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (domains.Count == 0) domains.Add(null);
+            foreach (var domain in domains)
             {
-                var domain = windowsName.Contains('\\') ? windowsName[..windowsName.IndexOf('\\')] : null;
-                using var pc = domain is null
-                    ? new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain)
-                    : new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain, domain);
-                using var up = System.DirectoryServices.AccountManagement.UserPrincipal.FindByIdentity(
-                    pc, System.DirectoryServices.AccountManagement.IdentityType.Sid, wi.User.Value);
-                if (!string.IsNullOrWhiteSpace(up?.UserPrincipalName)) return up!.UserPrincipalName;
+                try
+                {
+                    using var pc = domain is null
+                        ? new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain)
+                        : new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain, domain);
+                    using var up = System.DirectoryServices.AccountManagement.UserPrincipal.FindByIdentity(
+                        pc, System.DirectoryServices.AccountManagement.IdentityType.Sid, wi.User.Value);
+                    if (!string.IsNullOrWhiteSpace(up?.UserPrincipalName)) return up!.UserPrincipalName;
+                }
+                catch (Exception ex) { log.LogInformation("No directory UPN for {Name} in {Domain}: {Message}", windowsName, domain ?? "the server's domain", ex.Message); }
             }
-            catch (Exception ex) { log.LogInformation("No directory UPN for {Name}: {Message}", windowsName, ex.Message); }
         }
         return windowsName.Contains('@') ? windowsName : null;
     }

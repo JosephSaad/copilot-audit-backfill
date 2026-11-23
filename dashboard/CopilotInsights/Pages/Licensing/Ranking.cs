@@ -15,7 +15,7 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
     public override string Title => "Use ranking";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "Everyone you can see, ranked three ways in the period: all their Copilot use, use the free tier covers (web Copilot Chat and agents), and use that needs the Premium license (Copilot in Word, Excel, PowerPoint, Outlook and Teams, or Copilot Chat over work files, mail and sites). A license holder low on the Premium ranking is paying for what they do not use; someone without a license high on the free ranking is ready for one.";
+    public override string Intro => "Everyone you can see with an enabled account, ranked three ways by their interactions in the period: all their Copilot use; free use, which needs no license (Copilot Chat on the web, and agents); and Premium use, which needs the Microsoft 365 Copilot license (Copilot in Word, Excel, PowerPoint, Outlook and Teams, or Copilot Chat over work files, mail and sites). A license holder low on the Premium ranking is paying for what they do not use; someone without a license high on the free ranking is ready for one.";
 
     internal static readonly Dictionary<string, (string Label, string Order)> By = new()
     {
@@ -61,7 +61,8 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
         if (!ready)
             Notice = "Free and Premium use are not told apart here yet, so those columns are empty. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
         var pg = new Paging(Request, new Dictionary<string, string>(Sorts) { ["rank"] = By[by].Order.Replace("r.", "x.") }, "rank");
-        /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them. */
+        /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them.
+           Only accounts enabled today are ranked (3.1.3): a disabled or departed person is not listed. */
         var rows = await Db.QueryAsync<Row>($@"
 WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
                   COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays
@@ -71,7 +72,7 @@ r AS (SELECT u.*, u.I - u.P AS F FROM u),
 x AS (SELECT r.*, du.DisplayName, du.UserPrincipalName, du.Department,
              CAST(CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Licensed,
              RANK() OVER (ORDER BY r.I DESC) AS RankGeneral, RANK() OVER (ORDER BY r.F DESC) AS RankFree, RANK() OVER (ORDER BY r.P DESC) AS RankPremium
-      FROM r JOIN bi.DimUser AS du ON du.UserKey = r.UserKey
+      FROM r JOIN bi.DimUser AS du ON du.UserKey = r.UserKey AND du.AccountEnabled = 1
       LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = r.UserKey AND ld.DateKey = @k1)
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
@@ -79,12 +80,15 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, license }), timeout: 300);
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
+        /* The people are enabled accounts (3.1.3); the interactions are everyone's. */
         var totals = (await Db.QueryAsync<(long I, long P, int People)>($@"
-SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(ud.PremiumUse AS BIGINT)), 0), COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END)
-FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
-        Kpis.Add(new("People using Copilot", Num(totals.People), "everyone you can see who used it in the period"));
+SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(ud.PremiumUse AS BIGINT)), 0),
+       COUNT(DISTINCT CASE WHEN ud.Interactions > 0 AND {ReportContext.IsEnabled()} THEN ud.UserKey END)
+FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {ReportContext.EnabledJoin("ud.UserKey", left: true)}
+WHERE ud.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+        Kpis.Add(new("People using Copilot", Num(totals.People), "enabled accounts you can see that used it in the period"));
         Kpis.Add(new("Premium use", Pct(Ratio(totals.P, totals.I)), $"{totals.P:#,0} of {totals.I:#,0} interactions needed the license"));
-        Kpis.Add(new("Free use", Pct(Ratio(totals.I - totals.P, totals.I)), "web Copilot Chat, agents, and use without a license"));
+        Kpis.Add(new("Free use", Pct(Ratio(totals.I - totals.P, totals.I)), "of interactions: Copilot Chat on the web, agents, and all use without a license"));
 
         var tabs = string.Join(" · ", By.Select(kv =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"by={kv.Key}&license={license}"))}\"{(kv.Key == by ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
@@ -106,7 +110,7 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 A
         CsvTable = t;
         Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {tabs}</p><p class=\"sub\">Show: {lic}</p>" +
             pg.Controls(Request, new Dictionary<string, string> { ["rank"] = "Rank", ["name"] = "Name" }).Value + t.Render().Value),
-            "Ranks are among everyone you can see with any use in the period (1 is the most); ties share a rank. Premium: a license holder's interactions inside Word, Excel, PowerPoint, Outlook or Teams, in Copilot Chat in work mode, or that read work content. Free: the rest. The Upgrade, train or revoke page uses the same split.",
+            "An interaction is one prompt and Copilot's answer. Ranks are among the enabled accounts you can see with any use in the period (1 is the most); ties share a rank. Disabled and departed people are not ranked, but their use stays in the shares above. Premium: a license holder's interactions inside Word, Excel, PowerPoint, Outlook or Teams, in Copilot Chat in work mode, or that read work content. Free: the rest. The Upgrade, train or revoke page uses the same split.",
             "full", CsvUrl()));
     }
 }

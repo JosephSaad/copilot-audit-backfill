@@ -15,7 +15,7 @@ public sealed class FadingModel(PageServices s) : InsightsPage(s)
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override string? OwnWindow => "the last 90 days";
-    public override string Intro => "License holders who used Copilot regularly and now use it much less, though not yet never: the last 30 days against the 60 before. Coach them, or plan to reclaim the license, before it goes idle.";
+    public override string Intro => "License holders who used Copilot regularly and now use it much less, though not yet never: the last 30 days against the 60 before. Coach them, or plan to reclaim the license, before it goes unused.";
 
     const int MinDaysBefore = 4;   // days of use a 30 days before, at least: a habit to lose
     static readonly int[] Drops = [50, 75];
@@ -81,7 +81,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         Kpis.Add(new("People with fading use", Num(pg.Total), $"days of use down {drop}% or more", pg.Total > 0 ? "warn" : null));
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        Kpis.Add(new($"Their licenses a month ({cur})", Num((long)(pg.Total * price)), "what goes idle if nothing changes",
+        Kpis.Add(new($"Their licenses a month ({cur})", Num((long)(pg.Total * price)), "what these licenses cost a month, at risk of going unused",
             Why: await WhyAsync($"People with fading use ({pg.Total:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
 
         var t = new Table
@@ -100,6 +100,6 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"drop={x}"))}\"{(x == drop ? " class=\"on\"" : "")}>Down {x}% or more</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"License holders for at least 90 days who used Copilot on at least {MinDaysBefore} days a month over the 60 days before the last 30, and on at least one of the last 30. " +
-            "\"A month before\" is those 60 days halved. People who stopped altogether are on Unused licenses.", "full", CsvUrl()));
+            "\"A month before\" is those 60 days halved. Premium use: Copilot used with the Microsoft 365 Copilot license, not Copilot Chat. People who stopped altogether are on Unused licenses.", "full", CsvUrl()));
     }
 }

@@ -19,7 +19,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Sensitive content";
     public override string Persona => "Compliance";
-    public override string Intro => "How often Copilot works with sensitivity-labeled content, which labels, from which sites, and what it was blocked from.";
+    public override string Intro => "How often Copilot read labeled content (files, emails and messages carrying a Microsoft Purview sensitivity label), which labels, from which sites, and what it was blocked from.";
 
     protected override async Task BuildAsync()
     {
@@ -68,8 +68,8 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
         /* Each figure opens a page with the same number. Access to labeled content lists these people; the blocked
            count is Security's Blocked resources (the list of people counted people, not blocked interactions). */
-        Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content, or was blocked from content", Href: Open("/compliance/access")));
-        Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/security")));
+        Kpis.Add(new("People", Num(people), "who read labeled content through Copilot, or were blocked from content, in the period; accounts since disabled included", Href: Open("/compliance/access")));
+        Kpis.Add(new("Blocked resources", Num(blocked), "interactions where a policy or permissions stopped Copilot reading content", Href: Open("/security")));
 
         var labels = await labelsTask;
         var order = labels.GroupBy(l => l.Label).OrderBy(g => g.Max(l => l.Rank)).ThenByDescending(g => g.Sum(l => l.N)).Select(g => g.Key).ToList();
@@ -81,10 +81,10 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         Panels.Add(new("Labeled content by label", Chart.Columns(Labels(), series, Fmt.Count, "Interactions by sensitivity label"),
             $"An interaction that read content with two labels counts under each. Labels are ordered least to most sensitive when Admin › Reference data ranks them. {TrendNote}"));
 
-        Panels.Add(new("Share of interactions touching labeled content",
-            Chart.Line(Labels(), [new Series("Labeled", tr.Select(w => Ratio(w.Labeled, w.Interactions)).ToList(), 1)], Fmt.Percent, "Labeled share"), null, "half"));
+        Panels.Add(new("Share of interactions that read labeled content",
+            Chart.Line(Labels(), [new Series("Labeled", tr.Select(w => Ratio(w.Labeled, w.Interactions)).ToList(), 1)], Fmt.Percent, "Labeled share"), TrendNote, "half"));
         Panels.Add(new("By label, whole period",
-            Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
+            Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), "Interactions that read content with each label, over the whole period.", "half"));
 
         var named = Viewer.Has(Roles.Compliance) && !PrivacyMode;
         var sites = await sitesTask;
@@ -92,14 +92,14 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
             .GroupBy(x => Sites.Show(x.Item, named)).Select(g => (Site: g.Key, N: g.Sum(x => x.N), People: g.Sum(x => x.People)))
             .OrderByDescending(x => x.N).Take(12).Select(x => new Bar(x.Site, x.N, Note: $"{x.People:#,0} people", Slot: slot)).ToList(), Fmt.Count, kind + " sites");
         Panels.Add(new("Where labeled content lives", SiteBars("Site", 3),
-            "Sites of the labeled content Copilot read." + (named ? "" : PrivacyMode ? " Personal OneDrive sites are grouped: privacy mode is on." : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
+            "The sites holding the labeled content Copilot read, by interactions; hover for how many people." + (named ? "" : PrivacyMode ? " Personal OneDrive sites are grouped: privacy mode is on." : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
-            "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
+            "Sites where a policy or permissions stopped Copilot reading content. Usually a sign the controls are working; a spike is worth a look.", "half"));
 
         var types = await typesTask;
         Panels.Add(new("What Copilot read, by type",
             Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
-            "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));
+            "Every resource an interaction read: files, emails, Teams messages, web results. Counted as resources read, not interactions: one interaction can read several. Hover for how many were labeled or blocked."));
 
         /* The organization's data loss prevention matches, where the activity database loads the DLP record types:
            by policy and over time, for the part of the organization shown (matches that name no one count for the whole
@@ -115,11 +115,11 @@ WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")}, m.Workload;", C
 SELECT m.PolicyName, SUM(CAST(m.Matches AS BIGINT)), COUNT(DISTINCT NULLIF(m.Upn, N'')), SUM(CAST(m.Undone AS BIGINT))
 FROM {dlpFrom} WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY m.PolicyName ORDER BY SUM(CAST(m.Matches AS BIGINT)) DESC;", Ctx.Args());
             long matches = dlp.Sum(x => x.Matches), undone = dlp.Sum(x => x.Undone);
-            Kpis.Add(new("DLP rule matches", Num(matches), $"{Count(policies.Count, "policy", "policies")}; {Pct(Ratio(undone, matches))} undone: overridden, no longer matching or reported as a false positive", Href: null));
+            Kpis.Add(new("DLP rule matches", Num(matches), $"{Count(policies.Count, "policy", "policies")}; {Pct(Ratio(undone, matches))} undone (overridden, no longer matching, or reported as a false positive)", Href: null));
             var workloads = dlp.Select(x => x.Workload).Distinct().OrderBy(x => x).ToList();
             Panels.Add(new("Data loss prevention matches", Chart.Columns(Labels(), workloads.Select((w, i) => new Series(w.Length == 0 ? "(not named)" : w,
                     buckets.Select(b => (double?)dlp.Where(x => x.Bucket == b.Key && x.Workload == w).Sum(x => x.Matches)).ToList(), i + 1)).ToList(), Fmt.Count, "DLP rule matches"),
-                $"Each time a data loss prevention rule matched content or an action, by workload, from the audit log's own DLP records (the activity database). {TrendNote}", "half"));
+                $"Each time a data loss prevention (DLP) rule matched content or an action, by workload, from the audit log's DLP records. All DLP matches, not only those involving Copilot. {TrendNote}", "half"));
             Panels.Add(new("Matches by policy", Chart.Bars(policies.Take(12).Select(p => new Bar(p.Policy, p.Matches,
                     Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people; {p.Undone:#,0} undone")).ToList(), Fmt.Count, "DLP matches by policy"),
                 "The policies that matched most. Undone: the match was overridden, the item stopped matching, or someone reported it as a false positive; a policy with many is worth tuning.", "half"));
@@ -132,7 +132,7 @@ public sealed class AccessModel(PageServices s) : InsightsPage(s)
     public override string Title => "Access to labeled content";
     public override string Persona => "Compliance";
     public override string? RequiredRole => Roles.Compliance;
-    public override string Intro => "Who worked with labeled content through Copilot in the period, how often, and the most sensitive label they touched.";
+    public override string Intro => "Who read labeled content through Copilot in the period, how often, and the most sensitive label they reached. Everyone is listed, accounts since disabled included, so nothing is hidden when someone leaves.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -219,16 +219,17 @@ ORDER BY {pg.OrderBy};", Ctx.Args(new { q = pg.Like, label }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days with one", "Most sensitive label", "Sites reached", "Times blocked"],
-            Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody touched labeled content in the period.",
+            Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days with labeled content", "Most sensitive label", "Sites reached", "Times blocked"],
+            Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody read labeled content through Copilot in the period.",
             Server = new(pg, Request, ["name", "upn", "dept", "most", "days", "sens", "sites", "blocked"], new HashSet<int> { 3, 4, 5, 6, 7 }),
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.TopLabel, r.Sites, r.Blocked]);
         CsvTable = t;
-        Kpis.Add(new("People", Num(pg.Total), label is null ? "touched labeled content or were blocked" : "touched this label"));
+        Kpis.Add(new("People", Num(pg.Total), label is null ? "read labeled content or were blocked from content" : "read content with this label"));
         var choices = "<a href=\"" + System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path)) + "\"" + (label is null ? " class=\"on\"" : "") + ">All labels</a>" +
             string.Concat(labels.OrderBy(x => x.Name).Select(x =>
                 $" · <a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "label=" + Uri.EscapeDataString(x.Id)))}\"{(x.Id == label ? " class=\"on\"" : "")}>{System.Net.WebUtility.HtmlEncode(x.Name)}</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Label: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Label: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+            "Labeled interactions: interactions that read content with a label (or the label chosen). Sites reached: the sites of that labeled content. Times blocked: interactions where a policy or permissions stopped Copilot reading content.", "full", CsvUrl()));
     }
 }

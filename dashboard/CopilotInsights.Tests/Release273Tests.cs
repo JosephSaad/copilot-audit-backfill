@@ -65,7 +65,7 @@ public class Release273Tests
         Assert.Contains("Href: Open(\"/compliance/access\")", compliance);
         /* Overview's Interactions opens Apps and agents, which now leads with the same figure. */
         var lead = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Leadership.cs");
-        Assert.Contains("Kpis.Add(new(\"Interactions\", Num(t.Interactions), t.Active > 0 ? $\"{t.Interactions / (double)t.Active:#,0.0} per active person\" : null));", lead);
+        Assert.Contains("Kpis.Add(new(\"Interactions\", Num(t.Interactions), t.Active > 0 ? $\"{t.Interactions / (double)t.Active:#,0.0} per person using Copilot; includes use by accounts since disabled\" : null));", lead);
         /* Security's two counts open the flags of their own kind, whose figure is that count, not all three signals'. */
         var security = Read("dashboard", "CopilotInsights", "Pages", "Security", "Security.cs");
         Assert.Contains("Href: Open(\"/security/flags\", extra: \"kind=jailbreak&status=any\")", security);

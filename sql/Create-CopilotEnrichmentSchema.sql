@@ -98,6 +98,40 @@ IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     );
 
 /*
+    The two AD groups the weekly Copilot report counts as "Users Enabled" (3.1.3): the group that gives the
+    Microsoft 365 Copilot license and the one for Copilot Chat, named in copilot-audit.settings.psd1
+    (CopilotLicenseGroup, CopilotChatGroup), never in code. tools\Export-UsersWithHierarchy-ToSql.ps1 writes both
+    each night, after the user directory:
+      audit.ReportGroupMember  the groups' members now, nested groups included. Replaced whole each load.
+      audit.ReportGroupDay     a count per group per day: every user member, and those whose AD account is enabled.
+                               Kept, so the report's weekly trend has the count each week had.
+*/
+IF OBJECT_ID(N'audit.ReportGroupMember', N'U') IS NULL
+    CREATE TABLE audit.ReportGroupMember
+    (
+        Role               VARCHAR(16)    NOT NULL,   -- CopilotLicense | CopilotChat
+        GroupName          NVARCHAR(256)  NOT NULL,   -- as set: DOMAIN\Group
+        UserPrincipalName  NVARCHAR(256)  NOT NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_ReportGroupMember_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ReportGroupMember PRIMARY KEY (Role, UserPrincipalName)
+    );
+
+IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NULL
+    CREATE TABLE audit.ReportGroupDay
+    (
+        SnapshotDate       DATE           NOT NULL,   -- the day of the load, in the reporting time zone
+        Role               VARCHAR(16)    NOT NULL,   -- CopilotLicense | CopilotChat
+        GroupName          NVARCHAR(256)  NOT NULL,
+        Members            INT            NOT NULL,   -- user members, nested groups included, enabled or not
+        EnabledMembers     INT            NOT NULL,   -- of those, accounts enabled in AD (audit.UserDirectory)
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_ReportGroupDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ReportGroupDay PRIMARY KEY (SnapshotDate, Role)
+    );
+/* The dashboard shows the latest count (Admin > Alerts and digests); a new install grants it when the dashboard's role is made. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
+    GRANT SELECT ON audit.ReportGroupDay TO CopilotInsightsApp;
+
+/*
     The tenant's license pool, from /subscribedSkus (LicenseAssignment.Read.All),
     which the license tool already reads to find the Copilot SKUs: seats bought
     (prepaidUnits) and assigned (consumedUnits) per SKU. LicenseSku is the

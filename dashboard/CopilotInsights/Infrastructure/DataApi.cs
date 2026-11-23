@@ -6,7 +6,7 @@ namespace CopilotInsights.Infrastructure;
 /// The read-only data API, /api/v1: the dashboard's figures as JSON for other tools (a service
 /// desk, an HR system, a SIEM). Same Windows sign-in, same scope and roles as the pages:
 /// each call needs the section its figures belong to (usage, units and value are Leadership's), named lists the
-/// page's role too, and never in privacy mode. ?d= is the period (7 to 365 days) and ?org= a manager's UPN, as on the pages.
+/// page's role too, and never in privacy mode. ?d= is the period (7 to 730 days, or 0 for all the data) and ?org= a manager's UPN, as on the pages.
 /// Every call is written to the audit log. Off when the ApiEnabled setting is 0.
 /// </summary>
 public static class DataApi
@@ -100,7 +100,7 @@ lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT du.UserPrincipalName, du.DisplayName, du.Department, ISNULL(a.D, 0), ISNULL(a.I, 0)
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey
-WHERE {Pages.Forecasting.ActionsModel.Kinds[kind].Where} AND ISNULL(du.AccountEnabled, 1) = 1
+WHERE {Pages.Forecasting.ActionsModel.Kinds[kind].Where} AND {Pages.Forecasting.ActionsModel.Enabled(kind)}
 ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
             return new { kind, asOf = c.End, people = rows.Select(r => new { upn = r.Upn, name = r.Name, department = r.Department, daysUsed30 = r.Days, interactions30 = r.Interactions }) };
         }, section: Sections.Forecasting));

@@ -25,7 +25,7 @@ static class Segments
                   WHEN {days} >= CEILING(@w * 0.2) AND {days} >= 2 THEN N'Regular'
                   WHEN {days} >= 2 THEN N'Occasional' WHEN {days} = 1 THEN N'One-off' ELSE N'Not started' END";
 
-    /// <summary>Everyone licensed today or active in the period, with their active days.</summary>
+    /// <summary>Everyone licensed today or active in the period, with their active days: people, so enabled accounts only (3.1.3).</summary>
     public static string People(ReportContext c) => $@"
 act AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I,
                SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
@@ -34,7 +34,7 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
                {Sql("ISNULL(a.D, 0)")} AS Segment
         FROM bi.DimUser AS du {c.Scope("du.UserKey")}
         LEFT JOIN act AS a ON a.UserKey = du.UserKey
-        WHERE a.I > 0 OR du.CopilotLicenseToday = N'Licensed')";
+        WHERE (a.I > 0 OR du.CopilotLicenseToday = N'Licensed') AND du.AccountEnabled = 1)";
 
     /// <summary>
     /// The working days of the period that the data covers: from its start, or the first day with data when that is
@@ -83,11 +83,11 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
         var breadthTask = Db.QueryAsync<(int Apps, int N)>($@"
 WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
-SELECT CASE WHEN Apps >= 5 THEN 5 ELSE Apps END, COUNT(*) FROM u GROUP BY CASE WHEN Apps >= 5 THEN 5 ELSE Apps END ORDER BY 1;", Ctx.Args());
+SELECT CASE WHEN u.Apps >= 5 THEN 5 ELSE u.Apps END, COUNT(*) FROM u {ReportContext.EnabledJoin("u.UserKey")} GROUP BY CASE WHEN u.Apps >= 5 THEN 5 ELSE u.Apps END ORDER BY 1;", Ctx.Args());
         var appsTask = Db.QueryAsync<(string App, int People)>($@"
 WITH g AS (SELECT f.AppKey, f.UserKey FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey)   -- 2.7.4: counted per key, then named
-SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT g.UserKey) FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
+SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT g.UserKey) FROM g {ReportContext.EnabledJoin("g.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.App, vn.Name;", Ctx.Args());
         await Task.WhenAll(tTask, trTask, unitsTask, breadthTask, appsTask);
@@ -102,12 +102,12 @@ GROUP BY a.App, vn.Name;", Ctx.Args());
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—", "a session: prompts less than an hour apart, on one day"));
         var nudge = units.Where(x => x.Segment is "One-off" or "Not started").Sum(x => x.Open);
-        Kpis.Add(new(Segments.Nudge, Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people", extra: "seg=" + Uri.EscapeDataString(Segments.Nudge))));
+        Kpis.Add(new(Segments.Nudge, Num(nudge), "licensed today or active in the period, but used Copilot on one day or none", Href: Open("/enablement/people", extra: "seg=" + Uri.EscapeDataString(Segments.Nudge))));
 
         Panels.Add(new("Engagement segments",
             Chart.Bars(Segments.Order.Select((name, i) => new Bar(name, Seg(name), Viewer.Has(Roles.Enablement) ? Ctx.Url("/enablement/people", extra: "seg=" + name) : null, Slot: Segments.Slots[i])).ToList(), Fmt.Count, "People by segment"),
-            $"Everyone licensed today or active in the period, by the days they used Copilot out of {w} working days. " +
-            "Power: half or more. Regular: a fifth or more. Occasional: two days or more. One-off: one day.", "half"));
+            $"Everyone with an enabled account licensed today or active in the period, by the days they used Copilot out of {w} working days. " +
+            "Power: half or more (at least 3). Regular: a fifth or more (at least 2). Occasional: two days or more. One-off: one day. Not started: licensed, no use in the period.", "half"));
 
         var depts = units.GroupBy(u => u.Unit).Select(g => (Dept: g.Key, People: g.Sum(x => x.N))).ToList();
         var big = SmallGroups.Shown(depts, d => d.People, Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
@@ -118,7 +118,7 @@ GROUP BY a.App, vn.Name;", Ctx.Args());
             tbl.Rows.Add([d, n, .. Segments.Order.Select(sg => (object?)Pct(Ratio(units.Where(u => u.Unit == d && u.Segment == sg).Sum(u => u.N), n)))]);
         }
         CsvTable = tbl;
-        Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} are left out.", "half", CsvUrl()));
+        Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} people are left out.", "half", CsvUrl()));
 
         Panels.Add(new("Conversations, not one-off questions",
             Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
@@ -130,11 +130,11 @@ GROUP BY a.App, vn.Name;", Ctx.Args());
         var breadth = await breadthTask;
         Panels.Add(new("Breadth: apps used per person",
             Chart.Bars(breadth.Select(b => new Bar(b.Apps == 5 ? "5 or more apps" : b.Apps == 1 ? "1 app" : $"{b.Apps} apps", b.N)).ToList(), Fmt.Count, "Apps per active person"),
-            "Active people by how many Microsoft 365 apps they used Copilot in. One app often means Copilot Chat only.", "half"));
+            "People using Copilot in the period, by how many Microsoft 365 apps they used it in. One app often means Copilot Chat only.", "half"));
 
         var apps = await appsTask;
         Panels.Add(new("People per app", Chart.Bars(apps.OrderByDescending(a => a.People).Select(a => new Bar(a.App, Ratio(a.People, t.Active), Note: $"{a.People:#,0} people")).ToList(), Fmt.Percent, "Share of active people per app", 1),
-            "The share of active people who used Copilot in each app. Low shares for Excel or PowerPoint suggest where training would help.", "half"));
+            "Of the people using Copilot in the period, the share who used it in each app. Low shares for Excel or PowerPoint suggest where training would help.", "half"));
     }
 }
 
@@ -200,7 +200,7 @@ WHERE (p.Segment = @seg OR (@seg = @nudge AND p.Segment IN (N'One-off', N'Not st
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.JobTitle, r.ManagerName, r.D, r.I, Pct(Ratio(r.MT, r.S)), r.Last]);
         CsvTable = t;
-        Kpis.Add(new(seg, Num(pg.Total), $"people, out of {w} working days in the period"));
+        Kpis.Add(new(seg, Num(pg.Total), $"people in this segment; segments count the days used out of the period's {w} working days"));
         var tabs = string.Join(" · ", Segments.Order.Append(Segments.Nudge).Select(sg =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "seg=" + Uri.EscapeDataString(sg)))}\"{(sg == seg ? " class=\"on\"" : "")}>{sg}</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Segment: {tabs}</p>" + (nudged ? await ProtectedNoteAsync() : "") + pg.Controls(Request, SortLabels).Value + t.Render().Value),

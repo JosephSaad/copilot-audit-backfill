@@ -68,7 +68,7 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
     {
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var copilotPrice = Dec(await settings.StringAsync("LicenseMonthlyCost"), 30m);
-        var hourly = Dec(await settings.StringAsync("HourlyCost"), 50m);
+        var hourly = Dec(await settings.StringAsync("HourlyCost"), 72m);
         var discount = Dec(await settings.StringAsync("FabricReservedDiscount"), 0.41m);
         var flowMinutes = Dec(await settings.StringAsync("FlowMinutesPerRun"), 3m);
         var biMinutes = Dec(await settings.StringAsync("PowerBiCopilotMinutes"), 3m);
@@ -95,20 +95,22 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
         var k30 = ReportContext.Key(c.End.AddDays(-29));
         var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey);
         var kinds = Pages.Forecasting.ActionsModel.Kinds;
-        /* S: licensed through a suite only (E7): paid for in the suite's price, not as the add-on. */
+        /* S: licensed through a suite only (E7): paid for in the suite's price, not as the add-on.
+           L and S are paid seats, so every holder counts, a disabled or departed account's too (3.1.3). Revoke keeps
+           everyone but the disabled (they are the leavers, counted there); train and upgrade are of accounts enabled
+           today, as Upgrade, train or revoke lists them (ActionsModel.Enabled). */
         var counts = (await db.QueryAsync<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)>($@"
 WITH {activity},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT COUNT(x.L), ISNULL(SUM(x.R), 0), ISNULL(SUM(x.T), 0), ISNULL(SUM(x.U), 0), ISNULL(SUM(x.S), 0)
 FROM (SELECT lic.UserKey AS L,
              CASE WHEN lic.UserKey IS NOT NULL AND {CopilotSuites.OnlyInSuite("du.UserPrincipalName")} THEN 1 ELSE 0 END AS S,
-             CASE WHEN {kinds["revoke"].Where} THEN 1 ELSE 0 END AS R,
-             CASE WHEN {kinds["train"].Where} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")} THEN 1 ELSE 0 END AS T,
-             CASE WHEN {kinds["upgrade"].Where} THEN 1 ELSE 0 END AS U
+             CASE WHEN {kinds["revoke"].Where} AND {Pages.Forecasting.ActionsModel.Enabled("revoke")} THEN 1 ELSE 0 END AS R,
+             CASE WHEN {kinds["train"].Where} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")} AND {Pages.Forecasting.ActionsModel.Enabled("train")} THEN 1 ELSE 0 END AS T,
+             CASE WHEN {kinds["upgrade"].Where} AND {Pages.Forecasting.ActionsModel.Enabled("upgrade")} THEN 1 ELSE 0 END AS U
       FROM bi.DimUser AS du
       LEFT JOIN a ON a.UserKey = du.UserKey
-      LEFT JOIN lic ON lic.UserKey = du.UserKey
-      WHERE ISNULL(du.AccountEnabled, 1) = 1) AS x;", c.Args(new { k30 }))).Single();
+      LEFT JOIN lic ON lic.UserKey = du.UserKey) AS x;", c.Args(new { k30 }))).Single();
         var rate = Dec(await settings.StringAsync("PaygInteractionCost"), 0.12m);
         /* Pay-as-you-go candidates with some Premium use (none at all is a revocation, counted above): their license
            against what their metered use would cost in credits. The same rule as Licensing › Better on pay-as-you-go. */
@@ -120,7 +122,7 @@ FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = 
 JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
 WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
   AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
-  AND ISNULL(du.AccountEnabled, 1) = 1   -- a disabled account is a leaver, counted there
+  AND du.AccountEnabled = 1   -- enabled today (3.1.3), as Better on pay-as-you-go lists them; a disabled account is a leaver, counted there
   AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }))).Single();
         /* A disabled account's Copilot inside a suite saves nothing alone: taking the suite back is Suite fit's. */
         var suiteOnly = (await db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;")).ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -101,7 +101,7 @@ public class Release275Tests
     {
         var page = Page("Forecasting", "Planning.cs");
         Assert.Contains("Href: dept is null ? Open(\"/licensing/demand\") : null", page);
-        Assert.Contains("used the free Copilot Chat in the last 30 days", page);
+        Assert.Contains("used Copilot Chat in the last 30 days", page);
     }
 
     [Fact]

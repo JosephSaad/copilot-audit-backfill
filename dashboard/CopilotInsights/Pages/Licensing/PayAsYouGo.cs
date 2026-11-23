@@ -16,7 +16,7 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
     public override string Title => "Better on pay-as-you-go";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "People holding a Copilot license who use Copilot, but little of what only the license gives: Copilot inside Word, Excel, PowerPoint, Outlook and Teams, or chat over work files, mail and sites. Web Copilot Chat is free, and agents and work-grounded chat can be paid for per use with Copilot Credits, so for them credits may cost less than the license.";
+    public override string Intro => "People holding a Microsoft 365 Copilot license who use Copilot, but make little Premium use, the use only the license gives: Copilot inside Word, Excel, PowerPoint, Outlook and Teams, or chat over work files, mail and sites. Copilot Chat on the web needs no license, and agents and work-grounded chat can be paid for per use with Copilot Credits (pay-as-you-go), so for these people credits may cost less than the license.";
 
     static readonly int[] Shares = [0, 5, 10, 25];
 
@@ -82,6 +82,7 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
       JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
       LEFT JOIN bi.DimDate AS dl ON dl.DateKey = u.LastKey
       WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I
+        AND du.AccountEnabled = 1   -- 3.1.3: a disabled or departed account is on Licenses on disabled accounts
         AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
 SELECT x.* INTO #x FROM x;
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
@@ -92,11 +93,11 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
 
         var (candidates, allMetered) = all.Single();
         var saving = candidates * price - Monthly(allMetered);
-        Kpis.Add(new("Pay-as-you-go candidates", Num(candidates), max == 0 ? "no Premium use in the period" : $"Premium use {max}% or less of their use"));
+        Kpis.Add(new("Pay-as-you-go candidates", Num(candidates), max == 0 ? "no Premium use in the period" : $"Premium use {max}% or less of their interactions in the period"));
         Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, saving)),
-            $"{candidates:#,0} licenses at {price:#,0.##} less the credits their use would cost",
+            $"{candidates:#,0} licenses at {price:#,0.##} {cur} a month, less what their use would cost in credits",
             Why: await WhyAsync($"Candidates × the Copilot license price ({candidates:#,0} × {price:#,0.##} {cur}), less their metered interactions × the pay-as-you-go cost of an interaction.", "LicenseMonthlyCost", "PaygInteractionCost")));
-        Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin › Access)"));
+        Kpis.Add(new("Pay-as-you-go cost assumed", $"{rate:#,0.00##} {cur}", "for each Premium or agent interaction (set in Admin › Access)"));
 
         var names = await SkuNames.LoadAsync(Db);   // Product names, not part numbers
         var t = new Table
@@ -104,7 +105,7 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
             Headers = ["Name", "Sign-in", "Department", "Manager", "License", "Licensed since", "Interactions", "Premium", "Premium share", "Agent",
                        "Days used", "Days with Premium use", "Last used", $"Credits a month ({cur})", $"Saving a month ({cur})"],
             Numeric = new HashSet<int> { 6, 7, 8, 9, 10, 11, 13, 14 },
-            EmptyText = "No license holder here uses Copilot this little outside the free tier.",
+            EmptyText = "No license holder here has Premium use this low.",
             /* Largest saving is the fewest metered interactions, so its own order puts the saving column descending. */
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "sku", "since", "use", "premium", "share", "agent", "days", "pdays", "recent", "credits", "saving"],
                          new HashSet<int> { 6, 7, 9, 10, 11, 12, 13, 14 }),
@@ -120,8 +121,9 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
         var choices = string.Join(" · ", Shares.Select(sh =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"max={sh}"))}\"{(sh == max ? " class=\"on\"" : "")}>{(sh == 0 ? "None" : $"{sh}% or less")}</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Premium use: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"License holders since before the period with any use in it. Credits a month: their Premium and agent interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each; " +
+            $"License holders on enabled accounts, licensed since before the period, with at least one interaction in it. Premium: interactions that need the license; Agent: interactions with an agent. " +
+            $"Credits a month: what their Premium and agent interactions in the period would cost, brought to 30 days, at {rate:#,0.00##} {cur} each; " +
             "an agent grounded only in the web costs nothing, so this errs high. Anyone here with Premium use would lose Copilot in the apps: check the Premium column before moving them. " +
-            "People with no use at all are on Unused licenses.", "full", CsvUrl()));
+            "People with no use at all are on Unused licenses; licenses on disabled accounts are on Licenses on disabled accounts.", "full", CsvUrl()));
     }
 }

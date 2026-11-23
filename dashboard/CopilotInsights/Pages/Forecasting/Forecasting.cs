@@ -35,16 +35,18 @@ WITH per AS (SELECT d.WeekEnding, ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.
              GROUP BY d.WeekEnding, ud.UserKey),
 wk AS (SELECT DISTINCT WeekEnding, YEAR(WeekEnding) * 10000 + MONTH(WeekEnding) * 100 + DAY(WeekEnding) AS EndKey
        FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5),
-/* Each week's people in one pass over per (2.4.7: it was read once for each column, 5 seconds at 40 million). */
-agg AS (SELECT per.WeekEnding, COUNT(CASE WHEN per.I > 0 THEN 1 END) AS Active,
-               COUNT(CASE WHEN per.L > 0 AND la.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
-               COUNT(CASE WHEN per.I > 0 AND per.L = 0 THEN 1 END) AS ChatOnly,
+/* Each week's people in one pass over per (2.4.7: it was read once for each column, 5 seconds at 40 million).
+   The people, licensed or not, are accounts enabled today (3.1.3), as Metrics.TrendAsync counts them; the interactions are everyone's. */
+agg AS (SELECT per.WeekEnding, COUNT(CASE WHEN per.I > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
+               COUNT(CASE WHEN per.L > 0 AND la.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
+               COUNT(CASE WHEN per.I > 0 AND per.L = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ChatOnly,
                SUM(CAST(per.I AS BIGINT)) AS Interactions
         FROM per JOIN wk ON wk.WeekEnding = per.WeekEnding
         LEFT JOIN bi.FactLicensedDay AS la ON la.UserKey = per.UserKey AND la.DateKey = wk.EndKey
+        {ReportContext.EnabledJoin("per.UserKey", left: true)}
         GROUP BY per.WeekEnding),
 lic AS (SELECT wk.WeekEnding, COUNT(*) AS Licensed
-        FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey {c.Scope("ld.UserKey")}
+        FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")}
         GROUP BY wk.WeekEnding)
 SELECT wk.WeekEnding, ISNULL(a.Active, 0) AS Active, ISNULL(a.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(a.ChatOnly, 0) AS ChatOnly,
        ISNULL(l.Licensed, 0) AS Licensed, ISNULL(a.Interactions, 0) AS Interactions
@@ -61,12 +63,13 @@ ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportCont
 public sealed class DeptRow
 {
     public string Department { get; set; } = "";
-    public int People { get; set; }
-    public int Held { get; set; }
-    public int Active { get; set; }
-    public int Idle { get; set; }
-    public int Light { get; set; }
-    public int Demand { get; set; }
+    public int People { get; set; }      // enabled accounts (3.1.3)
+    public int Held { get; set; }        // licenses held by enabled accounts
+    public int HeldDisabled { get; set; } // licenses held by disabled or departed accounts: paid seats, to reclaim
+    public int Active { get; set; }      // enabled holders who used Copilot in the last 30 days
+    public int Idle { get; set; }        // unused as Licensing › Unused licenses lists them, disabled accounts included
+    public int Light { get; set; }       // enabled holders
+    public int Demand { get; set; }      // enabled accounts without a license
 }
 
 /// <summary>The renewal figure's parts: licenses held, used in 30 days, forecast in 13 weeks, heavy demand, the spare share.</summary>
@@ -97,15 +100,18 @@ public static class Renewal
 WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
            FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
 ever AS (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud WHERE ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
+/* 3.1.3: people, holders, use, light users and demand are accounts enabled today; a license on a disabled or departed
+   account is a paid seat, counted apart (HeldDisabled) and among the unused, as Unused licenses lists it. */
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
-       COUNT(*) AS People,
-       COUNT(ld.UserKey) AS Held,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
+       COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND du.AccountEnabled = 1 THEN 1 END) AS Held,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ISNULL(du.AccountEnabled, 0) = 0 THEN 1 END) AS HeldDisabled,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 AND du.AccountEnabled = 1 THEN 1 END) AS Active,
        /* 2.6.7: unused as Licensing › Unused licenses lists them: a license newer than the inactive days is not yet idle. */
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL
                    AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1)) THEN 1 END) AS Idle,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
-       COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL AND du.AccountEnabled = 1 THEN 1 END) AS Light,
+       COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy AND du.AccountEnabled = 1 THEN 1 END) AS Demand
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
 LEFT JOIN a ON a.UserKey = du.UserKey
@@ -166,19 +172,19 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
 
         double Ahead((Series, IReadOnlyList<double> F, IReadOnlyList<double>, IReadOnlyList<double>) l) => l.F[^1];
         var nowHeld = hist[^1].Licensed; var nowActive = hist[^1].ActiveLicensed;
-        Kpis.Add(new($"Premium licenses in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0}, on the current trend"));
-        Kpis.Add(new($"License holders using Copilot in {horizon} weeks", Num(Math.Round(Ahead(active))), $"now {nowActive:#,0} a week"));
-        Kpis.Add(new("Weekly adoption then", Pct(Ratio(Ahead(active), Ahead(licensed))), $"now {Pct(Ratio(nowActive, nowHeld))}"));
-        Kpis.Add(new($"People on the free Copilot Chat in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a license"));
+        Kpis.Add(new($"Premium licenses in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0} on enabled accounts, on the current trend"));
+        Kpis.Add(new($"License holders using Copilot in {horizon} weeks", Num(Math.Round(Ahead(active))), $"in a week; now {nowActive:#,0} a week"));
+        Kpis.Add(new("Weekly adoption then", Pct(Ratio(Ahead(active), Ahead(licensed))), $"license holders using Copilot in a week, of the licenses held; now {Pct(Ratio(nowActive, nowHeld))}"));
+        Kpis.Add(new($"People on Copilot Chat without a license in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a license"));
 
         Panels.Add(new("Premium license holders, and how many use Copilot each week",
             Chart.Projection(labels, hist.Count, [licensed, active], Fmt.Count, "Licenses and active licensed people, forecast"),
-            "Each point is a Saturday-to-Friday week. The gap between the lines is licenses not used that week; if it widens, licenses are being bought faster than they are taken up."));
-        Panels.Add(new("People on the free Copilot Chat",
+            "Each point is a Saturday-to-Friday week. Both lines count accounts enabled today; licenses on disabled or departed accounts are on Licensing › Licenses on disabled accounts. The gap between the lines is licenses not used that week; if it widens, licenses are being bought faster than they are taken up."));
+        Panels.Add(new("People on Copilot Chat without a license",
             Chart.Projection(labels, hist.Count, [chat], Fmt.Count, "Unlicensed Copilot Chat users, forecast"),
-            "People using the free Copilot Chat each week. A rising line is demand the license count does not yet meet.", "half"));
+            "People with an enabled account and no license who used Copilot Chat each week. A rising line is demand the license count does not yet meet.", "half"));
         Panels.Add(new("Interactions",
-            Chart.Projection(labels, hist.Count, [inter], Fmt.Count, "Weekly interactions, forecast"), "Prompts and their answers each week, by anyone, licensed or not.", "half"));
+            Chart.Projection(labels, hist.Count, [inter], Fmt.Count, "Weekly interactions, forecast"), "Interactions (one prompt and Copilot's answer) each week, by anyone, licensed or not, disabled and departed accounts included.", "half"));
 
         /* Adoption rate, projected as a ratio of the two projections. */
         var rateHist = hist.Select(h => Ratio(h.ActiveLicensed, h.Licensed)).ToList();
@@ -187,7 +193,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         var rateHi = licensed.Item3.Zip(active.Item4, (l, a) => l > 0 ? Math.Min(1, a / l) : 0).ToList();
         Panels.Add(new("Weekly adoption",
             Chart.Projection(labels, hist.Count, [(new Series("Adoption", rateHist, 3), rateF, rateLo, rateHi)], Fmt.Percent, "Weekly adoption, forecast"),
-            "Licensed people active in the week, as a share of licenses held. The band combines both forecasts' intervals, so it is wide."));
+            "Licensed people active in the week, as a share of the licenses held, both on accounts enabled today. The band combines both forecasts' intervals, so it is wide."));
     }
 }
 
@@ -208,15 +214,18 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
         var rows = await Renewal.ByDepartmentAsync(Db, Ctx);
         var size = await Renewal.SizeAsync(Db, S.Settings, Ctx, rows);
         int held = size.Held, idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = size.Demand, active = size.Active;
+        /* The licenses on disabled or departed accounts are paid seats too: the right size is set against every seat held. */
+        var heldDisabled = rows.Sum(r => r.HeldDisabled);
         var (projectedActive, target) = (size.Projected, size.Target);
-        var change = target - held;
+        var change = target - (held + heldDisabled);
         var reassign = Math.Min(idle, demand);
 
-        Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days", Href: Open("/licensing")));
+        Kpis.Add(new("Licenses held", Num(held), $"enabled accounts; {Pct(Ratio(active, held))} used in the last 30 days" + (heldDisabled > 0 ? $"; {heldDisabled:#,0} more on disabled accounts" : ""), Href: Open("/licensing")));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days or more", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null, Href: Open("/licensing/unused"),
-            Why: await WhyAsync($"Holders with no use at all in {Ctx.InactiveDays} days ({idle:#,0}) × the Copilot license price = {Money(idle * price)} a month. Not the Revoke list on Upgrade, train or revoke, which counts holders with no licensed (Premium) use in 30 days: some of them used Copilot Chat.", "InactiveDays", "LicenseMonthlyCost")));
+            Why: await WhyAsync($"Holders with no use at all in {Ctx.InactiveDays} days ({idle:#,0}) × the Copilot license price = {Money(idle * price)} a month. Not the Revoke list on Upgrade, train or revoke, which counts holders with no Premium use in 30 days: some of them used Copilot Chat.", "InactiveDays", "LicenseMonthlyCost")));
         Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no license, used it on 6+ of the last 30 days", Href: Open("/forecasting/actions", extra: "kind=upgrade")));
-        Kpis.Add(new("Right size in 13 weeks", Num(target), change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"));
+        Kpis.Add(new("Right size in 13 weeks", Num(target), "licenses to cover forecast use, the spare share and heavy demand; " + (change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"),
+            Why: heldDisabled > 0 ? await WhyAsync($"Set against every license held today ({held + heldDisabled:#,0}), the {heldDisabled:#,0} on disabled or departed accounts included: they are paid for until reclaimed.") : null));
 
         bool Can(string role) => Viewer.Has(role);
         string A(string text, string path, string role, string? extra = null) =>
@@ -226,7 +235,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
             => recs.Append($"<div class=\"rec {cls}\"><h3>{WebUtility.HtmlEncode(title)}</h3><div class=\"big\">{WebUtility.HtmlEncode(big)}</div><p>{WebUtility.HtmlEncode(text)}{(link == "" ? "" : " " + link)}</p></div>");
         if (reassign > 0)
             Rec("save", "Revoke and reassign", $"{reassign:#,0} licenses",
-                $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. No new cost: the licenses are paid already, and {Money(reassign * price)} a month of idle spend turns into use. (Upgrade, train or revoke prices its Upgrade list as new licenses.)",
+                $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. No new cost: the licenses are paid already, and {Money(reassign * price)} a month of unused spend turns into use. (Upgrade, train or revoke prices its Upgrade list as new licenses.)",
                 A("Unused licenses", "/licensing/unused", Roles.Licensing) + " " + A("Upgrade list", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (idle - reassign > 0)
             Rec("save", "Reclaim what is left", Money((idle - reassign) * price) + " a month",
@@ -238,7 +247,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
                 A("Who they are", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (light > 0)
             Rec("info", "Train before revoking", $"{light:#,0} people",
-                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back. Upgrade, train or revoke's Train list counts days of licensed (Premium) use instead, so its count differs.",
+                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back. Upgrade, train or revoke's Train list counts days of Premium use instead, so its count differs.",
                 A("Who to train", "/forecasting/actions", Roles.Licensing, "kind=train"));
         Rec(change > 0 ? "spend" : "save", "Right-size for the next quarter", change == 0 ? "Hold" : change > 0 ? $"+{change:#,0}" : $"{change:#,0}",
             $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With the {size.SparePercent:0.##}% kept spare and today's heavy demand, "
@@ -249,7 +258,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
 
         var shown = FoldSmall(rows, r => r.People, small => new DeptRow
         {
-            Department = "Smaller departments", People = small.Sum(r => r.People), Held = small.Sum(r => r.Held), Active = small.Sum(r => r.Active),
+            Department = "Smaller departments", People = small.Sum(r => r.People), Held = small.Sum(r => r.Held), HeldDisabled = small.Sum(r => r.HeldDisabled), Active = small.Sum(r => r.Active),
             Idle = small.Sum(r => r.Idle), Light = small.Sum(r => r.Light), Demand = small.Sum(r => r.Demand),
         }, out var folded).OrderByDescending(r => Math.Abs(r.Demand - r.Idle)).ThenBy(r => r.Department, StringComparer.Ordinal).ToList();
         Panels.Add(new("Unused licenses against demand, by department",
@@ -257,21 +266,22 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
                 new Series("Unused", shown.Take(15).Select(r => (double?)r.Idle).ToList(), 2),
                 new Series("Heavy demand", shown.Take(15).Select(r => (double?)r.Demand).ToList(), 3),
             ], Fmt.Count, "Unused licenses and demand by department", stacked: false),
-            "Where licenses sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
+            "Where licenses sit unused and where people without one use Copilot Chat most. The departments with the biggest gap either way come first."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Licenses held", "Licenses used, last 30 days", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
-            Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8 },
+            Headers = ["Department", "People", "Licenses held", "On disabled accounts", "Licenses used, last 30 days", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
+            Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9 },
         };
         foreach (var r in shown)
         {
             var delta = r.Demand - r.Idle;
-            t.Rows.Add([r.Department, r.People, r.Held, r.Active, r.Idle, r.Light, r.Demand, delta == 0 ? "—" : delta > 0 ? $"+{delta:#,0}" : $"{delta:#,0}",
+            t.Rows.Add([r.Department, r.People, r.Held, r.HeldDisabled, r.Active, r.Idle, r.Light, r.Demand, delta == 0 ? "—" : delta > 0 ? $"+{delta:#,0}" : $"{delta:#,0}",
                         delta == 0 ? "—" : (delta > 0 ? "+" : "-") + Money(Math.Abs(delta) * price)]);
         }
         CsvTable = t;
         Panels.Add(new("By department", t.Render(),
-            "Unused licenses: held at least the unused-after days (Admin › Access) by someone who has not used Copilot within them, the protected levels left out, as Licensing › Unused licenses lists them. Light users: license holders who used it on 1 or 2 days in the last 30. " +
+            "People, licenses held, licenses used, light users and heavy demand count accounts enabled today; On disabled accounts: licenses held by disabled or departed accounts, still paid for. " +
+            "Unused licenses: held at least the unused-after days (Admin › Access) by someone who has not used Copilot within them, the protected levels left out, as Licensing › Unused licenses lists them, so licenses on disabled accounts are among them. Light users: license holders who used it on 1 or 2 days in the last 30. " +
             "Heavy demand: people without a license who used the free Copilot Chat on 6 or more of the last 30 days. Suggested change: heavy demand less unused licenses, within the department; negative is licenses to release." +
             (folded > 0 ? " " + FoldNote(folded, "department") : ""), "full", CsvUrl()));
     }

@@ -48,9 +48,9 @@ IF OBJECT_ID(N'dash.Setting', N'U') IS NULL
 MERGE dash.Setting AS t
 USING (VALUES
     ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organization (the CEO). They and their direct reports see the whole organization. Empty: taken from the org chart (OrgTopUpnDetected).'),
-    ('MinGroupSize', N'5',  N'Breakdowns hide groups with fewer people than this, folding them into "Smaller groups", so a group total cannot reveal one person.'),
+    ('MinGroupSize', N'10',  N'Breakdowns hide groups with fewer people than this, folding them into "Smaller groups", so a group total cannot reveal one person.'),
     ('DefaultDays',  N'30', N'Days shown when a page opens: 7, 14, 30, 90, 180 or 365.'),
-    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their license.'),
+    ('InactiveDays', N'28', N'A licensed person with no Copilot use for this many days counts as not using their license.'),
     ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
     ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
@@ -98,7 +98,7 @@ USING (VALUES
     ('POWERAUTOMATE_UNATTENDED_RPA', N'Power Automate',  N'Power Automate Process',             N'flow',   150,   N'One flow or bot, run unattended, whoever triggers it.'),
     ('FLOW_PER_PROCESS',             N'Power Automate',  N'Power Automate Process (earlier name)', N'flow', 150,  NULL),
     ('POWERAPPS_PER_USER',           N'Power Apps',      N'Power Apps Premium',                 N'user',   20,    NULL),
-    ('POWERAPPS_PER_APP_NEW',        N'Power Apps',      N'Power Apps per app',                 N'user',   5,     NULL),
+    ('POWERAPPS_PER_APP_NEW',        N'Power Apps',      N'Power Apps per app',                 N'user',   10,    N'Pay-as-you-go, per active user per app (the $5 per-app plan is no longer sold).'),
     ('PBI_PREMIUM_PER_USER',         N'Power BI',        N'Power BI Premium Per User',          N'user',   24,    NULL),
     ('POWER_BI_PRO',                 N'Power BI',        N'Power BI Pro',                       N'user',   14,    NULL),
     ('COPILOT_STUDIO_PAYG_CREDIT',   N'Copilot Studio',  N'Copilot Credit, pay-as-you-go',      N'credit', 0.01,  N'Billed through an Azure subscription.'),

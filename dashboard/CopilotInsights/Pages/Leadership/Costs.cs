@@ -19,7 +19,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     public override string Title => "Costs and savings";
     public override string Persona => "Leadership";
     public override string Intro => "Every figure is a month: the licenses held now at their price, and what the other sources billed or used over their last 30 days. "
-        + "Savings are what would stop being spent if the action beside each were taken. Value is the time the tools save, valued at Admin's hourly cost: "
+        + "Savings are what would stop being spent if the action beside each were taken. Value is the time the tools save, valued at the hourly cost set in Admin: "
         + "Copilot's interactions, the flows' runs and Copilot in Power BI's requests. Every price and assumption, and where it is set, is on Leadership › How figures are calculated.";
     public override bool UsesTeam => false;
 
@@ -41,7 +41,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var v = await costs.BuildAsync(Ctx);
         if (v.Areas.Count == 0)
         {
-            Notice = "No spend to show yet: none of the sources is loaded. docs\\OPERATIONS.md, Costs and savings, says what each needs.";
+            Notice = "No spend to show yet: none of the sources is loaded. An administrator loads them; the operations guide (docs\\OPERATIONS.md, Costs and savings) says what each needs.";
             return;
         }
         var cur = v.Currency;
@@ -135,7 +135,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             N(saving), "save", $"{(spend > 0 ? saving / spend : 0):P0} of the spend; {M(saving * 12, cur)} a year",
             Meter(spend > 0 ? (double)(saving / spend) : 0, "var(--good)", "Savings as a share of the spend"), ("The savings", "#savings"), WhyHtml(_why.GetValueOrDefault("save"))));
         var hours = v.HourlyCost > 0 ? value / v.HourlyCost : 0;
-        sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
+        sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at the hourly cost set in Admin, {CostRules.Money(v.HourlyCost, cur)}. Full-time people: the hours saved divided by {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
             hours >= HoursAMonth ? $"<span class=\"cb-people\">the working time of <b>{hours / HoursAMonth:#,0}</b> full-time people</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null), WhyHtml(_why.GetValueOrDefault("value"))));
         sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
@@ -202,7 +202,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         if (cif is not null)
         {
             var per = cif.Requests > 0 ? cif.Cost / cif.Requests : 0;
-            narrow.Add(cls => Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; value at Admin's minutes a request and hourly cost.", cls,
+            narrow.Add(cls => Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; valued at the minutes a request and the hourly cost set in Admin.", cls,
                 "<div class=\"cif\">" +
                 $"<div class=\"cif-big\"><b>{(cif.Cost > 0 ? Times(cif.Value / cif.Cost) : "—")}</b><span>return on its share of the capacity: {M(cif.Value, cur)} of value a month</span></div>" +
                 "<div class=\"cif-grid\">" +
@@ -259,7 +259,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append(Tile($"Savings found a month ({cur})", "What would stop being spent if every saving below were taken.", N(a.Saving), "save",
             $"{(a.Spend > 0 ? a.Saving / a.Spend : 0):P0} of the area; {M(a.Saving * 12, cur)} a year", Meter(a.Spend > 0 ? (double)(a.Saving / a.Spend) : 0, "var(--good)", "Savings as a share of the area")));
         var val = a.Value ?? 0;
-        sb.Append(Tile($"Value a month ({cur}, estimate)", "The time its use saves, at Admin's hourly cost; a dash where its value is not measured.", a.Value is null ? "—" : N(val), "value",
+        sb.Append(Tile($"Value a month ({cur}, estimate)", "The time its use saves, at the hourly cost set in Admin; a dash where its value is not measured.", a.Value is null ? "—" : N(val), "value",
             a.Value is null ? "not measured for this area" : $"{val / Math.Max(1, v.HourlyCost):#,0} hours at {CostRules.Money(v.HourlyCost, cur)}", ""));
         sb.Append(Tile("Return on the spend", "Value over spend, for this area.", a.Value is { } v2 && a.Spend > 0 ? Times(v2 / a.Spend) : "—", "roi",
             a.Value is { } v3 && a.Spend > a.Saving && a.Saving > 0 ? $"{Times(v3 / (a.Spend - a.Saving))} once its savings are taken" : "value over spend", ""));

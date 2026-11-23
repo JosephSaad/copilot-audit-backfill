@@ -7,7 +7,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Countries and offices";
     public override string Persona => "Regions";
-    public override string Intro => "Adoption by country, city and office, from Active Directory: where Copilot has landed and where it has not.";
+    public override string Intro => "Adoption by country, city and office, from Active Directory: where Copilot has landed and where it has not. Adoption: of the license holders with an enabled account, the share who used Copilot with the license in the period.";
 
     protected override async Task BuildAsync()
     {
@@ -19,12 +19,12 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("Countries", Num(countries.Count(c => c.Name != "Smaller groups")), $"{offices.Count(o => o.Name != "Smaller groups"):#,0} offices"));
         if (ranked.Count > 1)
         {
-            Kpis.Add(new("Country with the highest adoption", ranked[0].Name, Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))));
-            Kpis.Add(new("Country with the lowest adoption", ranked[^1].Name, Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))));
+            Kpis.Add(new("Country with the highest adoption", ranked[0].Name, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))}, of countries with {Ctx.MinGroupSize} or more license holders"));
+            Kpis.Add(new("Country with the lowest adoption", ranked[^1].Name, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))}, of countries with {Ctx.MinGroupSize} or more license holders"));
         }
 
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
-            "Licensed people who used Copilot in the period." + (fc > 0 ? " " + FoldNote(fc, "country", "countries") : ""), "half"));
+            "License holders with an enabled account who used Copilot with the license in the period, as a share of all license holders there." + (fc > 0 ? " " + FoldNote(fc, "country", "countries") : ""), "half"));
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
             "The fifteen offices with the highest adoption." + (fo > 0 ? " " + FoldNote(fo, "office") : ""), "half"));
 
@@ -33,13 +33,13 @@ SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, C
 FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
 JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0
+WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0 AND du.AccountEnabled = 1
 GROUP BY ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         var shown = countries.Where(c => c.Name != "Smaller groups").OrderByDescending(c => c.People).Take(5).ToList();
         Panels.Add(new("People using Copilot, by country",
             Chart.Line(Labels(), shown.Select((c, i) => new Series(c.Name, buckets.Select(b => (double?)trend.Where(t => t.Country == c.Name && t.Bucket == b.Key).Sum(t => t.Active)).ToList(), i + 1)).ToList(),
-                Fmt.Count, "Active people by country"), $"The five countries with the most people. {TrendNote}"));
+                Fmt.Count, "Active people by country"), $"People with an enabled account and at least one interaction, in the five countries with the most people. {TrendNote}"));
         var t = Groups.Table(countries, "Country", Ctx.MinGroupSize);
         CsvTable = t;
         Panels.Add(new("Every country", t.Render(), null, "full", CsvUrl()));
@@ -68,7 +68,7 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
         string[] days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
         Kpis.Add(new("Outside 08:00-18:00 or at weekends", Pct(Ratio(after, all)), "of interactions"));
         Kpis.Add(new("At weekends", Pct(Ratio(weekend, all)), "of interactions, Saturday and Sunday"));
-        if (all > 0) Kpis.Add(new("Busiest hour", $"{days[peak.Dow - 1]} {peak.Hour:00}:00", $"{Num(peak.N)} interactions"));
+        if (all > 0) Kpis.Add(new("Busiest hour", $"{days[peak.Dow - 1]} {peak.Hour:00}:00", $"{Num(peak.N)} interactions in that hour, over the period"));
 
         var cells = new double?[7, 24];
         foreach (var g in grid) cells[g.Dow - 1, g.Hour] = g.N;

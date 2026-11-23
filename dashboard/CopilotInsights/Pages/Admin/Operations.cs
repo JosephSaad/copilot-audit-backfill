@@ -196,7 +196,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
 public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsReports reports) : AdminPage(s)
 {
     public override string Title => "Alerts and digests";
-    public override string Intro => "Who hears about what, when to raise an alert, and the digests sent on a schedule. Alerts are checked every five minutes and after each nightly refresh; each fires once per occurrence, by email and in the Windows Application log.";
+    public override string Intro => "Who hears about what, when to raise an alert, the digests sent on a schedule, and how the weekly Copilot report counts its groups. Alerts are checked every five minutes and after each nightly refresh; each fires once per occurrence, by email and in the Windows Application log.";
 
     static readonly (string Key, string Label)[] Recipients =
     [
@@ -239,7 +239,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         string V(string k) => set.GetValueOrDefault(k) ?? "";
         Panels.Add(new("Who hears about what", new HtmlString(Form("recipients",
             string.Concat(Recipients.Select(r => Input(r.Key, r.Label, V(r.Key), 50))) + Button("Save"))),
-            "Addresses separated by semicolons; a distribution list keeps it short. Email is set up in Admin › Email.", "half"));
+            "Addresses separated by semicolons; a distribution list keeps it short. Empty by default: nobody gets that alert by email. Email is set up in Admin › Email.", "half"));
 
         Panels.Add(new("When to alert", new HtmlString(Form("thresholds",
             string.Concat(Numbers.Select(n => Input(n.Key, n.Label, V(n.Key), 6, "number"))) +
@@ -247,13 +247,14 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             $"<label><input type=\"checkbox\" name=\"NewAgentAlert\" value=\"1\"{(V("NewAgentAlert") != "0" ? " checked" : "")}/> Alert on agents used for the first time</label>" +
             $"<label><input type=\"checkbox\" name=\"EventLogAlerts\" value=\"1\"{(V("EventLogAlerts") != "0" ? " checked" : "")}/> Also write alerts to the Windows Application log (source Copilot Insights)</label>" +
             Button("Save"))),
-            "A security signal alerts when a day reaches its threshold, or when it is the given number of times its 28-day average. Label order is set in Admin › Reference data.", "half"));
+            "A security signal (jailbreak attempts, prompt injections, blocked resources, sensitive labeled content) alerts when a day's count reaches its threshold, or when the day is the spike factor times its 28-day daily average. Drops and spikes in use are those on Adoption › Drops and spikes. Label order is set in Admin › Reference data. " +
+            "Defaults: stale after 36 hours; 1 jailbreak attempt, 1 prompt injection and 25 blocked-resource interactions a day; 1 sensitive labeled interaction a day, with no label order set (off); spike factor 3; a drop at 50% below usual, a spike at 200% above; the pool at 95% assigned; the certificate 30 days before it expires; both boxes ticked.", "half"));
 
         var subs = await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription ORDER BY Name;");
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
-        var t = new Table { Zone = Zone, Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
+        var t = new Table { Zone = Zone, Headers = ["Name", "Report", "To", "When", "For", "Period", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
         foreach (var sub in subs)
-            t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", sub.Days, sub.LastSentUtc, sub.LastStatus,
+            t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", ReportContext.ChoiceLabel(sub.Days), sub.LastSentUtc, sub.LastStatus,
                 new HtmlString("<div class=\"acts\">" +
                     $"<a href=\"{E(Request.Path + $"?handler=preview&report={sub.Report}&days={sub.Days}&root={Uri.EscapeDataString(sub.RootUpn ?? "")}")}\">Preview</a> " +
                     Form("sendnow", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Send now", quiet: true)) +
@@ -264,7 +265,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Input("name", "Name", null, 24) + Select("report", "Report", OpsReports.DigestKinds.Keys, "Leadership") + Input("recipients", "To", null, 40) +
             Select("frequency", "How often", Schedule.Frequencies, "Weekly") + Select("dow", "Day (weekly)", days, "Monday") +
             Input("dom", "Day of the month (monthly)", "1", 4, "number") + Input("hour", $"Hour ({zone.StandardName})", "7", 4, "number") +
-            Select("days", "Covering", ReportContext.DayChoices.Select(d => $"{d}"), "30") +
+            Select("days", "Covering", ReportContext.DayChoices.Select(d => ($"{d}", ReportContext.ChoiceLabel(d))), "30") +
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) + Button("Add")) +
             "<ul class=\"sub\">" + string.Concat(OpsReports.DigestKinds.Select(k => $"<li><b>{E(k.Key)}</b>: {E(k.Value)}</li>")) + "</ul>"),
             "Digests hold aggregates only, never a named person, so they can go to anyone who may see that part of the organization. Each covers the period chosen up to the last complete day."));
@@ -282,8 +283,25 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Input("ManagerDigestMinPeople", "Managers with at least this many people under them", V("ManagerDigestMinPeople"), 5, "number") +
             Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
             Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") + Button("Save"))),
-            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. " +
+            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. Defaults: off; managers with 10 or more people; Monday; 7:00. " +
             "When the dashboard is limited to levels (Admin › Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+
+        /* The weekly Copilot report (3.1.3): which of the AD groups' two counts is its Number of Users Enabled. The nightly
+           AD load keeps both, so changing this changes every week of the next report, the trend's included. */
+        var groups = await Db.QueryAsync<(DateTime SnapshotDate, string Role, string GroupName, int Members, int EnabledMembers, DateTime LoadedUtc)>(@"
+IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NOT NULL AND HAS_PERMS_BY_NAME(N'audit.ReportGroupDay', N'OBJECT', N'SELECT') = 1
+    EXEC (N'SELECT g.SnapshotDate, g.Role, g.GroupName, g.Members, g.EnabledMembers, g.LoadedUtc FROM audit.ReportGroupDay AS g
+            WHERE g.SnapshotDate = (SELECT MAX(x.SnapshotDate) FROM audit.ReportGroupDay AS x WHERE x.Role = g.Role) ORDER BY g.Role;');");
+        var gt = new Table { Zone = Zone, Headers = ["Column", "AD group", "All members", "Enabled", "Disabled", "Counted (UTC)"],
+            EmptyText = "Not counted yet: name the two groups and the users' domain on Admin › Directory quality (or in copilot-audit.settings.psd1); the next nightly load counts them." };
+        foreach (var g in groups)
+            gt.Rows.Add([g.Role == "CopilotLicense" ? "M365 Copilot" : "Copilot Chat", g.GroupName, g.Members, g.EnabledMembers, g.Members - g.EnabledMembers, g.LoadedUtc]);
+        Panels.Add(new("Weekly Copilot report", new HtmlString(Form("weekly",
+            Select("WeeklyReportGroupCount", "Users Enabled and Active Users count", [("Enabled", "Accounts enabled today only"), ("All", "Everyone, disabled accounts and leavers included")],
+                V("WeeklyReportGroupCount") is "All" ? "All" : "Enabled") + Button("Save")) + gt.Render().Value),
+            "Which people the report's two people rows count. Users Enabled is the members of the two AD groups, as the nightly AD load counted them; Active Users the people who used Copilot in the week. " +
+            "Accounts enabled today only leaves out members and users whose AD account is disabled or gone; everyone includes them. It applies to the next report and to every week in its trend. " +
+            "Actions taken and security alerts count every interaction either way. Send-CopilotWeeklyReport.ps1 -IncludeDisabled counts everyone for one run.", "half"));
 
         /* Managers who asked not to get the digest: kept by administrators, now that the dashboard has no personal pages. */
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
@@ -378,6 +396,13 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
             ["ManagerDigestDay"] = day.ToString(CultureInfo.InvariantCulture),
             ["DigestHour"] = SettingWriter.Int(DigestHour, "The hour", 0, 23).ToString(CultureInfo.InvariantCulture),
         }));
+    });
+
+    public Task<IActionResult> OnPostWeeklyAsync(string? WeeklyReportGroupCount) => AdminChangeAsync(async () =>
+    {
+        if (WeeklyReportGroupCount is not ("Enabled" or "All")) throw new ArgumentException("choose accounts enabled today only, or everyone.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName,
+            new Dictionary<string, string?> { ["WeeklyReportGroupCount"] = WeeklyReportGroupCount }, showValues: true));
     });
 
     public Task<IActionResult> OnPostOptoutAsync(string? upn) => AdminChangeAsync(async () =>
@@ -787,20 +812,20 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         Kpis.Add(new("Privacy mode", on ? "On" : "Off", on ? "nobody is named but the viewer themselves" : null));
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
             Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
-            "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
+            "Pseudonymize: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
             "Units, named after their managers, go by their department, and no report is narrowed to a manager's part of the organization. Aggregates keep the minimum group size (Admin › Access). " +
-            "If the setting cannot be read, privacy mode counts as on until it can."));
+            "If the setting cannot be read, privacy mode counts as on until it can. Default: Off."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
             Input("AuditLogRetentionDays", $"Keep the dashboard's audit log (days; 0 keeps it; at least {MinAuditLogDays})", V("AuditLogRetentionDays"), 6, "number") +
             Input("NotificationRetentionDays", "Keep the notification log (days; 0 keeps it)", V("NotificationRetentionDays"), 6, "number") +
             Input("JsonRetentionDays", "Clear the stored JSON of records older than (days; 0 keeps it; at least 200)", V("JsonRetentionDays"), 6, "number") +
             Button("Save")) + Form("apply", Button("Apply retention now", "Delete what is past retention now?", quiet: true))),
-            "Applied each night after a successful run. Clearing the JSON keeps every report working (the flattened table has the fields); it cannot be fetched again once Purview's own 180 days have passed, hence the 200-day floor."));
+            "Applied each night after a successful run. Clearing the JSON keeps every report working (the flattened table has the fields); it cannot be fetched again once Purview's own 180 days have passed, hence the 200-day floor. Defaults: audit log 730 days, notification log 365 days, JSON kept (0)."));
 
         Panels.Add(new("Data API", new HtmlString(Form("api",
             $"<label><input type=\"checkbox\" name=\"ApiEnabled\" value=\"1\"{(V("ApiEnabled") != "0" ? " checked" : "")}/> Answer the read-only data API at /api/v1</label>" + Button("Save"))),
-            "The same sign-in, scope and roles as the pages; every call is in the audit log. /api/v1 lists the endpoints.", "half"));
+            "The same sign-in, scope and roles as the pages; every call is in the audit log. /api/v1 lists the endpoints. On by default.", "half"));
     }
 
     public Task<IActionResult> OnPostPrivacyAsync(string? mode) => AdminChangeAsync(async () =>

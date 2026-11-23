@@ -76,10 +76,10 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var copies = prep.Copies;
 
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
-        Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null,
+        Kpis.Add(new($"Suite moves: saving a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year if every move is made; not part of the AI savings on Costs and savings", summary.Saving > 0 ? "good" : null,
             Why: await WhyAsync("For each holder a lower suite would serve: the suite's price less the lower one's, a month, as set in Suites: E3, E5 and E7. Moves to train save nothing until decided.",
                 [.. v.Suites.Select(su => "Suite:" + su.Pattern).Distinct()])));
-        Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(prep.CopiesWorth)), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
+        Kpis.Add(new($"Licenses held twice, a month ({cur})", Num((long)Math.Round(prep.CopiesWorth)), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
             Href: Open(Request.Path, extra: "copy=addon"),
             Why: await WhyAsync($"For each holder whose suite already includes an add-on they hold: the Copilot license price ({v.CopilotPrice:#,0.##} {cur}) where it is Copilot, plus Power BI Pro's ({v.PowerBiPrice:#,0.##} {cur}) where it is Power BI.",
                 "LicenseMonthlyCost", "Price:POWER_BI_PRO")));
@@ -91,7 +91,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         Panels.Add(new("Suites held", st.Render(), "Every suite turned on in Admin, with its holders here and its price. What it includes (Copilot, Power BI Pro) is not counted again as AI spend on Costs and savings; the rest of what it brings cannot be split from its price.", "half"));
 
         /* The moves, summed as the Suites card sums them, each leading to its people on that suite. */
-        var mt = new Table { Headers = ["Move", "From", "To", "People or seats", $"A month ({cur})", "Confidence"], Numeric = new HashSet<int> { 3, 4 } };
+        var mt = new Table { Headers = ["Move", "From", "To", "People or seats", $"Saving a month ({cur})", "Confidence"], Numeric = new HashSet<int> { 3, 4 } };
         string MoveUrl(SuiteMove mv, string from) => Ctx.Url(Request.Path, extra: (mv == SuiteMove.DropDuplicate ? "copy=suite" : $"move={mv.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(from)}");
         foreach (var ml in summary.Moves)
             mt.Rows.Add([ml.Move == SuiteMove.CutSeats ? SuiteRules.Label(ml.Move) : new Link(ml.Move == SuiteMove.DropDuplicate ? "Remove the second suite" : SuiteRules.Label(ml.Move), MoveUrl(ml.Move, ml.From)),
@@ -100,7 +100,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         if (copies.Count > 0)
             mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(prep.CopiesWorth), "High"]);
         Panels.Add(new("What could change", mt.Rows.Count == 0 ? new HtmlString("<p class=\"muted\">Every holder's suite fits what the data shows of them.</p>") : mt.Render(),
-            "Each move with its people (or, to cut, its unassigned seats) and what it saves a month; to train, what rides on it. High: a license held twice. Medium: a whole part of the suite unused, or seats nobody holds. Low: rests on what the data cannot see. " +
+            "Each move with its people (or, to cut seats, its unassigned seats) and what it saves a month; for a move to train, what is at stake. Confidence: High, a license held twice; Medium, a whole part of the suite unused, or seats nobody holds; Low, it rests on what the data cannot see. " +
             "The add-on a suite covers is an AI saving, counted on Costs and savings; the rest is the Suites card's review. Select one to list its people.", "half"));
         if (!v.PowerBiKnown && v.Rows.Any(r => r.Holder.Suite.HasPowerBi && !r.Holder.Suite.HasCopilot))
             Notice = "Power BI activity is not loaded, so whether E5's Power BI Pro is used is not known, and no E5 holder is offered a move. Load it with tools\\Import-CostCsv.ps1 -Table PowerPlatformUserActivity.";
@@ -160,7 +160,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var all = move is null && suite is null && copy is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">Every move, every suite</a></p>";
         Panels.Add(new(copy == "addon" ? "People with an add-on their suite covers" : copy == "suite" ? $"People with a second suite{(suite is null ? "" : $" beside {suite}")}" : move is { } m ? $"People to {SuiteRules.Label(m).ToLowerInvariant()}{(suite is null ? "" : $" on {suite}")}" : suite is not null ? $"Every holder of {suite}" : "People whose suite could change",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Copilot days: days in the last 30 with use that needs the Copilot license, as Upgrade, train or revoke counts them. Power BI: any use in the window, from the Power Platform activity export. " +
+            "Copilot days: days in the last 30 with use that needs the Copilot license, as Upgrade, train or revoke counts them. Power BI: any use in the last 30 days, from the Power Platform activity export. " +
             "Protected levels (Admin › Access) are never offered a move, nor a copy to drop; a disabled account's licenses are reclaimed whatever its level. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));
     }
 

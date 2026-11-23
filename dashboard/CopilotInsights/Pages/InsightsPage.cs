@@ -17,8 +17,15 @@ public sealed record Kpi(string Label, string Value, string? Note = null, string
 /// </summary>
 public sealed record KpiWhy(string Formula, IReadOnlyList<WhyInput> Inputs);
 
-/// <summary>One assumption behind a figure: its name, its value now, and where to change it (null for anyone who may not).</summary>
-public sealed record WhyInput(string Label, string Value, string? Href);
+/// <summary>
+/// One assumption behind a figure: its name, its value now, and where to change it (null for anyone who may not); since
+/// 3.1.3 also the value it is installed with and why, with the public page it rests on (<see cref="CopilotInsights.Data.AssumptionReferences"/>).
+/// </summary>
+public sealed record WhyInput(string Label, string Value, string? Href, string? Default = null, CopilotInsights.Data.AssumptionReference? Ref = null)
+{
+    /// <summary>"Default 6 minutes. Microsoft counts ..." for under the value; empty when there is nothing to say.</summary>
+    public string Basis => string.Join(" ", new[] { Default is null ? null : $"Default {Default}.", Ref?.Why }.Where(x => !string.IsNullOrEmpty(x)));
+}
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
 public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
@@ -309,6 +316,13 @@ public abstract class InsightsPage(PageServices s) : PageModel
     }
 
     /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
+    /// <summary>
+    /// The age of a license count (3.1.3): the day it is for, and when the license tool last read who holds one. Was
+    /// "Premium licenses today", which it is not: it is the holders on the period's last day, as the last read left them.
+    /// </summary>
+    protected string LicensesAsOf(CopilotInsights.Data.Totals t) =>
+        $"held on {Ctx.End:d MMM yyyy}, license list read {When(t.LicensesReadUtc, "never")}";
+
     protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
 
     /// <summary>
@@ -602,7 +616,8 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     {
         _assumptions ??= await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.AssumptionData>().AllAsync();
         var inputs = keys.Select(k => _assumptions.FirstOrDefault(a => a.Def.Key == k)).OfType<CopilotInsights.Data.AssumptionValue>()
-            .Select(a => new WhyInput(a.Def.Label, a.Shown, !Warming && Viewer.CanAdmin(a.Def.Page) ? CopilotInsights.Data.Assumptions.EditHref(a.Def) : null)).ToList();
+            .Select(a => new WhyInput(a.Def.Label, a.Shown, !Warming && Viewer.CanAdmin(a.Def.Page) ? CopilotInsights.Data.Assumptions.EditHref(a.Def) : null,
+                a.Def.Default is { } d ? (a.Def.Unit is { } u ? $"{d} {u}" : d) : null, CopilotInsights.Data.AssumptionReferences.For(a.Def))).ToList();
         return new(formula, inputs);
     }
 
@@ -610,7 +625,11 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected static string WhyHtml(KpiWhy? w) => w is null ? "" :
         $"<details class=\"kwhy\"><summary>How it is worked out</summary><p>{E(w.Formula)}</p>" +
         (w.Inputs.Count == 0 ? "" : "<ul>" + string.Concat(w.Inputs.Select(i => $"<li>{E(i.Label)}: <b>{E(i.Value)}</b>" +
-            (i.Href is null ? "" : $" · <a href=\"{E(i.Href)}\">Change it</a>") + "</li>")) + "</ul>") + "</details>";
+            (i.Href is null ? "" : $" · <a href=\"{E(i.Href)}\">Change it</a>") + BasisHtml(i) + "</li>")) + "</ul>") + "</details>";
+
+    /// <summary>An assumption's default, why, and its source link, under its value (3.1.3).</summary>
+    public static string BasisHtml(WhyInput i) => i.Basis.Length == 0 ? "" :
+        $"<span class=\"kbasis\">{E(i.Basis)}" + (i.Ref?.SourceUrl is { } u ? $" <a href=\"{E(u)}\" target=\"_blank\" rel=\"noopener noreferrer\">Source: {E(i.Ref.SourceTitle ?? u)}</a>" : "") + "</span>";
 
     /// <summary>The message a change left for the page it redirected back to.</summary>
     protected void ShowDone()

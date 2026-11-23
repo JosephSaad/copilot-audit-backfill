@@ -17,7 +17,7 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override string? OwnWindow => "today's licenses";
-    public override string Intro => "People who hold the Copilot license and another Copilot-family license as well: a second Copilot SKU, Copilot Studio, or Copilot for a role such as Sales or Service. Where the first covers what the second is used for, drop the second.";
+    public override string Intro => "People who hold the Copilot license and another Copilot-family license as well: a second Copilot product, Copilot Studio, or Copilot for a role such as Sales or Service. Where the first covers what the second is used for, drop the second.";
 
     /* Part-number patterns of SKUs that overlap Copilot. The Copilot SKUs themselves are audit.LicenseSku.IsCopilot;
        VIRTUAL_AGENT and CCIBOTS are Copilot Studio's names (it was Power Virtual Agents), trial included. */
@@ -98,7 +98,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var people = peopleTask is null ? pg.Total : await peopleTask;
 
         Kpis.Add(new("People with an overlap", Num(people), "a Copilot license and another Copilot-family one", people > 0 ? "warn" : null));
-        Kpis.Add(new("Overlapping SKUs", Num(bySku.Count), "licenses held beside Copilot that may repeat it"));
+        Kpis.Add(new("Overlapping products", Num(bySku.Count), "kinds of license held beside Copilot that may repeat what it gives"));
 
         var names = await SkuNames.LoadAsync(Db);   // Product names, not part numbers
         var st = new Table { Headers = ["License held as well", "People", "Seats bought", "Seats assigned"], Numeric = new HashSet<int> { 1, 2, 3 }, EmptyText = "No overlap." };
@@ -120,7 +120,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var all = sku is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">All licenses</a></p>";
         Panels.Add(new(sku is null ? "People" : $"People holding {names.Name(bySku.FirstOrDefault(b => b.SkuId == sku).Part)}",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "From every SKU the license tool read for each person at its last run. Copilot-family: a part number containing COPILOT, or Copilot Studio's (VIRTUAL_AGENT, CCIBOTS). " +
+            "From every license the license tool read for each person at its last run. Copilot-family: a license whose part number (SKU) contains COPILOT, or Copilot Studio's (VIRTUAL_AGENT, CCIBOTS). " +
             "Licenses that cost nothing a user are left out: the Copilot Studio user license (VIRTUAL_AGENT_USL), viral sign-ups and trials. " +
             "Whether the Copilot license covers the other depends on what the person uses it for: check with them or their manager before removing it.", "full", CsvUrl()));
     }

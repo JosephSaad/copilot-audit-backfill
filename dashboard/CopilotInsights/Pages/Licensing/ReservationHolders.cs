@@ -58,7 +58,7 @@ WHERE n = 1 ORDER BY Name;");
             var back = Open("/leadership/reservations");
             var from = back is null ? "" : $"<p class=\"sub\">The organizations and their figures are on <a href=\"{System.Net.WebUtility.HtmlEncode(back)}\">Leadership › Copilot reservations</a>.</p>";
             Panels.Add(new("Choose an organization", new Microsoft.AspNetCore.Html.HtmlString($"<ul>{list}</ul>{from}"),
-                "Each organization's people holding the Microsoft 365 Copilot add-on, as its allocated count counts them."));
+                "Each organization's people holding the Microsoft 365 Copilot add-on: the people its allocated licenses figure counts."));
             return;
         }
         var k = int.Parse(day.ToString("yyyyMMdd"));

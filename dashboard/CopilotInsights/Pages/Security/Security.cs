@@ -10,7 +10,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Security signals";
     public override string Persona => "Security";
-    public override string Intro => "Jailbreak attempts, prompt injection in content Copilot read, and resources Copilot was blocked from: how many, when and where. Totals only: no one is named.";
+    public override string Intro => "Security signals are interactions (one prompt and Copilot's answer) with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource. This page shows how many, when, in which apps and in which parts of the organization. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -38,40 +38,40 @@ GROUP BY a.App;", Ctx.Args());
         long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
         var people = await peopleTask;
         Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null, Href: Open("/security/flags", extra: "kind=jailbreak&status=any")));
-        Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Open("/security/flags", extra: "kind=injection&status=any")));
-        Kpis.Add(new("Blocked resources", Num(blk), "interactions where access to content was blocked or restricted"));
-        Kpis.Add(new("People involved", Num(people), "with a jailbreak or injection flag"));
+        Kpis.Add(new("Prompt injections", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Open("/security/flags", extra: "kind=injection&status=any")));
+        Kpis.Add(new("Blocked resources", Num(blk), "interactions where a policy or permissions stopped Copilot reading content"));
+        Kpis.Add(new("People involved", Num(people), "with a jailbreak attempt or prompt injection in the period, accounts since disabled included"));
 
-        Panels.Add(new("Signals over time",
+        Panels.Add(new("Security signals over time",
             Chart.Columns(Labels(), [
                 new Series("Jailbreak", tr.Select(w => (double?)w.Jailbreak).ToList(), 8),
                 new Series("Prompt injection", tr.Select(w => (double?)w.Injection).ToList(), 2),
                 new Series("Blocked resource", tr.Select(w => (double?)w.Blocked).ToList(), 7),
             ], Fmt.Count, "Security signals", stacked: false),
-            "Jailbreak: a prompt written to make Copilot ignore its rules. Prompt injection: instructions hidden in something Copilot read (a file, a mail, a web page) that try to steer it. " +
-            $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft flags each in the audit record. {TrendNote}"));
+            "Jailbreak: a prompt written to make Copilot ignore its rules. Prompt injection: instructions hidden in something Copilot read (a file, an email, a web page) that try to steer it. " +
+            $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft marks each one in the Copilot audit record. {TrendNote}"));
 
         var hours = await hoursTask;
         var days = new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
         var grid = new double?[7, 24];
         foreach (var h in hours) grid[h.Dow - 1, h.Hour] = h.N;
-        Panels.Add(new("When jailbreak and injection happen",
-            Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), grid, Fmt.Count, "Flags by weekday and hour",
+        Panels.Add(new("When jailbreak attempts and prompt injections happen",
+            Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), grid, Fmt.Count, "Jailbreak attempts and prompt injections by weekday and hour",
                 unit: "flagged interactions", unitOne: "flagged interaction", column: h => $"{h}:00 to {h}:59"),
-            $"Flagged interactions by weekday and hour, in {DataZone}. Out-of-hours clusters are worth a look."));
+            $"Interactions with a jailbreak attempt or prompt injection, by weekday and hour, in {DataZone}. Blocked resources are not included. A cluster outside working hours is worth a look."));
 
         var apps = await appsTask;
         Panels.Add(new("By app",
             Chart.Bars(apps.OrderByDescending(a => a.Jb + a.Inj + a.Blk).Take(12)
-                .Select(a => new Bar(a.App, a.Jb + a.Inj + a.Blk, Note: $"jailbreak {a.Jb:#,0}, injection {a.Inj:#,0}, blocked {a.Blk:#,0}", Slot: 7)).ToList(), Fmt.Count, "Signals by app"),
-            null, "half"));
+                .Select(a => new Bar(a.App, a.Jb + a.Inj + a.Blk, Note: $"jailbreak {a.Jb:#,0}, injection {a.Inj:#,0}, blocked {a.Blk:#,0}", Slot: 7)).ToList(), Fmt.Count, "Security signals by app"),
+            "The 12 apps with the most security signals in the period. Hover for each kind.", "half"));
 
         var units = FoldSmall(await unitsTask, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Interactions > 0).OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).Take(15).ToList();
         Panels.Add(new("By unit, per 1,000 interactions",
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
-                $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Signal rate by unit"),
-            "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
+                $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Security signals per 1,000 interactions, by unit"),
+            "All three signals together, per 1,000 interactions, so large and small units compare fairly. An interaction with two signals counts twice." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
 
         /* The same rate at each point, unit by unit: Security › Security signals by unit was a page of its own for this one chart. */
         var shown = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
@@ -82,8 +82,8 @@ GROUP BY a.App;", Ctx.Args());
             for (var c = 0; c < buckets.Count; c++)
                 rates[r, c] = series.TryGetValue((shown[r].Unit, buckets[c].Key), out var p) && p.Interactions > 0 ? p.Flags * 1000.0 / p.Interactions : null;
         Panels.Add(new("By unit over time, per 1,000 interactions",
-            Chart.Heatmap(shown.Select(u => u.Name).ToList(), Labels(), rates, Fmt.Decimal1, "Signal rate by unit over time", unit: "signals per 1,000 interactions"),
-            $"Jailbreak, prompt injection and blocked resources together, for each part of the organization one level below. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
+            Chart.Heatmap(shown.Select(u => u.Name).ToList(), Labels(), rates, Fmt.Decimal1, "Security signals per 1,000 interactions, by unit over time", unit: "signals per 1,000 interactions"),
+            $"Jailbreak attempts, prompt injections and blocked resources together, per 1,000 interactions, for each part of the organization one level below. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
     }
 }
 
@@ -92,7 +92,7 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
     public override string Title => "Flagged interactions";
     public override string Persona => "Security";
     public override string? RequiredRole => Roles.Security;
-    public override string Intro => "Each interaction with a jailbreak, prompt-injection or blocked-resource flag, with who and where, and its triage: new, being investigated, closed, or a false positive. The record id finds it in Purview.";
+    public override string Intro => "Each interaction with a security signal (a jailbreak attempt, a prompt injection or a blocked resource), who had it and in which app, and its triage: New, Investigating, Closed or FalsePositive (not a real threat). Everyone is listed, accounts since disabled included, so an incident is not hidden when someone leaves. The record id finds the interaction in Purview Audit.";
 
     public static readonly string[] Statuses = ["New", "Investigating", "Closed", "FalsePositive"];
     static readonly Dictionary<string, (string Label, string Sql)> Triage = new()
@@ -223,10 +223,10 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
         if (cases)
         {
             var open = openCount.Single();
-            Kpis.Add(new("Open flags", Num(open), "new or being investigated", open > 0 ? "warn" : null));
+            Kpis.Add(new("Open flags", Num(open), "triage New or Investigating, in the period", open > 0 ? "warn" : null));
         }
         Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + tri + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"Times are the hour of the interaction, in {DataZone}. Saving a triage records you as its owner, with the time, in the audit log.", "full", CsvUrl()));
+            $"When: the hour of the interaction, in {DataZone}. Open is New and Investigating together. Saving a triage makes you its owner and records the change, with the time, in the audit log.", "full", CsvUrl()));
     }
 
     /// <summary>Security's triage of one flagged interaction: status and a note, owned by whoever saved it.</summary>

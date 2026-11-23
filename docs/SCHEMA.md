@@ -15,7 +15,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
-- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
+- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.ReportGroupMember`](#auditreportgroupmember), [`audit.ReportGroupDay`](#auditreportgroupday), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
@@ -840,6 +840,42 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_GroupMember`: primary key, clustered (GroupName, UserPrincipalName)
+
+### audit.ReportGroupMember
+
+*Table.* The members now of the two AD groups the weekly Copilot report counts as Users Enabled (3.1.3), nested groups included: CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1. Replaced whole by each AD export. The report's note under its table reads it: who used Copilot outside the group of their column.
+
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Role` | varchar(16) | **no** | **PK** | CopilotLicense \| CopilotChat |
+| 2 | `GroupName` | nvarchar(256) | **no** |  | as set: DOMAIN\\Group |
+| 3 | `UserPrincipalName` | nvarchar(256) | **no** | **PK** |  |
+| 4 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_ReportGroupMember`: primary key, clustered (Role, UserPrincipalName)
+
+### audit.ReportGroupDay
+
+*Table.* One row per group per day the AD export ran (3.1.3): the two groups' user members, nested groups included, and how many of those accounts are enabled in AD (audit.UserDirectory). Kept, so the weekly report's trend has the count each week had; a second load on one day replaces that day's rows. bi.usp_WeeklyCopilotReport takes a week's Users Enabled from the last day in it.
+
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SnapshotDate` | date | **no** | **PK** | the day of the load, in the reporting time zone |
+| 2 | `Role` | varchar(16) | **no** | **PK** | CopilotLicense \| CopilotChat |
+| 3 | `GroupName` | nvarchar(256) | **no** |  |  |
+| 4 | `Members` | int | **no** |  | user members, enabled or not |
+| 5 | `EnabledMembers` | int | **no** |  | of those, accounts enabled in AD |
+| 6 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_ReportGroupDay`: primary key, clustered (SnapshotDate, Role)
 
 ### audit.LicenseSku
 

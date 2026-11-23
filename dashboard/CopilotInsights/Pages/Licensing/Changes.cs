@@ -12,7 +12,7 @@ public sealed class ChangesModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "License changes";
     public override string Persona => "Licensing";
-    public override string Intro => "Every Copilot license assigned and removed in the period, from the directory's audit records: how long people had held a license when it was removed, whether they were still using it, and whether it came back.";
+    public override string Intro => "Every Copilot license assigned and removed in the period, from the directory's audit records: how long people had held a license when it was removed, whether they had used Copilot in the 30 days before, and whether it came back.";
 
     sealed class Removal
     {
@@ -52,11 +52,11 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
         var active = removals.Count(r => r.ActiveBefore);
         var back = removals.Count(r => r.GivenBack);
 
-        Kpis.Add(new("Licenses assigned", Num(counts.Added), $"{Num(counts.People)} people changed"));
+        Kpis.Add(new("Licenses assigned", Num(counts.Added), $"{Num(counts.People)} accounts had a license assigned or removed, disabled ones included"));
         Kpis.Add(new("Licenses removed", Num(counts.Removed), "Copilot licenses taken away in the period"));
-        Kpis.Add(new("Removed while in use", Num(active), removals.Count > 0 ? $"{Pct(Ratio(active, removals.Count))} of removals: used in the 30 days before" : null, active > 0 ? "warn" : null));
-        Kpis.Add(new("Given back later", Num(back), "removed, then assigned again"));
-        if (median is not null) Kpis.Add(new("Median time held", $"{median:0} days", "before removal, where the assignment is on record"));
+        Kpis.Add(new("Removed while in use", Num(active), removals.Count > 0 ? $"{Pct(Ratio(active, removals.Count))} of removals: the holder used Copilot in the 30 days before" : null, active > 0 ? "warn" : null));
+        Kpis.Add(new("Given back later", Num(back), "removed in the period, then assigned again later"));
+        if (median is not null) Kpis.Add(new("Median time held", $"{median:0} days", "from assignment to removal, where the assignment is in the license history"));
 
         if (removals.Count == 0)
         {
@@ -67,7 +67,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             (string Label, double Lo, double Hi)[] bands = [("Under 30 days", 0, 30), ("30-89 days", 30, 90), ("90-179 days", 90, 180), ("180-364 days", 180, 365), ("A year or more", 365, double.MaxValue)];
             var bars = bands.Select((b, i) => new Bar(b.Label, removals.Count(r => r.SinceUtc is not null && (r.ChangedUtc - r.SinceUtc.Value).TotalDays is var d && d >= b.Lo && d < b.Hi), Slot: 1)).ToList();
             var unknown = removals.Count(r => r.SinceUtc is null);
-            if (unknown > 0) bars.Add(new Bar("Assigned before the history", unknown, Slot: 3));
+            if (unknown > 0) bars.Add(new Bar("Assigned before the license history starts", unknown, Slot: 3));
             Panels.Add(new("How long the license was held", Chart.Bars(bars, Fmt.Count, "Removals by time held"),
                 "Time from the license's assignment to its removal. A license removed within 30 days usually means it went to the wrong person.", "half"));
 
@@ -89,7 +89,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             foreach (var d in shown) dt.Rows.Add([d.Name, d.Removed, d.Active, d.Back]);
             dt.KeepLast = folded > 0 ? 1 : 0;
             CsvTable = dt;
-            Panels.Add(new("Removals by department", dt.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
+            Panels.Add(new("Removals by department", dt.Render(), "Still in use: the holder used Copilot in the 30 days before the removal. Given back: a Copilot license was assigned again later." + (folded > 0 ? " " + FoldNote(folded, "department") : ""), "full", CsvUrl()));
         }
 
         /* Who made the changes names administrators, so it is for the Licensing role, and never in privacy mode. */
@@ -104,7 +104,7 @@ ORDER BY COUNT(*) DESC;", Ctx.Args());
             var at = new Table { Headers = ["Changed by", "Assigned", "Removed", "Last change"], Numeric = new HashSet<int> { 1, 2 }, EmptyText = "No changes in the period." };
             foreach (var a in admins) at.Rows.Add([a.By, a.Added, a.Removed, a.Last]);
             Panels.Add(new("Who made the changes", at.Render(),
-                "The account the directory recorded for each change: an administrator, or a group-based licensing service. Shown to the Licensing role."));
+                "The account the directory recorded for each change: an administrator, or a group-based licensing service. Shown only to the Licensing role."));
         }
     }
 }

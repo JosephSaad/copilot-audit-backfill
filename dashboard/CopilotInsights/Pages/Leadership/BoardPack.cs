@@ -12,7 +12,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
     public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, by unit, the trend, targets, estimated value, licenses and risk signals. "
-        + "Adoption splits in two: Premium, license holders who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content); and free only, those who used only what is free without a license (web Copilot Chat, agents). "
+        + "Adoption is the share of Premium license holders (the paid Microsoft 365 Copilot license) who used Copilot with it in the period. It splits in two: Premium, holders who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content); and free only, holders who used only what is free without it (web Copilot Chat, agents). "
         + "Print it, or save it as a PDF from the print dialog. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
@@ -57,7 +57,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         }
         Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p?.Interactions)));
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), Points(Ratio(t.MultiTurn, t.Sessions), p is null ? null : Ratio(p.MultiTurn, p.Sessions))));
-        Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period", Href: Open("/licensing")));
+        Kpis.Add(new("Premium licenses", Num(t.LicensedNow), $"held on {Ctx.End:d MMM}; {t.ActiveLicensed:#,0} holders used Copilot with it in the period", Href: Open("/licensing")));
 
         Panels.Add(new("Print", new HtmlString(
             "<button type=\"button\" class=\"btn\" data-print>Print or save as PDF</button>" +
@@ -105,7 +105,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var tenant = Ctx.Root is null ? "" : " (the whole tenant)";
         if (pool.Count > 0) { lt.Rows.Add(["Bought" + tenant, pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned" + tenant, pool.Sum(x => x.Consumed)]); }
         lt.Rows.Add(["Premium licenses held", t.LicensedNow]);
-        lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
+        lt.Rows.Add(["Holders who used Copilot with it in the period", t.ActiveLicensed]);
         lt.Rows.Add(["Unused for 30 days, to revoke", counts.GetValueOrDefault("revoke")]);
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
         Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
@@ -133,7 +133,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var units = SmallGroups.Shown(u1All, u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)
             Panels.Add(new("Adoption by unit", Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed)), Ctx.MinGroupSize, "Adoption by unit", 12),
-                "Units with at least the minimum group size of people and licenses.", "half"));
+                $"The share of Premium license holders who used Copilot with the license in the period, for units with at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} license holders.", "half"));
 
         /* Each unit against the period before (the Scorecard's table). */
         if (!scorecard) return;
@@ -170,9 +170,9 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         }
         CsvTable = ut;
         Panels.Add(new("By unit, against the period before", ut.Render(),
-            $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
+            $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, and the next smallest too until those left out reach {Ctx.MinGroupSize} together, so no small unit can be worked out. "
             + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
-            + $"Adoption is shown only for a unit of at least {Ctx.MinGroupSize} license holders. Change in adoption is in percentage points; the others are relative."
+            + $"Adoption is shown only for a unit of at least {Ctx.MinGroupSize} license holders. Active people: people who used Copilot in the period. Interactions count all use, including by people since disabled. Change in adoption is in percentage points; the others are relative."
             + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
     }
 }
@@ -198,7 +198,7 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "The board pack needs use cases, which are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
+        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "Use cases are not set up here yet. An administrator sets them up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps: the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
@@ -210,7 +210,8 @@ WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY f.UserKey, f.UseCaseKey)
 SELECT g.UserKey, uc.UseCase, SUM(g.N) AS N INTO #k FROM g JOIN #uc AS uc ON uc.UseCaseKey = g.UseCaseKey GROUP BY g.UserKey, uc.UseCase;
-SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(*) AS People
+/* People are accounts enabled today (3.1.3); interactions are everyone's. */
+SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People
 FROM #k AS k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
 GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
         var trendTask = Db.QueryAsync<G>($@"
@@ -249,7 +250,7 @@ WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NU
 
         var t = new Table { Headers = ["Use case", "Interactions", "Share of interactions", "People", "Interactions per person"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
         foreach (var x in ranked) t.Rows.Add([x.UseCase, x.N, Pct(Ratio(x.N, all)), x.People, x.People > 0 ? Math.Round(x.N / (double)x.People, 1) : null]);
-        Panels.Add(new("Use cases", t.Render(), "People: used Copilot for this at least once in the period; one person counts under every use case they had.", "half"));
+        Panels.Add(new("Use cases", t.Render(), "People: enabled accounts that used Copilot for this at least once in the period; one person counts under every use case they had. Interactions count all use, including by people since disabled.", "half"));
 
         /* Each department's mix, for departments big enough to show. */
         var deptPeople = byDept.GroupBy(x => x.Department!).ToDictionary(g => g.Key, g => g.Sum(x => x.N));

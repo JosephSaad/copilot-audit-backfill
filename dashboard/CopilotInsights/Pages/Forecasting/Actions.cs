@@ -11,8 +11,8 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public override string Title => "Upgrade, train or revoke";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "Named recommendations from the last 30 days: free Copilot Chat users to upgrade to a Premium license, "
-        + "license holders who barely use Copilot to train, and licenses unused long enough to revoke.";
+    public override string Intro => "Named recommendations from the last 30 days: people without a license who use Copilot Chat often, to upgrade to a Premium (Microsoft 365 Copilot) license; "
+        + "license holders who barely use what the license gives, to train; and licenses with no Premium use, to revoke.";
 
     public override string? OwnWindow => "the last 30 days";
     public const int UpgradeDays = 6;   // of the last 30, on the free Copilot Chat
@@ -47,6 +47,13 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         return $@"a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, {p} AS P, SUM(ud.Interactions) AS I
            FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey)";
     }
+
+    /// <summary>
+    /// Whose account a list may name (3.1.3): upgrade and train are for people, so accounts enabled today only (a departed
+    /// person has no AccountEnabled and is left out). Revoke reclaims a license, so it keeps everyone but the disabled, who
+    /// are on Licenses on disabled accounts, as before.
+    /// </summary>
+    public static string Enabled(string kind) => kind == "revoke" ? "ISNULL(du.AccountEnabled, 1) = 1" : "du.AccountEnabled = 1";
 
     internal static async Task<bool> PremiumReadyAsync(Db db, int k30, int k1) => (await ActivitySqlAsync(db, k30, k1)).Contains("PremiumUse");
 
@@ -92,7 +99,7 @@ SELECT du.UserPrincipalName
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN lic ON lic.UserKey = du.UserKey
-WHERE {Kinds[kind].Where} AND ISNULL(du.AccountEnabled, 1) = 1
+WHERE {Kinds[kind].Where} AND {Enabled(kind)}
 ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         var skuId = (await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PoolAsync()).FirstOrDefault(p => p.IsCopilot)?.SkuId.ToString();
         var text = script
@@ -127,7 +134,7 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN lic ON lic.UserKey = du.UserKey
 WHERE {Kinds[kind].Where}
-  AND ISNULL(du.AccountEnabled, 1) = 1
+  AND {Enabled(kind)}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q);
 SELECT COUNT(*) FROM #b;
 SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.Like }));
@@ -185,7 +192,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         var effect = kind switch
         {
             "upgrade" => $"a cost of {pg.Total * price:#,0} {currency} a month as new licenses; none for those given licenses reclaimed from others",
-            "revoke" => $"a saving of {pg.Total * price:#,0} {currency} a month: no licensed (Premium) use in 30 days",
+            "revoke" => $"a saving of {pg.Total * price:#,0} {currency} a month: no Premium use in 30 days",
             _ => "no change in cost; review again in 30 days",
         };
         Kpis.Add(new(Kinds[kind].Label, Num(pg.Total), $"people: {effect}", kind == "revoke" && pg.Total > 0 ? "crit" : null));
@@ -195,7 +202,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         {
             "upgrade" => $"No Premium license, and used the free Copilot Chat on {UpgradeDays} or more of the last 30 days: they already rely on it.",
             "train" => $"A Premium license whose Premium features (Copilot in Word, Excel, PowerPoint, Outlook or Teams, Copilot Chat in work mode, or work content read) were used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
-            _ => $"A Premium license held for at least {RevokeAfterDays} days with no licensed use in the last 30: no record shows Copilot in an app, Copilot Chat in work mode, or work content read. Web Copilot Chat and agents need no license, so they do not count. Offer training first if the role needs Copilot; otherwise revoke and reassign.",
+            _ => $"A Premium license held for at least {RevokeAfterDays} days with no Premium use in the last 30: no record shows Copilot in an app, Copilot Chat in work mode, or work content read. Web Copilot Chat and agents need no license, so they do not count. Offer training first if the role needs Copilot; otherwise revoke and reassign.",
         };
         /* Upgrade and revoke change a license: offer them as files an administrator applies. The dashboard changes nothing. */
         var exports = kind == "train" || pg.Total == 0 ? "" :
@@ -205,6 +212,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         if (!premiumReady && kind != "upgrade")
             Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "License type Copilot recorded: what Copilot itself wrote into the person's latest record (Premium, or Starter for the free Copilot Chat).", "full", CsvUrl()));
+            "License type Copilot recorded: what Copilot itself wrote into the person's latest interaction record (Premium, or Starter for Copilot Chat without a license). " +
+            "Upgrade and train list accounts enabled today only; revoke also lists accounts gone from the directory, whose licenses are still paid for. Disabled accounts are on Licenses on disabled accounts.", "full", CsvUrl()));
     }
 }

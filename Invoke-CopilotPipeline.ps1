@@ -107,6 +107,8 @@ $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 
 $script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction'
 # The delete guard's exit code: a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
+# Who holds the run lock, for the message of a run that finds the database in use (3.1.3).
+. (Join-Path $PSScriptRoot 'tools' 'RunLock.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
 function Get-PipelineSetting {
@@ -214,6 +216,9 @@ function Get-PipelineStep {
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # Where the department is
             if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
+            # 3.1.3: the weekly report's two groups, counted each night for its "Users Enabled"
+            if (Has 'CopilotLicenseGroup') { $a.CopilotLicenseGroup = [string] $Setting.CopilotLicenseGroup }
+            if (Has 'CopilotChatGroup') { $a.CopilotChatGroup = [string] $Setting.CopilotChatGroup }
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' (Drop $a 'UserDirectoryMaxDropPercent')
         }
     }
@@ -546,7 +551,20 @@ function Invoke-TenantRun {
     Write-PipelineCertificate $T -Log $Log
     $n = 0
     $refused = [System.Collections.Generic.List[string]]::new()
-    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
+    # 3.1.3: the users' AD domain may be set on the dashboard (Admin > User directory) instead of in the settings file;
+    # the AD step runs when either names one, and the step itself takes the dashboard's when both do.
+    $plan = $T
+    if (-not ($T.Contains('TargetDomain') -and $T.TargetDomain)) {
+        $dashDomain = $null
+        try { $dashDomain = Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = N''DirectoryDomain'';');" }
+        catch { $dashDomain = $null }
+        if ($dashDomain -and -not ($dashDomain -is [DBNull])) {
+            $plan = [ordered] @{}
+            foreach ($k in $T.Keys) { $plan[$k] = $T[$k] }
+            $plan.TargetDomain = [string] $dashDomain
+        }
+    }
+    foreach ($step in (Get-PipelineStep -Setting $plan -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
@@ -610,7 +628,9 @@ function Invoke-Main {
             $lock = Enter-PipelineRun $t
             if ($lock) { $ok = Invoke-TenantRun -T $t -Log $log -Label $label }
             else {
-                "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. Run this again when it has finished." |
+                # 3.1.3: and who holds it. A query window left open in SQL Server Management Studio stopped every
+                # nightly run, and this line was all there was to go on.
+                "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. $(Get-RunLockHolder (Get-PipelineConnectionString $t))" |
                     Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
             }
         }

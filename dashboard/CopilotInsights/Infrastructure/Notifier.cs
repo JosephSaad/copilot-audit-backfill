@@ -288,7 +288,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var key = day.ToString("yyyy-MM-dd");
             var seen = await StateAsync("anomaly");
             if (seen == key) return;
-            var series = await _ops.DepartmentDaysAsync(day.AddDays(-28), day, await _settings.IntAsync("MinGroupSize", 5));
+            var series = await _ops.DepartmentDaysAsync(day.AddDays(-28), day, await _settings.IntAsync("MinGroupSize", 10));
             var odd = Anomalies.Find(series, day, await _settings.IntAsync("AnomalyDropPercent", 50), await _settings.IntAsync("AnomalySpikePercent", 200));
             if (odd.Count > 0)
                 await RaiseAsync("anomaly", seen, key, "Anomaly", "AlertAdoptionTo", $"Copilot use changed sharply on {day:ddd d MMM} in {odd.Count} department(s)",

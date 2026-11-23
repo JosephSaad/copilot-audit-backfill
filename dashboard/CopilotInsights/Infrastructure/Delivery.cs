@@ -73,25 +73,30 @@ public static class ExtractData
 {
     /* The four that read Copilot use between dates are planned for their own dates each time,
        OPTION (RECOMPILE): two extracts of one dataset over 7 and 365 days are the same statement, and shared one plan.
-       They run a few times a day at most, so compiling each costs nothing that matters. */
+       They run a few times a day at most, so compiling each costs nothing that matters.
+       People are accounts enabled today (3.1.3), as on the pages: the join to bi.DimUser AS en with AccountEnabled = 1.
+       Interactions are everyone's. An app or agent is hidden when fewer than the minimum group size of those people used it. */
     public static readonly Dictionary<string, (string Label, string Sql)> Datasets = new()
     {
         ["DepartmentWeek"] = ("Use by department and week (groups under the minimum size hidden)",
             "SELECT WeekEnding, Department, ActivePeople, Interactions, Sessions FROM bi.DepartmentWeek WHERE Hidden = 0 AND WeekEnding >= @d0 ORDER BY WeekEnding, Department OPTION (RECOMPILE);"),
         ["DailyTotals"] = ("People using Copilot and interactions, per day",
-            @"SELECT d.[Date], COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END) AS ActivePeople, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
+            @"SELECT d.[Date], COUNT(DISTINCT CASE WHEN ud.Interactions > 0 AND en.UserKey IS NOT NULL THEN ud.UserKey END) AS ActivePeople, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(ud.AgentInteractions AS BIGINT)) AS AgentInteractions, SUM(CAST(ud.WebGrounded AS BIGINT)) AS WebGrounded
-FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE d.[Date] >= @d0 GROUP BY d.[Date] ORDER BY d.[Date] OPTION (RECOMPILE);"),
+FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+LEFT JOIN bi.DimUser AS en ON en.UserKey = ud.UserKey AND en.AccountEnabled = 1 WHERE d.[Date] >= @d0 GROUP BY d.[Date] ORDER BY d.[Date] OPTION (RECOMPILE);"),
         ["AppWeek"] = ("Interactions and people by app and week (apps used by fewer than the minimum group size hidden)",
-            @"SELECT d.WeekEnding, a.App, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
+            @"SELECT d.WeekEnding, a.App, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT CASE WHEN en.UserKey IS NOT NULL THEN f.UserKey END) AS People
 FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, a.App OPTION (RECOMPILE);"),
+LEFT JOIN bi.DimUser AS en ON en.UserKey = f.UserKey AND en.AccountEnabled = 1
+WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App HAVING COUNT(DISTINCT CASE WHEN en.UserKey IS NOT NULL THEN f.UserKey END) >= @minGroup ORDER BY d.WeekEnding, a.App OPTION (RECOMPILE);"),
         ["LicensePool"] = ("Licenses bought and assigned, per day",
             "SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, Consumed FROM audit.LicenseSkuDay WHERE SnapshotDate >= @d0 ORDER BY SnapshotDate, SkuPartNumber;"),
         ["AgentWeek"] = ("Agent use by week",
-            @"SELECT d.WeekEnding, ag.AgentName, ag.AgentSource, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
+            @"SELECT d.WeekEnding, ag.AgentName, ag.AgentSource, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT CASE WHEN en.UserKey IS NOT NULL THEN f.UserKey END) AS People
 FROM bi.FactInteraction AS f JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey AND ag.AgentSource <> N'(no agent)' JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, ag.AgentName OPTION (RECOMPILE);"),
+LEFT JOIN bi.DimUser AS en ON en.UserKey = f.UserKey AND en.AccountEnabled = 1
+WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING COUNT(DISTINCT CASE WHEN en.UserKey IS NOT NULL THEN f.UserKey END) >= @minGroup ORDER BY d.WeekEnding, ag.AgentName OPTION (RECOMPILE);"),
     };
 
     /// <summary>
@@ -326,7 +331,7 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, pe
             /* Only managers whose part reaches the minimum group size in enabled people, the rule a report on a
                part is held to (see ReportContextFactory): the digest of a smaller part is refused, and each was claimed,
                failed and tried three times, and counted as "not sent". */
-            var minGroup = await _settings.IntAsync("MinGroupSize", 5);
+            var minGroup = await _settings.IntAsync("MinGroupSize", 10);
             var managers = await _db.QueryAsync<(string Upn, string? Mail)>(@"
 SELECT TOP (@take) p.Upn, NULLIF(ud.Mail, N'')
 FROM dash.Person AS p
@@ -430,7 +435,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
                 /* Days and the file's date in the reporting time zone, as everywhere else. Every dataset is an aggregate, so privacy mode changes nothing. */
                 var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, await _ops.ZoneAsync()).Date;
                 await using var conn = _db.Open();
-                var data = (await conn.QueryAsync(new CommandDefinition(ds.Sql, new { d0 = today.AddDays(-x.Days), minGroup = await _settings.IntAsync("MinGroupSize", 5) }, commandTimeout: 600, cancellationToken: ct)))
+                var data = (await conn.QueryAsync(new CommandDefinition(ds.Sql, new { d0 = today.AddDays(-x.Days), minGroup = await _settings.IntAsync("MinGroupSize", 10) }, commandTimeout: 600, cancellationToken: ct)))
                     .Cast<IDictionary<string, object?>>().ToList();
                 var file = Path.Combine(x.Folder.Trim(), ExtractData.FileName(x.Name, today));
                 await File.WriteAllTextAsync(file, ExtractData.ToCsv(data), new UTF8Encoding(true), ct);

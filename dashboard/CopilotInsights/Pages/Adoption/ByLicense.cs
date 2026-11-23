@@ -17,7 +17,7 @@ public sealed class ByLicenseModel(PageServices s) : InsightsPage(s)
     public override string Persona => "Adoption";
     public override string? RequiredRole => Roles.Adoption;
     public override string Intro => "How the people of one license type use Copilot: who is active, in which apps, for how long and on how many days. " +
-        "Choose the license type on the page and the part of the organization in the filter bar. People are enabled accounts in the directory; licensed means holding a Copilot license on the last day of the period.";
+        "Choose the license type on the page and the part of the organization in the filter bar. People are enabled accounts in the directory; licensed means holding a Premium (Microsoft 365 Copilot) license on the last day of the period.";
 
     /// <summary>The most sessions a download holds: a year of a large organization runs to millions.</summary>
     const int ExportMax = 100_000;
@@ -209,7 +209,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         Panels.Add(new("License type", new HtmlString(
             $"<p class=\"sub\">License: {choices}</p>" +
             $"<p class=\"sub\">Last database update: {E(When(facts.Refreshed))} · Latest audit record: {E(When(facts.Latest))}</p>"),
-            "Licensed: holding a Copilot license on the last day of the period. Unlicensed: not holding one that day. " +
+            "Licensed: holding a Premium (Microsoft 365 Copilot) license on the last day of the period. Unlicensed: not holding one that day. " +
             "Last database update: when the dashboard's figures were last rebuilt. Latest audit record: the newest Copilot interaction loaded."));
 
         /* KPIs: the people of the type, and how many used Copilot in the period. */
@@ -243,19 +243,19 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         /* The most and least active people of the type. */
         static string Who(Person p) => p.DisplayName ?? p.UserPrincipalName;
         static string Days(int d) => d == 1 ? "1 day" : $"{d:#,0} days";
-        Panels.Add(new($"Highest active users: {licName}",
+        Panels.Add(new($"Most active people: {licName}",
             Chart.Bars(people.Where(p => p.Low == 0).Select(p => new Bar(Who(p), p.I, Note: $"{p.UserPrincipalName} · {p.Department}", Shown: Days(p.D))).ToList(), Fmt.Count, "Most interactions by person"),
             $"The {Top} people with the most interactions in the period, and the days they used Copilot.", "half"));
-        Panels.Add(new($"Lowest users: {licName}",
+        Panels.Add(new($"Least active people: {licName}",
             Chart.Bars(people.Where(p => p.Low == 1).Select(p => new Bar(Who(p), p.I, Note: $"{p.UserPrincipalName} · {p.Department}", Shown: Days(p.D))).ToList(), Fmt.Count, "Fewest interactions by person"),
-            $"The {Top} people with the fewest interactions in the period, those with none first, by name. Inactive people lists everyone at zero.", "half"));
+            $"The {Top} people with the fewest interactions in the period, those with none first, by name. The Inactive people figure counts everyone with none.", "half"));
 
         /* Minutes: the span of each conversation, first prompt to last. */
         const string minutesNote = "A conversation's minutes are its span from the first prompt to the last; a one-prompt conversation counts 0. " +
             "So the minutes are a floor, not the time spent in the app.";
         static string Hours(decimal m) => $"{m / 60m:#,0.0} h";
         var topMinutes = minutes.Where(m => m.Kind == "u").OrderByDescending(m => m.Total).ToList();
-        Panels.Add(new("Highest minutes used",
+        Panels.Add(new("Most minutes in conversations",
             Chart.Bars(topMinutes.Select(m => new Bar(m.Name ?? m.Upn ?? "", (double)Math.Round(m.Total), Note: m.Upn, Shown: Hours(m.Total))).ToList(), Fmt.Count, "Most minutes by person"),
             $"The {Top} people whose conversations ran longest in the period, in minutes, with hours beside them. {minutesNote}", "half"));
 
@@ -274,7 +274,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             Shown: Hours(m.Total / m.People))).ToList(), Fmt.Count, "Average minutes a person by app");
         /* Drawn at a half panel's width, as _Report draws a chart that is a half panel's whole body. */
         sb.Append(Sized(appBars, 440));
-        Panels.Add(new("Total average minutes used (by app)", new HtmlString(sb.ToString()),
+        Panels.Add(new("Average minutes a person, by app", new HtmlString(sb.ToString()),
             "For each app, the minutes of the conversations that started in it, divided by the people who had one there, in the period. " +
             $"Copilot Chat counts the Microsoft 365 app, Copilot Chat itself, its search answers and Edge. {minutesNote}", "half"));
 
@@ -289,7 +289,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         foreach (var r in sessions)
             t.Rows.Add([Math.Round(r.SpanMinutes, 1), r.PromptCount, r.App, r.DisplayName, r.UserPrincipalName, r.SessionStart]);
         CsvTable = t;
-        Panels.Add(new("Minutes used (by user)", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("Conversations of more than one prompt", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in {DataZone}. {minutesNote} " +
             $"The download holds up to {ExportMax:#,0} conversations, in the order chosen.", "full", CsvUrl()));
 

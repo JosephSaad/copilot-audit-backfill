@@ -163,9 +163,9 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
             if (filters[n].Value is { } chosen) args.Add($"wf{n}", chosen);
         var filterNote = string.Concat(filters.Where(x => x.Value is not null).Select(x => $" Filtered to {x.Filter.Label}: {x.Value}."));
         var (totals, rows) = await Db.QueryTwoAsync<Totals, Row>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
+SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
 SELECT i.InventoryAgentId, i.AgentKey,
@@ -199,7 +199,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null, Open(Request.Path, extra: "only=unused")));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
         Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups", Href: ShowParam != "show=shared" && ShowTabs.Contains("show=shared", StringComparison.Ordinal) ? Ctx.Url(Request.Path, extra: "show=shared") : null));
-        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet", Href: ShowParam != "show=production" && ShowTabs.Contains("show=production", StringComparison.Ordinal) ? Ctx.Url(Request.Path, extra: "show=production") : null));
+        Kpis.Add(new("In production", Num(t0.Production), "listed as in production in the agent workbook (its AgentsInProd sheet)", Href: ShowParam != "show=production" && ShowTabs.Contains("show=production", StringComparison.Ordinal) ? Ctx.Url(Request.Path, extra: "show=production") : null));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };
         var keys = new List<string?> { "name", "owner", "env" };
@@ -233,7 +233,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
                    $"<a href=\"{E(Ctx.Url(Request.Path, extra: "only=unused"))}\"{(unused ? " class=\"on\"" : "")}>Not used in the period</a></p>";
         Panels.Add(new(listTitle, new HtmlString(tabs + FilterBoxes(filters) + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             listNote + " Names and owners come from the agent workbook; where it leaves one out, from Admin › Reference data, then the audit log. Owners are shown by their name in the directory, or by sign-in where it does not have them. " +
-            $"An autonomous agent (one with triggers or flows) can work with nobody chatting to it, so with no interaction it is *Autonomous*, not *Not used*. People are left out where fewer than {Ctx.MinGroupSize} used an agent." +
+            $"An autonomous agent (one with triggers or flows) can work with nobody chatting to it, so with no interaction it is \"Autonomous\", not \"Not used\". People are left out where fewer than {Ctx.MinGroupSize} used an agent." +
             (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "") + filterNote, "full", CsvUrl()));
         return true;
     }
@@ -284,9 +284,9 @@ public sealed class OwnersModel(PageServices s) : InsightsPage(s)
             return;
         }
         var (rows, depts) = await Db.QueryTwoAsync<Row, Dept>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
+SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
 SELECT i.InventoryAgentId, i.AgentKey, COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, i.InventoryAgentId) AS AgentName,
@@ -327,7 +327,7 @@ FROM #x GROUP BY ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the direct
                         r.People == 0 ? 0 : AtLeastMin(r.People), r.N, AgentListPage.Use(r.N, r.IsAutonomous)]);
         CsvTable = t;
         Panels.Add(new("Agents that need a new owner", t.Render(),
-            "Most used first. The owner is the workbook's OwnerIdUPN, looked up in the directory loaded from Active Directory each night: not found most likely means they left. The owner's manager is who to ask for a new one." +
+            "Most used first. The owner is the one the agent workbook names (its OwnerIdUPN column), looked up in the directory loaded from Active Directory each night: not found most likely means they left. The owner's manager is who to ask for a new one." +
             (PrivacyMode ? " Privacy mode is on, so people are not named." : ""), "full", CsvUrl()));
 
         var dt = new Table { Headers = ["Owner's department", "Agents", "Used in the period", "Interactions in the period", "Without an active owner"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
@@ -384,9 +384,9 @@ public sealed class ChecksModel(PageServices s) : InsightsPage(s)
         }
         var dir = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;
         var rows = await Db.QueryAsync<Finding>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People, SUM(CAST(f.UsedWebSearch AS INT)) AS WebSearches
+SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People, SUM(CAST(f.UsedWebSearch AS INT)) AS WebSearches
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
 SELECT i.*, COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, i.InventoryAgentId) AS Name,
@@ -477,9 +477,9 @@ public sealed class ChildModel(PageServices s) : InsightsPage(s)
             return;
         }
         var (rows, people) = await Db.QueryTwoAsync<Row, (string ChildKey, int People)>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
+SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.AgentKey IN (SELECT ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL)
 GROUP BY f.AgentKey;
 /* One row for each child and parent: a parent can call its child from several topics. */
@@ -494,7 +494,7 @@ LEFT JOIN #u AS u ON u.AgentKey = l.ParentAgentKey
 GROUP BY l.ChildKey, l.ParentInventoryAgentId;
 /* The people behind each child, counted once though they used several of its parents. */
 SELECT c.ChildKey, COUNT(DISTINCT f.UserKey) AS People
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey")}
 JOIN (SELECT DISTINCT ChildKey, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY c.ChildKey;", Ctx.Args());

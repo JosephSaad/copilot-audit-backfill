@@ -773,7 +773,10 @@ namespace CopilotAudit
             return list.ToArray();
         }
 
-        public void RequestStop() => _cts?.Cancel();
+        // Set when the caller asked the run to stop (RequestStop, Dispose), not when a stage's fault cancelled it.
+        volatile bool _stopRequested;
+
+        public void RequestStop() { _stopRequested = true; _cts?.Cancel(); }
 
         public Task Start()
         {
@@ -822,6 +825,7 @@ namespace CopilotAudit
 
         public void Dispose()
         {
+            _stopRequested = true;
             _cts?.Cancel();
             if (_ownsHttp) _http.Dispose();
         }
@@ -858,6 +862,15 @@ namespace CopilotAudit
         {
             try { await body().ConfigureAwait(false); }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested) { }
+            // 3.1.3: once a stop was asked for, a stage that ends on any error is stopping, not failing. An HTTP read
+            // the stop cut short can surface as an aborted connection (IOException, HttpRequestException) instead of
+            // OperationCanceledException, and a transient SQL failure is no longer retried once the run is stopping.
+            // Either was taken as the pipeline's fault: a Ctrl+C or a stopped run ended Faulted, with an ERROR line,
+            // now and then. Windows it leaves part-done are resumed by the next run, as after any stop.
+            catch (Exception ex) when (_stopRequested && _fault == null)
+            {
+                Log("INFO", name + " ended while stopping: " + ex.GetBaseException().Message);
+            }
             catch (Exception ex)
             {
                 if (Interlocked.CompareExchange(ref _fault, ex, null) == null)

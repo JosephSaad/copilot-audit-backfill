@@ -7,7 +7,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Models and controls";
     public override string Persona => "Governance";
-    public override string Intro => "Which models answer, how often Copilot searches the public web and where, Copilot Chat against Copilot in the apps, memory updates and deferred data-loss checks over time, and how many agents are in play.";
+    public override string Intro => "Which AI models answer, how often Copilot searches the public web and in which units, how much use is in the Copilot Chat app rather than inside Word, Outlook and the other apps, how often Copilot updates its memory or defers a data loss prevention check, and how many agents are in use. Shares are of interactions (one prompt and Copilot's answer) in the period.";
 
     protected override async Task BuildAsync()
     {
@@ -50,15 +50,15 @@ GROUP BY a.AgentSource;", Ctx.Args());
         var buckets = Buckets();
 
         Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(w => w.Web), all)), "of interactions used web search"));
-        Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
+        Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "of interactions were in the Copilot Chat app; the rest in Copilot inside the apps"));
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
-        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count()), "models named in the audit records"));
+        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count()), "different models named in the period's audit records"));
         /* Memory updates, calls to another agent and deferred data-loss checks at each point; their totals are the period's. */
         var controls = await controlsTask;
         var flags = (N: controls.Sum(x => x.N), Memory: controls.Sum(x => x.Memory), AgentCalls: controls.Sum(x => x.AgentCalls), Dlp: controls.Sum(x => x.Dlp));
         Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
-        Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "handed work to a second agent"));
-        Kpis.Add(new("Data-loss check deferred", Num(flags.Dlp), "interactions Copilot marked as having their data-loss prevention (DLP) check deferred"));
+        Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "of interactions in which an agent handed work to another agent (Agents › Agent hand-offs)"));
+        Kpis.Add(new("Data-loss check deferred", Num(flags.Dlp), "interactions whose data loss prevention (DLP) check Copilot marked as deferred"));
 
         var top = models.GroupBy(x => x.Model).OrderByDescending(g => g.Sum(x => x.N)).Select(g => g.Key).Take(6).ToList();
         var series = top.Select((mdl, i) => new Series(mdl, buckets.Select(b =>
@@ -71,12 +71,12 @@ GROUP BY a.AgentSource;", Ctx.Args());
 
         Panels.Add(new("Interactions that searched the web",
             Chart.Line(Labels(), [new Series("Searched the web", tr.Select(w => Ratio(w.Web, w.Interactions)).ToList(), 1)], Fmt.Percent, "Share of interactions that searched the web"),
-            "Interactions where Copilot searched the public web. Worth watching if web search should be off for some people.", "half"));
+            "The share of interactions in which Copilot searched the public web. Worth watching if web search should be off for some people.", "half"));
         Panels.Add(new("Copilot Chat and Copilot in the apps",
             Chart.Line(Labels(), [
                 new Series("Copilot Chat", tr.Select(w => Ratio(w.Chat, w.Interactions)).ToList(), 1),
                 new Series("In the apps", tr.Select(w => Ratio(w.Interactions - w.Chat, w.Interactions)).ToList(), 2),
-            ], Fmt.Percent, "Chat and in-app share", 1), "App categories come from Admin › Reference data.", "half"));
+            ], Fmt.Percent, "Chat and in-app share", 1), "Where Copilot was used, not which license: Copilot Chat is the chat app, In the apps is Copilot inside Word, Excel, Outlook, Teams and the others. Which app is which is set in Admin › Reference data.", "half"));
 
         /* The controls over time and web search by unit: Governance › Copilot controls was a page of its own for these,
            beside this page's figures for the same three things. */
@@ -85,7 +85,7 @@ GROUP BY a.AgentSource;", Ctx.Args());
             $"The share of interactions in which Copilot saved something to its memory of the person. {TrendNote}", "half"));
         Panels.Add(new("Deferred data-loss checks",
             Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)controls.FirstOrDefault(x => x.Bucket == b.Key).Dlp).ToList(), 4)], Fmt.Count, "Data-loss checks deferred"),
-            "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising count is worth raising with them.", "half"));
+            $"Interactions whose data loss prevention (DLP) check the Copilot audit record marks as deferred. Microsoft sets the mark; a rising count is worth raising with Microsoft. {TrendNote}", "half"));
         var web = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
             .OrderByDescending(u => u.Web / (double)u.Interactions).ToList();
         Panels.Add(new("Web search by unit",
@@ -95,11 +95,11 @@ GROUP BY a.AgentSource;", Ctx.Args());
         var sources = agents.Select(a => a.Source).Distinct().OrderBy(x => x).ToList();
         Panels.Add(new("Agents in use",
             Chart.Columns(Labels(), sources.Select((src, i) => new Series(src, buckets.Select(b => (double?)agents.Where(a => a.Source == src && a.Bucket == b.Key).Sum(a => a.N)).ToList(), i + 1)).ToList(),
-                Fmt.Count, "Distinct agents used"), "How many different agents were used in each day or week, by where they were built.", "half"));
+                Fmt.Count, "Distinct agents used"), "How many different agents were used each day or week, by where they were built.", "half"));
         var products = await productsTask;
         Panels.Add(new("Copilot by product", Chart.Bars(products.Select(p => new Bar(p.Product, p.N,
                 Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people")).ToList(), Fmt.Count, "Interactions by Copilot product"),
-            "Which Copilot answered, from the app each interaction names and the agent behind it: Security Copilot (where its owner turned on Purview audit), Copilot in Fabric and Power BI, Copilot in Edge and Bing, Copilot Studio's agents, other agents, and Microsoft 365 Copilot in Word, Excel, Teams, Outlook and Copilot Chat.", "half"));
+            "Which Copilot answered, from the app each interaction names and the agent behind it: Security Copilot (where its owner turned on Purview audit), Copilot in Fabric and Power BI, Copilot in Edge and Bing, Copilot Studio's agents, other agents, and Microsoft 365 Copilot in Word, Excel, Teams, Outlook and Copilot Chat. People: accounts enabled today; interactions count all use.", "half"));
 
         var born = await bornTask;
         Panels.Add(new("Every agent seen, by where it was built",
@@ -128,5 +128,7 @@ f AS (
     FROM g
     JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
     LEFT JOIN bi.DimAgent AS ag ON ag.AgentKey = g.AgentKey)
-SELECT Product, SUM(N), COUNT(DISTINCT UserKey) FROM f GROUP BY Product ORDER BY SUM(N) DESC;", Ctx.Args());
+/* People are accounts enabled today (3.1.3); the interactions are everyone's. */
+SELECT f.Product, SUM(f.N), COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN f.UserKey END)
+FROM f {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey", left: true)} GROUP BY f.Product ORDER BY SUM(f.N) DESC;", Ctx.Args());
 }

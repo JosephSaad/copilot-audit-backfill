@@ -1,4 +1,4 @@
-# release 3.1.2
+# release 3.1.3
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -581,6 +581,16 @@ C	copilot	audit.RawLogRecordShape	U	6	Version	tinyint	1
 C	copilot	audit.RawLogRecordShape	U	7	CopilotLogVersion	varchar(32)	1	
 C	copilot	audit.RawLogRecordShape	U	8	SubjectType	tinyint	1	
 C	copilot	audit.RawLogRecordShape	U	9	AgentVersion	varchar(32)	1	
+C	copilot	audit.ReportGroupDay	U	1	SnapshotDate	date	0	
+C	copilot	audit.ReportGroupDay	U	2	Role	varchar(16)	0	
+C	copilot	audit.ReportGroupDay	U	3	GroupName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupDay	U	4	Members	int	0	
+C	copilot	audit.ReportGroupDay	U	5	EnabledMembers	int	0	
+C	copilot	audit.ReportGroupDay	U	6	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.ReportGroupMember	U	1	Role	varchar(16)	0	
+C	copilot	audit.ReportGroupMember	U	2	GroupName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupMember	U	3	UserPrincipalName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupMember	U	4	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.SessionAppCategory	U	1	App	nvarchar(200)	0	
 C	copilot	audit.SessionAppCategory	U	2	AppCategory	nvarchar(50)	0	
 C	copilot	audit.UserDirectory	U	1	UserPrincipalName	nvarchar(256)	0	
@@ -1826,6 +1836,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.PowerAutomateFlow
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCapacityDay
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCreditDay
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformUserActivity
+G	copilot	CopilotInsightsApp	SELECT	audit.ReportGroupDay
 G	copilot	CopilotInsightsApp	SELECT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
@@ -1940,6 +1951,8 @@ O	copilot	audit.RawLogAccessedResource	U
 O	copilot	audit.RawLogContext	U
 O	copilot	audit.RawLogFlattened	U
 O	copilot	audit.RawLogRecordShape	U
+O	copilot	audit.ReportGroupDay	U
+O	copilot	audit.ReportGroupMember	U
 O	copilot	audit.ReportingTimeZone	FN
 O	copilot	audit.SessionAppCategory	U
 O	copilot	audit.UserDirectory	U
@@ -2141,6 +2154,7 @@ P	copilot	bi.usp_RefreshBi	P	3	@LicenseEventDatabase	nvarchar(1000)	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	1	@WeekEnding	date	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	2	@Weeks	int	0	1
 P	copilot	bi.usp_WeeklyCopilotReport	P	3	@ChatEnabled	varchar(16)	0	1
+P	copilot	bi.usp_WeeklyCopilotReport	P	4	@GroupCount	varchar(8)	0	1
 P	copilot	dash.fnReservationMember	IF	1	@AsOf	date	0	0
 P	copilot	dash.fnScopeUsers	IF	1	@RootUpn	nvarchar(256)	0	0
 P	copilot	dash.fnValueName	FN	1	@ColumnId	smallint	0	0

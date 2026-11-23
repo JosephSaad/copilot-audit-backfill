@@ -32,14 +32,16 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
 WITH u AS (SELECT f.AgentKey, f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AgentKey, f.UserKey)
-SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(u.N) AS N, COUNT(*) AS People,
-       COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning, ag.IsShared, ag.InventoryAgentId
+/* People are accounts enabled today (3.1.3); interactions are everyone's. */
+SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(u.N) AS N, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People,
+       COUNT(CASE WHEN u.Days > 1 AND {ReportContext.IsEnabled()} THEN 1 END) AS Returning, ag.IsShared, ag.InventoryAgentId
 FROM u JOIN dash.Agent AS ag ON ag.AgentKey = u.AgentKey
+{ReportContext.EnabledJoin("u.UserKey", left: true)}
 WHERE ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, ag.IsShared, ag.InventoryAgentId;", Ctx.Args());
         var trend = await Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"
 SELECT f.AgentKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agent)'
 WHERE f.DateKey BETWEEN @k0 AND @k1
@@ -51,9 +53,9 @@ GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("Agents used", Num(rows.Count), $"{rows.Count(r => r.AgentSource == "Copilot Studio"):#,0} built in Copilot Studio"));
         Kpis.Add(new("New in the period", Num(rows.Count(isNew)), "first used in the period"));
         Kpis.Add(new("People using agents", Num(await Db.ScalarAsync<int>($@"
-SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args()))));
-        Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N)), "prompts answered by an agent, not Copilot itself"));
+SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {ReportContext.EnabledJoin("ud.UserKey")}
+WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())), "had an interaction with an agent in the period"));
+        Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N)), "interactions an agent answered, rather than Copilot itself"));
         if (book)
         {
             /* The same counts as Agent inventory's: workbook agents, used when the audit agent they match was used
@@ -170,9 +172,10 @@ ELSE EXEC sp_executesql N'SELECT ISNULL(MAX(CAST(IsAutonomous AS INT)), 0) FROM 
         var args = Ctx.Args(new { agent = key });
 
         var tr = await Db.QueryAsync<(DateTime Bucket, int People, long N)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey), COUNT_BIG(*)
+SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+{ReportContext.EnabledJoin("f.UserKey", left: true)}
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")};", args);
         var tot = (await Db.QueryAsync<(int People, long N, int Returning, int NewPeople)>($@"
@@ -180,24 +183,26 @@ WITH u AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Day
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AgentKey = @agent AND f.DateKey <= @k1 GROUP BY f.UserKey),
 p AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days
       FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
-SELECT (SELECT COUNT(*) FROM p), (SELECT ISNULL(SUM(N), 0) FROM p), (SELECT COUNT(*) FROM p WHERE Days > 1),
-       (SELECT COUNT(*) FROM u WHERE FirstKey >= @k0);", args)).Single();
+/* People are accounts enabled today (3.1.3); interactions are everyone's. */
+SELECT (SELECT COUNT(*) FROM p {ReportContext.EnabledJoin("p.UserKey")}), (SELECT ISNULL(SUM(p.N), 0) FROM p),
+       (SELECT COUNT(*) FROM p {ReportContext.EnabledJoin("p.UserKey")} WHERE p.Days > 1),
+       (SELECT COUNT(*) FROM u {ReportContext.EnabledJoin("u.UserKey")} WHERE u.FirstKey >= @k0);", args)).Single();
         /* Its people are a group: counted only at the minimum group size or more. */
         var few = tot.People > 0 && AtLeastMin(tot.People) is null;
         Kpis.Add(new("People who used it", few ? "—" : Num(tot.People), few ? $"fewer than {Ctx.MinGroupSize} used it in the period" : "used it in the period"));
         Kpis.Add(new("New people", few ? "—" : Num(tot.NewPeople), "first used it in the period"));
-        Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "used it on more than one day"));
-        Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person" : null));
+        Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "of its people used it on more than one day in the period"));
+        Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person; includes use by accounts since disabled" : null));
 
         var buckets = Buckets();
         /* Each point at the minimum group size or more, as the KPI above is. */
         Panels.Add(new("People using it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => PointAtMin(tr.Where(x => x.Bucket == b.Key).Sum(x => x.People))).ToList(), 1)], Fmt.Count, "People using the agent"),
             $"A point where fewer than {Ctx.MinGroupSize} people used it is left out. {TrendNote}", "half"));
         Panels.Add(new("Interactions", Chart.Columns(Labels(), [new Series("Interactions", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.N)).ToList(), 1)], Fmt.Count, "Agent interactions"),
-            null, "half"));
+            $"Interactions with this agent, by anyone, including people since disabled. {TrendNote}", "half"));
 
         var depts = await Db.QueryAsync<(string Dept, int People, long N)>($@"
-SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(DISTINCT f.UserKey), COUNT_BIG(*)
+SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(DISTINCT CASE WHEN du.AccountEnabled = 1 THEN f.UserKey END), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = f.UserKey
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1
@@ -212,7 +217,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", args);
 SELECT COALESCE(vn.Name, a.App), COUNT_BIG(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", args);
-        Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), null, "half"));
+        Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), "Interactions with this agent in each app in the period.", "half"));
 
         if (await Workbook.HasAsync(Db)
             && await Db.ScalarAsync<string?>("SELECT InventoryAgentId FROM dash.Agent WHERE AgentKey = @key;", new { key }) is { } bookId)
@@ -225,14 +230,15 @@ WITH x AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Day
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
 SELECT du.DisplayName, du.UserPrincipalName, du.Department, x.N, x.Days, dl.[Date] AS Last, COUNT(*) OVER () AS TotalRows
 FROM x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
-WHERE (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
+WHERE du.AccountEnabled = 1   -- a ranking of people: enabled accounts only (3.1.3)
+  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { agent = key, q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table { Headers = ["Name", "Sign-in", "Department", "Interactions", "Days", "Last used"], Numeric = new HashSet<int> { 3, 4 },
             Server = new(pg, Request, ["name", "upn", "dept", "most", "days", "recent"], new HashSet<int> { 3, 4, 5 }) };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.Last]);
         CsvTable = t;
-        Panels.Add(new("Users", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
+        Panels.Add(new("People who used it", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
     }
 
     /// <summary>

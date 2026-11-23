@@ -36,7 +36,7 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
 
         /* Each box offers managers once three letters of a first or a last name are typed (PersonBox): those in the
            viewer's part of the organization with a team that can reach the minimum group size. */
-        var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Days}\"/>" +
+        var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Choice}\"/>" +
                    PersonBox("a", "First manager", a, tip: "Type three letters of the manager's first or last name and choose them from the names offered, or type their sign-in (name@domain). The team is the manager and everyone under them, at any depth.") +
                    PersonBox("b", "Second manager", b, tip: "The manager of the team to set beside the first. The two teams may overlap: one manager can report to the other.") +
                    $"{Button("Compare")}</form>";
@@ -56,8 +56,8 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
 
         Kpis.Add(new($"Adoption: {A.Name}", AdoptionOf(A), "Premium license holders in the team who used Copilot in the period"));
         Kpis.Add(new($"Adoption: {B.Name}", AdoptionOf(B), "Premium license holders in the team who used Copilot in the period"));
-        Kpis.Add(new($"Using Copilot: {A.Name}", Pct(Ratio(A.T.Active, A.T.People)), $"{A.T.Active:#,0} of {A.T.People:#,0} people"));
-        Kpis.Add(new($"Using Copilot: {B.Name}", Pct(Ratio(B.T.Active, B.T.People)), $"{B.T.Active:#,0} of {B.T.People:#,0} people"));
+        Kpis.Add(new($"Using Copilot: {A.Name}", Pct(Ratio(A.T.Active, A.T.People)), $"{A.T.Active:#,0} of {A.T.People:#,0} people used Copilot in the period"));
+        Kpis.Add(new($"Using Copilot: {B.Name}", Pct(Ratio(B.T.Active, B.T.People)), $"{B.T.Active:#,0} of {B.T.People:#,0} people used Copilot in the period"));
 
         var t = new Table { Headers = ["Measure", A.Name, B.Name, "Difference"], Numeric = new HashSet<int> { 1, 2, 3 }, Sortable = false };
         void Number(string measure, double? x, double? y, string format = "#,0")
@@ -74,8 +74,8 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
         Number("People who used Copilot", A.T.Active, B.T.Active);
         Share("Share of people who used Copilot", Ratio(A.T.Active, A.T.People), Ratio(B.T.Active, B.T.People));
         Share("Adoption (license holders who used Copilot)", AdoptionRatio(A), AdoptionRatio(B));
-        Share("Share of people active in the last 7 days", Ratio(A.T.ActiveLast7, A.T.People), Ratio(B.T.ActiveLast7, B.T.People));
-        Share("Active license holders who used Premium features", Ratio(A.T.PremiumLicensed, A.T.ActiveLicensed), Ratio(B.T.PremiumLicensed, B.T.ActiveLicensed));
+        Share("Share of people active in the period's last 7 days", Ratio(A.T.ActiveLast7, A.T.People), Ratio(B.T.ActiveLast7, B.T.People));
+        Share("Active license holders who used what the license pays for", Ratio(A.T.PremiumLicensed, A.T.ActiveLicensed), Ratio(B.T.PremiumLicensed, B.T.ActiveLicensed));
         Number("Interactions", A.T.Interactions, B.T.Interactions);
         Number("Interactions per active person", Ratio(A.T.Interactions, A.T.Active), Ratio(B.T.Interactions, B.T.Active), "#,0.0");
         Number("Days active per active person", Ratio(A.T.ActiveDays, A.T.Active), Ratio(B.T.ActiveDays, B.T.Active), "#,0.0");
@@ -84,7 +84,7 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
         CsvTable = t;
         Panels.Add(new("Side by side", t.Render(),
             $"{A.Name}'s team against {B.Name}'s, {Ctx.PeriodLabel}. Difference is the first team against the second: in percentage points for a share, in the measure's own unit otherwise. " +
-            $"People counts enabled accounts. Adoption is shown where a team has at least {Ctx.MinGroupSize} license holders. A person in both teams counts in each.", "full", CsvUrl()));
+            $"People counts accounts enabled today; interactions, prompts and sessions count all use, including by people since disabled. Adoption is shown where a team has at least {Ctx.MinGroupSize} license holders. A person in both teams counts in each.", "full", CsvUrl()));
 
         var x = Labels();
         Panels.Add(new("Share of people who used Copilot",
@@ -98,7 +98,7 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
                 new Series(A.Name, A.Trend.Select(w => Ratio(w.Interactions, A.T.People)).ToList(), 1),
                 new Series(B.Name, B.Trend.Select(w => Ratio(w.Interactions, B.T.People)).ToList(), 2),
             ], Fmt.Decimal1, "Interactions per person in each team"),
-            $"Each team's interactions at each point divided by its enabled people, users of Copilot or not. {TrendNote}", "half"));
+            $"Each team's interactions at each point divided by all its enabled people, whether they used Copilot or not. Interactions include use by people since disabled. {TrendNote}", "half"));
 
         /* Where each team uses Copilot: each app's share of the team's interactions, the busiest apps of the two together. */
         var appsA = await AppsAsync(A.Ctx);
@@ -130,7 +130,7 @@ SELECT TOP (2) p.Upn FROM dash.Person AS p {Ctx.PersonScope("p.Upn")} WHERE p.Di
             if (byName.Count == 1) upn = byName[0];
             else if (byName.Count > 1) return (null, $"More than one manager is named {asked}: choose one from the list, which gives each by sign-in.");
         }
-        var c = await S.Contexts.CreateAsync(Viewer, Ctx.Days, upn);
+        var c = await S.Contexts.CreateAsync(Viewer, Ctx.Choice, upn);
         /* What was asked for is not the part the scope covers: not in the directory, outside the viewer's part, or too small. */
         if (c.OrgAsked is not null || !string.Equals(c.Root, upn, StringComparison.OrdinalIgnoreCase))
             return (null, c.OrgWhy switch

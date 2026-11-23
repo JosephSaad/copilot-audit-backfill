@@ -82,14 +82,14 @@
                 <select name="d" data-autosubmit>
                     @foreach (var d in ReportContext.DayChoices)
                     {
-                        <option value="@d" selected="@(d == c.Days)">Last @d days</option>
+                        <option value="@d" selected="@(d == c.Choice)">@ReportContext.ChoiceLabel(d)</option>
                     }
                 </select>
             </label>
         }
         else
         {
-            <input type="hidden" name="d" value="@c.Days" />
+            <input type="hidden" name="d" value="@c.Choice" />
         }
         @if (c.Root is not null && (c.Root != c.Viewer.Upn || c.Viewer.OrgWide))
         {
@@ -178,7 +178,7 @@
                             <ul>
                                 @foreach (var i in why.Inputs)
                                 {
-                                    <li>@i.Label: <b>@i.Value</b>@if (i.Href is not null) {<text> · </text><a href="@i.Href">Change it</a>}</li>
+                                    <li>@i.Label: <b>@i.Value</b>@if (i.Href is not null) {<text> · </text><a href="@i.Href">Change it</a>}@Html.Raw(CopilotInsights.Pages.InsightsPage.BasisHtml(i))</li>
                                 }
                             </ul>
                         }

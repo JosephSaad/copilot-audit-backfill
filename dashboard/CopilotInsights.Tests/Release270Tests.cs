@@ -175,7 +175,7 @@ public class UsabilityAndPurviewTests
     public void Administrators_are_not_makers_and_are_named_only_with_the_whole_organization_in_view()
     {
         var build = Source.Read("Pages", "Agents", "Build.cs");
-        Assert.Contains("COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked'", build);
+        Assert.Contains("COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} {ReportContext.EnabledJoin(\"e.ActorKey\")} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked'", build);   // 3.1.3: makers with an enabled account
         Assert.Contains("var byShown = named && Ctx.Root is null;", build);
     }
 

@@ -22,10 +22,11 @@ namespace CopilotInsights.Pages.Adoption
             /* Each person's twenty weeks as bits (week 0 the oldest), and how many people share each pattern: the curve
                and the weeks-active count are worked out from the patterns. The page used to read every
                person-week (2.5 million rows at 210,000 people) and loop over them, 3 seconds on every visit.
-               Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. */
+               Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. People are accounts enabled
+               today (3.1.3): someone who has since left does not count as not coming back. */
             var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
 WITH w AS (SELECT DISTINCT ud.UserKey, DATEDIFF(DAY, @first, d.WeekEnding) / 7 AS W
-           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
+           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {ReportContext.EnabledJoin("ud.UserKey")}
            JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
            WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0),
      m AS (SELECT w.UserKey, SUM(POWER(2, w.W)) AS Weeks FROM w GROUP BY w.UserKey)
@@ -48,14 +49,14 @@ SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a =
             Kpis.Add(new("Still there 8 weeks on", Pct(curve[7]), "of people active in a week, active again eight weeks later"));
             Panels.Add(new("Share of a week's users active again, weeks later",
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
-                "Each line follows the people who used Copilot in one week, over the weeks after it: twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
+                "Of the people who used Copilot in a week, the share who used it again 1 to 8 weeks later, averaged over twelve starting weeks within the last 20 complete weeks. A flattening line is a habit forming; one that keeps falling is novelty wearing off. Only accounts enabled today are counted.", "half"));
 
             /* Weeks 8 to 19 are the last twelve. */
             var counts = patterns.Select(x => (N: System.Numerics.BitOperations.PopCount((uint)x.Weeks >> 8), x.People)).Where(x => x.N > 0)
                 .GroupBy(x => x.N).ToDictionary(g => g.Key, g => g.Sum(x => x.People));
             Panels.Add(new("Weeks active out of the last twelve",
                 Chart.Columns(Enumerable.Range(1, 12).Select(i => i.ToString()).ToList(), [new Series("People", Enumerable.Range(1, 12).Select(i => (double?)counts.GetValueOrDefault(i)).ToList(), 1)], Fmt.Count, "People by weeks active"),
-                "People who used Copilot at least once in the last twelve weeks, by how many of those weeks. A pile on the right is habit; on the left, trial.", "half"));
+                "People who used Copilot at least once in the last twelve weeks, by how many of those weeks. A pile on the right is habit; on the left, trial. Here and in the retention curve, only accounts enabled today are counted.", "half"));
         }
     }
 }
@@ -66,7 +67,7 @@ namespace CopilotInsights.Pages.Compliance
     {
         public override string Title => "Labeled content by unit";
         public override string Persona => "Compliance";
-        public override string Intro => "Which parts of the organization have Copilot working with labeled content, and what kind of content it is.";
+        public override string Intro => "Which parts of the organization have Copilot reading labeled content (content with a sensitivity label), and what kind of content it reads.";
 
         protected override async Task BuildAsync()
         {
@@ -77,8 +78,8 @@ namespace CopilotInsights.Pages.Compliance
             for (var r = 0; r < units.Count; r++)
                 for (var c = 0; c < buckets.Count; c++)
                     grid[r, c] = series.TryGetValue((units[r].Unit, buckets[c].Key), out var p) && p.Interactions > 0 ? p.Labeled / (double)p.Interactions : null;
-            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
-                $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
+            Panels.Add(new("Share of interactions that read labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions read labeled content"),
+                $"The share of each unit's interactions that read labeled content, for each part of the organization one level below. Darker is a larger share. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
 
             /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
@@ -99,7 +100,7 @@ GROUP BY COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.Label
             foreach (var ty in types)
                 t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
             CsvTable = t2;
-            Panels.Add(new("Resources read, by type and label", t2.Render(), "The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
+            Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
         }
     }
 }
@@ -110,7 +111,7 @@ namespace CopilotInsights.Pages.Agents
     {
         public override string Title => "Agent hand-offs";
         public override string Persona => "Agents";
-        public override string Intro => "When one agent hands a request to another agent: how often, and to which agents.";
+        public override string Intro => "A hand-off is an interaction in which one agent passed the request to another agent. How often that happens, and which agents are called.";
 
         protected override async Task BuildAsync()
         {
@@ -119,8 +120,8 @@ SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
-SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END)   -- people enabled today (3.1.3)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 12 AND vn.Value = f.TargetAgentName
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
 GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
@@ -131,7 +132,7 @@ GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.Calls)).ToList(), 5)], Fmt.Count, "Hand-offs"),
                 TrendNote, "half"));
             Panels.Add(new("Agents called", Chart.Bars(targets.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Target, t.N, Note: AgentPeople(t.People))).ToList(), Fmt.Count, "Target agents"),
-                targets.Count == 0 ? "No agent called another in the period." : null, "half"));
+                targets.Count == 0 ? "No agent called another in the period." : "The agents handed work to most, by hand-offs. People are accounts enabled today.", "half"));
         }
     }
 }
@@ -142,7 +143,7 @@ namespace CopilotInsights.Pages.Enablement
     {
         public override string Title => "Conversation depth";
         public override string Persona => "Enablement";
-        public override string Intro => "How far people take a conversation with Copilot: prompts per session, how long a session lasts, and replies per prompt.";
+        public override string Intro => "How far people take a conversation with Copilot: prompts per session, how long a session lasts, and messages per prompt. A session is one conversation, worked out from the audit records.";
 
         protected override async Task BuildAsync()
         {
@@ -160,12 +161,12 @@ SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.MessageCount AS BIGINT)), SUM(CAST(f.Pro
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             long total = sessions.Sum(x => x.N);
-            Kpis.Add(new("One-prompt sessions", Pct(Ratio(sessions.Where(x => x.Bucket <= 1).Sum(x => x.N), total)), "ask once and leave"));
-            Kpis.Add(new("Five prompts or more", Pct(Ratio(sessions.Where(x => x.Bucket >= 5).Sum(x => x.N), total)), "real back-and-forth"));
+            Kpis.Add(new("One-prompt sessions", Pct(Ratio(sessions.Where(x => x.Bucket <= 1).Sum(x => x.N), total)), "of sessions: asked once and left"));
+            Kpis.Add(new("Five prompts or more", Pct(Ratio(sessions.Where(x => x.Bucket >= 5).Sum(x => x.N), total)), "of sessions: a longer back-and-forth"));
             Panels.Add(new("Sessions by prompts", Chart.Columns(Enumerable.Range(1, 10).Select(i => i == 10 ? "10+" : i.ToString()).ToList(),
                 [new Series("Sessions", Enumerable.Range(1, 10).Select(i => (double?)sessions.Where(x => x.Bucket == i).Sum(x => x.N)).ToList(), 1)], Fmt.Count, "Sessions by prompt count"),
                 "How many prompts each session had.", "half"));
-            string[] spanLabels = ["Under 1 min", "1-5 min", "5-15 min", "15-30 min", "30-60 min", "An hour or more"];
+            string[] spanLabels = ["Under 1 min", "1 to 5 min", "5 to 15 min", "15 to 30 min", "30 to 60 min", "An hour or more"];
             Panels.Add(new("Sessions by length", Chart.Bars(spanLabels.Select((l, i) => new Bar(l, sessions.Count == 0 ? 0 : spans.Where(x => x.Bucket == i).Sum(x => x.N))).ToList(), Fmt.Count, "Sessions by length"),
                 "From the first prompt to the last.", "half"));
             var buckets = Buckets();

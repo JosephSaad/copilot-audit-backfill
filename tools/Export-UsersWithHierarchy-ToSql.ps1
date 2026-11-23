@@ -87,6 +87,16 @@
     Load a directory the guard would refuse, once: after a reorganization or a
     clean-up of accounts that really did remove them.
 
+.PARAMETER CopilotLicenseGroup
+    The AD group (DOMAIN\Name) whose members hold the Microsoft 365 Copilot
+    license, for the weekly report's "Users Enabled" (3.1.3). Its members, nested
+    groups included, go to audit.ReportGroupMember, and the day's count, with the
+    enabled accounts among them, to audit.ReportGroupDay. CopilotLicenseGroup in
+    copilot-audit.settings.psd1; the nightly run passes it.
+
+.PARAMETER CopilotChatGroup
+    The same for the group of Copilot Chat users (CopilotChatGroup in the settings).
+
 .EXAMPLE
     .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain trusted.example.com `
         -SqlServer SQLPROD01 -Database CopilotAudit
@@ -119,7 +129,10 @@ param(
     [hashtable] $CountryNames = @{},
 
     [ValidateRange(0, 100)] [double] $MaxDropPercent = 15,
-    [switch]   $AllowDrop
+    [switch]   $AllowDrop,
+
+    [string]   $CopilotLicenseGroup,
+    [string]   $CopilotChatGroup
 )
 
 Set-StrictMode -Version Latest
@@ -657,6 +670,73 @@ function Write-GroupMember {
     $Table.Rows.Count
 }
 
+function Write-ReportGroup {
+    <#
+        The weekly report's two groups (3.1.3): their members now (audit.ReportGroupMember, replaced whole), and the
+        day's count of members and of enabled accounts among them (audit.ReportGroupDay, one row per group and day in
+        the reporting time zone, replaced if the load runs twice that day). Enabled is read from audit.UserDirectory,
+        loaded just before: a member the directory does not have is counted as a member, not as enabled. Returns
+        the day's rows, for the log. A group that is not set is cleared from the members and gets no row.
+    #>
+    param([Parameter(Mandatory)][string] $ConnString, [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Groups)
+    $t = [System.Data.DataTable]::new()
+    foreach ($c in 'Role', 'GroupName', 'UserPrincipalName') { [void] $t.Columns.Add($c, [string]) }
+    foreach ($g in $Groups) {
+        $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($u in @($g.Members)) {
+            if ([string]::IsNullOrWhiteSpace($u) -or $u.Length -gt 256) { continue }
+            if ($seen.Add($u)) { [void] $t.Rows.Add($g.Role, $g.Group, $u) }
+        }
+    }
+    $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
+    $conn.Open()
+    try {
+        $tx = $conn.BeginTransaction()
+        try {
+            $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 600
+            $cmd.CommandText = 'DELETE FROM audit.ReportGroupMember;'
+            [void] $cmd.ExecuteNonQuery()
+            $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
+            $bulk.DestinationTableName = 'audit.ReportGroupMember'
+            foreach ($c in $t.Columns) { [void] $bulk.ColumnMappings.Add($c.ColumnName, $c.ColumnName) }
+            $bulk.WriteToServer($t)
+            $bulk.Close()
+            $cmd.CommandText = @'
+DECLARE @day DATE = CAST(SYSUTCDATETIME() AT TIME ZONE 'UTC' AT TIME ZONE audit.ReportingTimeZone() AS DATE);
+DELETE FROM audit.ReportGroupDay WHERE SnapshotDate = @day;
+INSERT INTO audit.ReportGroupDay (SnapshotDate, Role, GroupName, Members, EnabledMembers)
+SELECT @day, m.Role, MIN(m.GroupName), COUNT(*),
+       SUM(CASE WHEN d.AccountEnabled = 1 THEN 1 ELSE 0 END)
+FROM audit.ReportGroupMember AS m
+LEFT JOIN audit.UserDirectory AS d ON d.UserPrincipalName = m.UserPrincipalName
+GROUP BY m.Role;
+SELECT Role, GroupName, Members, EnabledMembers FROM audit.ReportGroupDay WHERE SnapshotDate = @day ORDER BY Role;
+'@
+            $r = $cmd.ExecuteReader()
+            $out = [System.Collections.Generic.List[object]]::new()
+            try { while ($r.Read()) { $out.Add([pscustomobject]@{ Role = $r.GetString(0); Group = $r.GetString(1); Members = $r.GetInt32(2); Enabled = $r.GetInt32(3) }) } }
+            finally { $r.Dispose() }
+            $tx.Commit()
+            , $out.ToArray()
+        }
+        catch { $tx.Rollback(); throw }
+    }
+    finally { $conn.Dispose() }
+}
+
+function Test-ReportGroupTable {
+    <# Whether this database has the report-group tables (3.1.3; Create-CopilotEnrichmentSchema.sql). #>
+    param([Parameter(Mandatory)][string] $ConnString)
+    $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
+    $conn.Open()
+    try {
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = "SELECT CASE WHEN OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NULL OR OBJECT_ID(N'audit.ReportGroupMember', N'U') IS NULL THEN 0 ELSE 1 END;"
+        [int] $cmd.ExecuteScalar() -eq 1
+    }
+    finally { $conn.Dispose() }
+}
+
 function Get-DirectoryMatch {
     <#
         How many of the users in the audit data the directory has a row for,
@@ -696,9 +776,46 @@ ELSE
 # Main
 # ===========================================================================
 
+function Get-DashboardDirectorySetting {
+    <#
+        The users' AD domain and the weekly report's two groups as set on the dashboard (3.1.3, Admin > User directory):
+        DirectoryDomain, CopilotLicenseGroup and CopilotChatGroup in dash.Setting. A value set there is used instead of
+        the one in copilot-audit.settings.psd1, so the domain can be set where the dashboard runs, which may be another
+        domain than the users'. Empty values, a database without the dashboard, or a read that fails give none.
+    #>
+    param([Parameter(Mandatory)] [string] $ConnectionString)
+    $found = @{}
+    $conn = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
+    try {
+        $conn.Open()
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = @'
+IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL
+    EXEC (N'SELECT Name, LTRIM(RTRIM(Value)) AS Value FROM dash.Setting
+            WHERE Name IN (N''DirectoryDomain'', N''CopilotLicenseGroup'', N''CopilotChatGroup'')
+              AND NULLIF(LTRIM(RTRIM(Value)), N'''') IS NOT NULL;');
+'@
+        $r = $cmd.ExecuteReader()
+        try { while ($r.Read()) { $found[[string] $r['Name']] = [string] $r['Value'] } }
+        finally { $r.Dispose() }
+    }
+    catch { Write-Log "The dashboard's directory settings could not be read, so copilot-audit.settings.psd1's are used: $($_.Exception.Message)" -Level WARN }
+    finally { $conn.Dispose() }
+    $found
+}
+
 function Invoke-Main {
-    if (-not $TargetDomain) { throw 'Specify -TargetDomain: the trusted domain to read users from.' }
     $connStr = New-DirectoryConnectionString
+    # 3.1.3: the dashboard's domain and groups, where set, before the settings file's. Every LDAP search below
+    # (users, role groups, report groups) goes to this domain.
+    $fromDashboard = Get-DashboardDirectorySetting -ConnectionString $connStr
+    if ($fromDashboard.DirectoryDomain) {
+        if ($TargetDomain -and $TargetDomain -ne $fromDashboard.DirectoryDomain) { Write-Log "Domain: $($fromDashboard.DirectoryDomain), as set on the dashboard (the settings file says $TargetDomain)." }
+        $script:TargetDomain = $fromDashboard.DirectoryDomain
+    }
+    if ($fromDashboard.CopilotLicenseGroup) { $script:CopilotLicenseGroup = $fromDashboard.CopilotLicenseGroup }
+    if ($fromDashboard.CopilotChatGroup) { $script:CopilotChatGroup = $fromDashboard.CopilotChatGroup }
+    if (-not $TargetDomain) { throw 'Specify -TargetDomain, or set the users'' domain on the dashboard (Admin > User directory): the trusted domain to read users from.' }
 
     Write-Log "Reading users from $TargetDomain (department from $($DepartmentAttribute -join ', then '))..."
     $script:CountryRenamed = @{}
@@ -744,6 +861,25 @@ function Invoke-Main {
     })
     $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)
     if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) recorded (granted a role, or marking non-human accounts)." -f $gm, $expanded.Count) }
+
+    # The weekly report's "Users Enabled" (3.1.3): the members of the two groups the settings name, and the day's count.
+    $reportGroups = @(@(@{ Role = 'CopilotLicense'; Group = $CopilotLicenseGroup }, @{ Role = 'CopilotChat'; Group = $CopilotChatGroup }) |
+        Where-Object { $_.Group })
+    if ($reportGroups.Count -gt 0) {
+        if (-not (Test-ReportGroupTable -ConnString $connStr)) {
+            Write-Log 'CopilotLicenseGroup or CopilotChatGroup is set, but this database has no audit.ReportGroupDay: run Install-CopilotAudit.ps1 from 3.1.3 to add it. The groups were not counted.' -Level WARN
+        }
+        else {
+            $found = @(foreach ($rg in $reportGroups) {
+                $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $rg.Group
+                if ($null -eq $members) { Write-Log "$($rg.Group) ($($rg.Role)Group in the settings) is not a group or person in ${TargetDomain}: it was not counted." -Level WARN; continue }
+                [pscustomobject]@{ Role = $rg.Role; Group = $rg.Group; Members = $members }
+            })
+            foreach ($row in (Write-ReportGroup -ConnString $connStr -Groups $found)) {
+                Write-Log ("{0}: {1:N0} member(s), {2:N0} of them enabled, recorded for the weekly report." -f $row.Group, $row.Members, $row.Enabled)
+            }
+        }
+    }
 
     $m = Get-DirectoryMatch -ConnString $connStr
     if ($m.AuditUsers -gt 0) {
