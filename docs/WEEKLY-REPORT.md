@@ -10,24 +10,24 @@ An email every Tuesday morning with one table and two charts, and an Excel workb
 |---|---|---|
 | **Who** | Use made with a Microsoft 365 Copilot license at the time | Use made without one (and use the license history could not place) |
 | **Number of Users Enabled** | The members of the license group (`CopilotLicenseGroup`): enabled accounts only, or every member, as set on the dashboard | The members of the Chat group (`CopilotChatGroup`), the same way |
-| **Active Users** | People with an account enabled today who used Copilot with a license in the week | The same, without a license |
+| **Active Users** | People who used Copilot with a license in the week: with an account enabled today only, or everyone, as set on the dashboard | The same, without a license |
 | **Number of actions taken** | Interactions made with a license: one for each Copilot audit record, a prompt and its answer, whoever made it. Not sessions, not people | The same, without a license |
 | **Security Alerts** | Interactions made with a license that had a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource (the dashboard's *Security signals*), whoever made them | The same, without a license |
 
-**Disabled accounts and people who have left are counted differently in each row** (3.1.3), and the report says so in a box under the table, in the email, its text version and the workbook:
+**Disabled accounts and people who have left are counted differently in each row** (3.1.3), and the report says so in a box under the table, in the email, its text version and the workbook. By default:
 
 | Row | Disabled accounts and leavers |
 |---|---|
-| Number of Users Enabled | Not counted, unless the dashboard is set to count every member |
+| Number of Users Enabled | Not counted |
 | Active Users | Not counted: it counts people, and only accounts enabled today |
 | Number of actions taken | Counted: every interaction of the week stays, so it does not drop when someone leaves |
 | Security Alerts | Counted, the same way |
 
-So actions taken can include use by people who are not in Active Users.
+So actions taken can include use by people who are not in Active Users. Set to count everyone (below), the two people rows count them too, and the box says so.
 
 **What each number means** is under the box: a table of the 8 values, each with its definition for each column and whether disabled accounts count, naming the two groups and the day they were counted. The workbook's *Summary* sheet has the same, above the charts.
 
-**Counting disabled group members** is a dashboard setting: Admin › Alerts and digests › *Weekly Copilot report*, *Number of Users Enabled counts*: *Enabled accounts only* (the default) or *Every member, disabled accounts included*. The panel also shows each group's latest count: all members, enabled and disabled. The nightly load keeps both counts, so the setting changes every week of the next report, the trend's included. `bi.usp_WeeklyCopilotReport @GroupCount = 'Enabled'` or `'All'` overrides it for one run; the setting is `WeeklyReportGroupCount` in `dash.Setting`.
+**Counting everyone, disabled accounts included,** is one switch for both people rows: Admin › Alerts and digests › *Weekly Copilot report*, *Users Enabled and Active Users count*: *Accounts enabled today only* (the default) or *Everyone, disabled accounts and leavers included*. With everyone, Users Enabled counts every member of the groups and Active Users everyone who used Copilot in the week. The panel also shows each group's latest count: all members, enabled and disabled. The nightly load keeps both counts, so the setting changes every week of the next report, the trend's included. Actions taken and Security Alerts count every interaction either way. For one run only, `Send-CopilotWeeklyReport.ps1 -IncludeDisabled` counts everyone (with `-Preview` to look first), and `bi.usp_WeeklyCopilotReport @GroupCount = 'Enabled'` or `'All'` does the same in SQL; the setting is `WeeklyReportGroupCount` in `dash.Setting`.
 
 **Users Enabled comes from two AD groups**, named on the dashboard (Admin › Directory quality › *Where users and groups are read from*, with the users' AD domain), or in `copilot-audit.settings.psd1` (never in code); the dashboard's wins where both are set:
 

@@ -59,11 +59,22 @@
 .PARAMETER OutputFolder
     Where -Preview writes. Default: reports\preview under the scripts' folder.
 
+.PARAMETER IncludeDisabled
+    For this run only, count disabled accounts and people who have left in the
+    two people rows: Users Enabled counts every member of the AD groups, and
+    Active Users everyone who used Copilot (3.1.3). Without it, the run follows
+    the dashboard's setting (Admin > Alerts and digests > Weekly Copilot
+    report), which the scheduled task uses. Actions taken and Security Alerts
+    count all use either way.
+
 .EXAMPLE
     powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -Preview
 
 .EXAMPLE
     powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -To me@contoso.com
+
+.EXAMPLE
+    powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -Preview -IncludeDisabled
 #>
 [CmdletBinding()]
 param(
@@ -73,7 +84,8 @@ param(
     [switch]   $Preview,
     [string[]] $To,
     [switch]   $Force,
-    [string]   $OutputFolder
+    [string]   $OutputFolder,
+    [switch]   $IncludeDisabled
 )
 
 $ErrorActionPreference = 'Stop'
@@ -417,11 +429,17 @@ function Get-MetaText {
 function Get-DisabledCallout {
     <# The warning under the table (3.1.3): which numbers leave out accounts that are disabled or gone, and which keep their use. #>
     param($Meta)
-    $row1 = if (Test-GroupCountAll $Meta) { 'Users Enabled includes disabled members of the AD groups (set on the dashboard, Admin > Alerts and digests).' }
-            else { 'Users Enabled leaves out members of the AD groups whose account is disabled.' }
+    if (Test-GroupCountAll $Meta) {
+        return @(
+            'This report counts disabled accounts and people who have left in every row.',
+            'Users Enabled counts every member of the AD groups, disabled accounts included, and Active Users everyone who used Copilot that week, including people whose account is disabled today or who are gone from the directory (set on the dashboard, Admin > Alerts and digests, or -IncludeDisabled for this run).',
+            'Actions taken and Security Alerts count every interaction of the week, whoever made it, as always.',
+            'So these figures are higher than a report of enabled accounts only, and Active Users can include people who no longer work here.'
+        )
+    }
     @(
         'Disabled accounts and people who have left are counted differently in each row.',
-        "$row1 Active Users leaves out everyone whose AD account is disabled today or who is gone from the directory, even if they used Copilot that week.",
+        'Users Enabled leaves out members of the AD groups whose account is disabled. Active Users leaves out everyone whose AD account is disabled today or who is gone from the directory, even if they used Copilot that week.',
         'Actions taken and Security Alerts count every interaction of the week, whoever made it: they do not drop when someone leaves or is disabled.',
         'So the rows answer different questions. Active Users counts people, while actions taken and Security Alerts count interactions, which can include use by people who are no longer counted in Active Users.'
     )
@@ -435,8 +453,9 @@ function Get-ValueDefinition {
     if (-not $chatGroup) { $chatGroup = 'CopilotChatGroup' }
     $day = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
     $who = if (Test-GroupCountAll $Meta) { 'All members' } else { 'Members with an enabled account' }
-    $disabled1 = if (Test-GroupCountAll $Meta) { 'Counted (dashboard setting)' } else { 'Not counted' }
+    $disabledPeople = if (Test-GroupCountAll $Meta) { 'Counted (set to count everyone)' } else { 'Not counted' }
     $m365Users = "$who of $m365Group, nested groups included ($day)."
+    $activeWho = if (Test-GroupCountAll $Meta) { 'Everyone who' } else { 'People with an account enabled today who' }
     if (Test-M365Estimated $Meta) {
         $holders = if (Test-GroupCountAll $Meta) { 'People' } else { 'People with an enabled account' }
         $m365Users = "ESTIMATED: $holders holding a Microsoft 365 Copilot license on $(([datetime] $Meta.WeekEnding).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)). The AD group was not counted yet that week."
@@ -445,11 +464,11 @@ function Get-ValueDefinition {
         [pscustomobject] @{ Metric = 'Number of Users Enabled'; Kind = 'people, from AD'
             M365 = $m365Users
             Chat = "$who of $chatGroup, nested groups included ($day)."
-            Disabled = $disabled1 },
+            Disabled = $disabledPeople },
         [pscustomobject] @{ Metric = 'Active Users'; Kind = 'people, from use'
-            M365 = 'People who used Copilot with a Microsoft 365 Copilot license at the time, in the week. Each person once.'
-            Chat = 'People who used Copilot Chat without a license, in the week. Each person once; someone licensed mid-week can be in both columns.'
-            Disabled = 'Not counted' },
+            M365 = "$activeWho used Copilot with a Microsoft 365 Copilot license at the time, in the week. Each person once."
+            Chat = "$activeWho used Copilot Chat without a license, in the week. Each person once; someone licensed mid-week can be in both columns."
+            Disabled = $disabledPeople },
         [pscustomobject] @{ Metric = 'Number of actions taken'; Kind = 'interactions'
             M365 = 'Interactions made with a license: one per prompt and its answer (one Copilot audit record). Not sessions, not people.'
             Chat = 'Interactions made without a license, counted the same way.'
@@ -479,11 +498,8 @@ function Get-ReportNote {
             $notes.Add("M365 Copilot Users Enabled is estimated for $($est.Count) of the weeks shown$since, from the people holding a Microsoft 365 Copilot license on each week's last day. Copilot Chat Users Enabled has no such history and is blank for those weeks.")
         }
     }
-    if (Test-GroupCountAll $Meta) {
-        $notes.Add('Users Enabled counts every member of the two AD groups, disabled accounts included, as set on the dashboard (Admin > Alerts and digests).')
-    }
     if ($Meta.GroupsCounted -is [DBNull] -and -not (Test-M365Estimated $Meta)) {
-        $notes.Add('Users Enabled was not counted this week: the nightly AD load counts the two groups named by CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1, from the night they are set.')
+        $notes.Add('Users Enabled was not counted this week: the nightly AD load counts the two groups named on the dashboard (Admin > Directory quality) or in copilot-audit.settings.psd1, from the night they are set.')
     }
     if (-not ($Meta.M365OutsideGroup -is [DBNull]) -and [int] $Meta.M365OutsideGroup -gt 0) {
         $notes.Add(('{0} {1} Copilot with a license this week but {2} not in the Copilot license group today, so {3} in Active Users and not in Users Enabled.' -f `
@@ -849,13 +865,17 @@ function New-ReportWorkbook {
         # ---- Notes -------------------------------------------------------------
         $groupsDay = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted on ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
         $members = if (Test-GroupCountAll $Meta) { 'Every member, disabled accounts included,' } else { 'The members whose AD account is enabled' }
+        $countAll = Test-GroupCountAll $Meta
+        $whoCounted = if ($countAll) { 'This report counts everyone: Users Enabled every member of the groups, and Active Users everyone who used Copilot, including accounts since disabled and people who have left (the dashboard setting, or -IncludeDisabled). Actions taken and Security Alerts count all use.' }
+                      else { 'Users Enabled and Active Users count only accounts enabled today: accounts since disabled and people who have left are not among them. Actions taken and Security Alerts count all use, theirs included. To count everyone, set the dashboard (Admin > Alerts and digests) or run with -IncludeDisabled.' }
+        $activeText = if ($countAll) { 'Everyone who used Copilot in the week' } else { 'People whose AD account is enabled today who used Copilot in the week' }
         $notes = @(
             @('Week', "Saturday 00:00 to Friday 23:59:59.9999 in the reporting time zone ($($Meta.ReportingTimeZone)): the weeks the dashboard and Power BI model use."),
             @('M365 Copilot', 'Use made with a Microsoft 365 Copilot license at the time of use.'),
             @('Copilot Chat', 'Use made without a Copilot license (including use the license history could not place).'),
-            @('Who is counted', 'Active Users counts only people whose AD account is enabled today: accounts since disabled and people who have left are not among them. Actions taken and Security Alerts count all use, theirs included.'),
-            @('Users Enabled', "$members of each column's AD group (CopilotLicenseGroup, CopilotChatGroup in copilot-audit.settings.psd1), nested groups included, as the nightly AD load counted them on the last day it ran in the week ($groupsDay). Blank for a week before the groups were counted."),
-            @('Active Users', 'People whose AD account is enabled today who used Copilot in the week, with a license (M365 Copilot) or without one (Copilot Chat). Someone licensed part-way through a week can be in both.'),
+            @('Who is counted', $whoCounted),
+            @('Users Enabled', "$members of each column's AD group (named on the dashboard, Admin > Directory quality, or in copilot-audit.settings.psd1), nested groups included, as the nightly AD load counted them on the last day it ran in the week ($groupsDay). Blank for a week before the groups were counted."),
+            @('Active Users', "$activeText, with a license (M365 Copilot) or without one (Copilot Chat). Someone licensed part-way through a week can be in both."),
             @('Actions taken', 'Interactions: one for each Copilot audit record, a prompt and its answer. Not sessions.'),
             @('Security Alerts', 'Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource.'),
             @('Data through', "$through. Data is complete when it reaches the Monday after the week: $([bool] $Meta.DataComplete)."),
@@ -1072,8 +1092,11 @@ try {
     }
 
     # ---- the figures -----------------------------------------------------------
-    $ds = Invoke-ReportQuery $conn 'EXEC bi.usp_WeeklyCopilotReport @WeekEnding = @w, @Weeks = @n;' @{
-        '@w' = $week; '@n' = [int] $setting.Weeks }
+    # The people rows follow the dashboard's setting unless -IncludeDisabled asks for everyone, for this run only.
+    $peopleCount = if ($IncludeDisabled) { 'All' } else { $null }
+    if ($IncludeDisabled) { Write-ReportLog 'This run counts disabled accounts and people who have left in Users Enabled and Active Users (-IncludeDisabled).' }
+    $ds = Invoke-ReportQuery $conn 'EXEC bi.usp_WeeklyCopilotReport @WeekEnding = @w, @Weeks = @n, @GroupCount = @g;' @{
+        '@w' = $week; '@n' = [int] $setting.Weeks; '@g' = $peopleCount }
     $meta = $ds.Tables[0].Rows[0]
     $table = $ds.Tables[1]
     $weeks = $ds.Tables[2]

@@ -47,9 +47,12 @@ New defaults apply to new installs only (see Changed); an existing install keeps
 - **The weekly report's AD groups.** The nightly AD load records the members of the groups named
   `CopilotLicenseGroup` and `CopilotChatGroup` (nested groups included) and each day's count, all members and enabled
   accounts (`audit.ReportGroupMember`, `audit.ReportGroupDay`).
-- **Count disabled group members or not, on the dashboard.** Admin › Alerts and digests › *Weekly Copilot report*
-  chooses whether Users Enabled counts enabled accounts only (the default) or every member, and shows each group's
-  latest count. The nightly load keeps both, so the choice applies to every week already counted.
+- **Count everyone, or enabled accounts only, on the dashboard.** Admin › Alerts and digests › *Weekly Copilot
+  report* chooses whether the two people rows count accounts enabled today only (the default) or everyone: every
+  member of the groups in Users Enabled, and everyone who used Copilot in Active Users, disabled accounts and people
+  who have left included. It shows each group's latest count. The nightly load keeps both counts, so the choice
+  applies to every week already counted. `Send-CopilotWeeklyReport.ps1 -IncludeDisabled` counts everyone for one
+  run, and `bi.usp_WeeklyCopilotReport @GroupCount = 'All'` in SQL.
 - **Past weeks' M365 Copilot Users Enabled is estimated.** For weeks before the groups were first counted, it is the
   people holding a Microsoft 365 Copilot license on the week's last day, marked *ESTIMATED*; the workbook says, for
   each week, whether the figure is from the group or the licenses. Copilot Chat has no such history and stays blank.
@@ -62,8 +65,9 @@ New defaults apply to new installs only (see Changed); an existing install keeps
   all-time columns and `ChatEnabled` are gone.
 - **Each number is defined under the table.** A *Read this first* box says which rows count disabled accounts and
   people who have left, and a *What each number means* table defines all eight, naming the groups and the day they
-  were counted; in the email, its text version and the workbook. Active Users counts accounts enabled today; actions
-  taken and security alerts count every interaction, whoever made it, so they do not drop when someone leaves.
+  were counted; in the email, its text version and the workbook. By default Active Users counts accounts enabled
+  today; actions taken and security alerts count every interaction, whoever made it, so they do not drop when
+  someone leaves.
 - **People are counted only while their account is enabled.** Every count of people on the dashboard (people, people
   using Copilot, license holders, adoption, ever active, returning, people per app, agent, unit and department) and
   every ranking of people by use counts only accounts enabled today in AD or Entra. A person disabled since, or gone

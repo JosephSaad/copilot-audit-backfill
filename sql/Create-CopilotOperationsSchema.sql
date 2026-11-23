@@ -775,7 +775,7 @@ USING (VALUES
     ('DirectoryDomain',        NULL,      N'3.1.3: the users'' AD domain (users.contoso.com). Every read of users or groups from AD uses it: the nightly load and the dashboard''s lookup of who is signed in. Empty: TargetDomain in copilot-audit.settings.psd1 (Admin > Directory quality).'),
     ('CopilotLicenseGroup',    NULL,      N'3.1.3: the AD group (DOMAIN\group) of Microsoft 365 Copilot license holders the weekly report counts as Users Enabled. Empty: the settings file''s.'),
     ('CopilotChatGroup',       NULL,      N'3.1.3: the AD group (DOMAIN\group) of Copilot Chat users the weekly report counts as Users Enabled. Empty: the settings file''s.'),
-    ('WeeklyReportGroupCount', N'Enabled', N'3.1.3: the weekly Copilot report''s Number of Users Enabled: Enabled counts the AD groups'' enabled accounts, All every member, disabled accounts included (Admin > Alerts and digests).'),
+    ('WeeklyReportGroupCount', N'Enabled', N'3.1.3: who the weekly Copilot report''s Users Enabled and Active Users count: Enabled, accounts enabled today only; All, everyone, disabled accounts and leavers included (Admin > Alerts and digests).'),
     ('SeatModel',              N'Leader', N'The Copilot seat record: Leader (the reservation register on Leadership > Copilot reservations) or Governance (the Workbench''s lines of business). The dashboard sets it when it starts; with Governance the nightly run keeps no reservation snapshot.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
