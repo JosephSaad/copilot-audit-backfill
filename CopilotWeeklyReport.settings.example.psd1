@@ -7,19 +7,12 @@
     Database  = ''
     # TrustServerCertificate = $true    # only if the nightly run needs it too
 
-    # ---- The mail relay -----------------------------------------------------
-    SmtpServer = 'smtp-relay.contoso.com'
-    SmtpPort   = 25
-    SmtpUseSsl = $false                  # $true: STARTTLS
-    SmtpUseDefaultCredentials = $false   # $true: sign in to the relay as the task's account
-    # A relay that takes a user name and password (Proofpoint, say): SmtpUseSsl = $true, SmtpPort = 587, and
-    # SmtpUser set; then save the password once: .\tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword
-    SmtpUser = ''                        # the relay's user name; never the password
-    # SmtpPasswordPath = 'D:\Secrets\CopilotWeeklyReport.smtp-password'   # only if not beside this file
-    # SmtpAllowPasswordWithoutSsl = $true   # only for a relay on a trusted network without STARTTLS
+    # ---- The mail server ----------------------------------------------------
+    # Nothing here: from 3.1.3 the report sends through the server, user name, password and From address set in
+    # the dashboard's Admin > Email, read from the database. SmtpServer, SmtpPort, SmtpUseSsl,
+    # SmtpUseDefaultCredentials and From from 3.1.2 are no longer read and can be deleted.
 
     # ---- The message --------------------------------------------------------
-    From = 'Copilot Reports <copilot-reports@contoso.com>'
     To   = @('copilot-leadership@contoso.com')
     Cc   = @()
     Bcc  = @()

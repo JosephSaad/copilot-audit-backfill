@@ -38,7 +38,7 @@ The task runs every hour. Each run checks whether the last complete week is due:
 - **The job server**, with release 3.1.1 installed and its nightly task running.
 - **Windows PowerShell 5.1** (`powershell.exe`, part of Windows) with .NET Framework 4.x. The charts in the email are drawn with the .NET Framework's chart library, which PowerShell 7 does not have. The rest of the release keeps running in PowerShell 7.
 - **ImportExcel** in the release's `Modules` folder, as `tools\Save-CopilotAuditModules.ps1` puts it there (from 2.5.7). Without it the email goes without the workbook, and the log says so.
-- **A mail relay** that accepts mail from the job server for the recipients, on port 25 or 587: one that lets the job server's address relay, one that takes the task's own Windows account, or (3.1.3) one that takes a user name and password, such as Proofpoint. The relay must offer STARTTLS on that port; TLS from the first byte (port 465) is not supported.
+- **Email set up in the dashboard** (Admin › Email, see DASHBOARD.md) and working: *Send a test* there succeeds. The job server must reach that server too (the web server sent the test). From 3.1.3 the report sends through that same server, with its port, security, user name and password, certificate check, From and Reply-To, read from the Copilot database (`dash.Setting`, and the password through `dash.usp_GetSecret`). Nothing about the mail server is in the report's settings or stored on the job server, and a change in Admin › Email applies to the next report. Two of the dashboard's choices cannot be used by the report, which says so: TLS from the first byte (*Implicit*, port 465), and Exchange Online with OAuth. Choose *StartTls* (port 587 or 25), or Exchange Online with a password. With *Auto* on another port, the report requires STARTTLS.
 - **The nightly task's account** (it already reads and writes the Copilot database). It needs, in the Copilot database, to execute `bi.usp_WeeklyCopilotReport` and to write `audit.WeeklyReportSend`; `db_owner`, which the installer gives it, covers both.
 
 ## Installing it
@@ -69,25 +69,7 @@ Copy-Item .\CopilotWeeklyReport.settings.example.psd1 .\CopilotWeeklyReport.sett
 notepad .\CopilotWeeklyReport.settings.psd1
 ```
 
-Set `SmtpServer`, `SmtpPort`, `From` and `To`. The database is taken from `copilot-audit.settings.psd1`, so `SqlServer` and `Database` can stay empty.
-
-**How it signs in to the relay**, one of three:
-
-| The relay takes | Settings |
-|---|---|
-| Mail from the job server's address, without signing in | Nothing more |
-| The task's own Windows account | `SmtpUseDefaultCredentials = $true` |
-| A user name and password (3.1.3), such as Proofpoint | `SmtpUser`, `SmtpUseSsl = $true` and usually `SmtpPort = 587`; then save the password once, below |
-
-**3a. Only with a user name and password: save the password.** In an elevated window on the job server:
-
-```powershell
-powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword
-```
-
-It asks for the password and does not show it. It writes `CopilotWeeklyReport.smtp-password` beside the settings (or to `SmtpPasswordPath`), encrypted so that only this computer can read it back (Windows data protection, machine scope), and lets only administrators, SYSTEM and the account the weekly or nightly task runs as read the file. The password is never in the settings file or the log.
-
-A saved password is sent only to the server, port, STARTTLS setting and user name it was saved with. Change any of them, or move to another job server, and it sends nothing and says so until you save the password again. It is not sent without STARTTLS unless `SmtpAllowPasswordWithoutSsl = $true`, for a relay on a trusted network.
+Set `To` (and `Cc`, `Bcc` if wanted). The mail server and the From address come from Admin › Email, and the database from `copilot-audit.settings.psd1`, so `SqlServer` and `Database` can stay empty. From 3.1.3 the report no longer reads `SmtpServer`, `SmtpPort`, `SmtpUseSsl`, `SmtpUseDefaultCredentials` or `From`; a settings file from 3.1.2 that still has them works, and the log says they can be deleted.
 
 **4. Preview it.** This sends nothing and records nothing:
 
@@ -148,11 +130,12 @@ It returns the week (dates, the first day of data, the last day with data and wh
 | `Charts not drawn ...` | The chart library could not load: the script ran in PowerShell 7, or .NET Framework 4.x is missing | Run it with `powershell.exe`; the task does |
 | `Charts not drawn ... Cannot convert value "7/25" to type "System.Double"` | The 3.1.1 add-on's copy of the script | Replace `tools\Send-CopilotWeeklyReport.ps1` with 3.1.2's |
 | `Workbook not written ...` | ImportExcel is not in `Modules` | `tools\Save-CopilotAuditModules.ps1` on a machine with gallery access, then copy `Modules` over |
-| `No saved password for ...` | `SmtpUser` is set and the password was not saved on this server | Step 3a |
-| `The saved password is for ...; the settings now say ...` | The relay, port, STARTTLS or user name changed since the password was saved | Step 3a again |
-| `SmtpUser is set but SmtpUseSsl is not` | A password would be sent unencrypted | `SmtpUseSsl = $true` (port 587), or `SmtpAllowPasswordWithoutSsl = $true` for a trusted network |
-| `... the client was not authenticated ... 5.7.0` or `535` | The relay refused the user name or password | Check them with the mail team, then step 3a again |
-| `the email was not sent: ... 5.7.1 ...` or `Connection refused` | The relay refused the job server, or the port is wrong | Ask the mail team to allow the job server to relay; check `SmtpPort` and `SmtpUseSsl` |
+| `Email is off in the dashboard` | Admin › Email is set to off | Set it up there; *Send a test* first |
+| `has no dashboard settings` | The Copilot database was installed without `-Dashboard` | `Install-CopilotAudit.ps1 -Dashboard`, then Admin › Email |
+| `changed after the password was stored` | The server, port, security, certificate check or user name in Admin › Email changed since the password was typed | Type the password again in Admin › Email |
+| `TLS from the first byte` or `OAuth` | Admin › Email uses a setting the report cannot | *StartTls* (587 or 25), or Exchange Online with a password |
+| `The remote certificate is invalid` | The server's certificate does not match its name or is not trusted on the job server | Trust its issuer on the job server, or tick *Accept any server certificate* in Admin › Email if the dashboard needs it too |
+| `the email was not sent: ... 5.7.1 ...`, `535` or `Connection refused` | The server refused the job server, the user name or password, or the port is wrong | *Send a test* in Admin › Email; ask the mail team to allow the job server |
 | `data reaches ..., not yet the Monday after the week. Waiting` | The nightly run has not loaded the days after the week | Nothing, unless it lasts: check the nightly run on Admin › Health |
 | `-WeekEnding must be a Friday` | The date given is not a Friday | Give the Friday the week ends on |
 

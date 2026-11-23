@@ -24,6 +24,12 @@
     on the next run, up to MaxAttempts. Every send and failure is recorded in
     audit.WeeklyReportSend.
 
+    It sends through the mail server the dashboard uses (3.1.3): the way of
+    sending, server, port, security, user name, password, certificate check,
+    From and Reply-To set in Admin > Email, read from the Copilot database
+    (dash.Setting, and the password through dash.usp_GetSecret). Nothing about
+    the mail server is in this script's settings or stored on the job server.
+
     Runs in Windows PowerShell 5.1 (powershell.exe), not PowerShell 7: the
     charts are drawn with the .NET Framework's chart library. The workbook uses
     ImportExcel (the release's Modules folder holds it); without it the email
@@ -53,20 +59,11 @@
 .PARAMETER OutputFolder
     Where -Preview writes. Default: reports\preview under the scripts' folder.
 
-.PARAMETER SaveSmtpPassword
-    Ask for the mail relay's password (SmtpUser in the settings) and save it, encrypted for this computer, to
-    SmtpPasswordPath (3.1.3). Nothing is sent. Run it again whenever the password, the relay, its port, its
-    security or the user name changes: a saved password is sent only to the server, port, security and user name
-    it was saved with.
-
 .EXAMPLE
     powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -Preview
 
 .EXAMPLE
     powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -To me@contoso.com
-
-.EXAMPLE
-    powershell.exe -NoProfile -File .\tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword
 #>
 [CmdletBinding()]
 param(
@@ -76,8 +73,7 @@ param(
     [switch]   $Preview,
     [string[]] $To,
     [switch]   $Force,
-    [string]   $OutputFolder,
-    [switch]   $SaveSmtpPassword
+    [string]   $OutputFolder
 )
 
 $ErrorActionPreference = 'Stop'
@@ -112,13 +108,13 @@ function Get-ReportSetting {
     $s = Import-PowerShellDataFile -LiteralPath $Path
     $d = @{
         SqlServer = ''; Database = ''; TrustServerCertificate = $null; ConnectionString = ''
-        SmtpServer = ''; SmtpPort = 25; SmtpUseSsl = $false; SmtpUseDefaultCredentials = $false
-        SmtpUser = ''; SmtpPasswordPath = ''; SmtpAllowPasswordWithoutSsl = $false
-        From = ''; To = @(); Cc = @(); Bcc = @(); SubjectPrefix = 'Copilot weekly report'
+        To = @(); Cc = @(); Bcc = @(); SubjectPrefix = 'Copilot weekly report'
         SendDay = 'Tuesday'; SendTime = '08:00'; MaxWaitHours = 24; MaxAttempts = 8
         Weeks = 13; ChatEnabled = 'AllUsers'; KeepCopies = $true
     }
     foreach ($k in @($s.Keys)) { $d[$k] = $s[$k] }
+    # 3.1.3: the mail server and From come from the dashboard's Admin > Email; 3.1.2's own settings for them are not read.
+    $script:UnusedMailSettings = @(@('SmtpServer', 'SmtpPort', 'SmtpUseSsl', 'SmtpUseDefaultCredentials', 'From') | Where-Object { $s.Contains($_) })
 
     # The database comes from the pipeline's own settings when this file leaves it out.
     $main = Join-Path $script:Root 'copilot-audit.settings.psd1'
@@ -134,106 +130,7 @@ function Get-ReportSetting {
     if (@('AllUsers', 'Unlicensed') -notcontains $d.ChatEnabled) { throw "ChatEnabled must be AllUsers or Unlicensed, not '$($d.ChatEnabled)'." }
     $null = [DayOfWeek] $d.SendDay
     $null = [TimeSpan]::Parse($d.SendTime)
-    # 3.1.3: a user name and password for the relay, the password saved apart from the settings (-SaveSmtpPassword).
-    if ($d.SmtpUser -and $d.SmtpUseDefaultCredentials) {
-        throw 'Set one way to sign in to the relay: SmtpUser (a user name and a saved password) or SmtpUseDefaultCredentials (the task''s own account), not both.'
-    }
-    if (-not $d.SmtpPasswordPath) { $d.SmtpPasswordPath = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $Path).Path) 'CopilotWeeklyReport.smtp-password' }
     $d
-}
-
-# ===========================================================================
-# The relay's password (3.1.3)
-# ===========================================================================
-
-# Mixed into the encryption, so the file is no use to another script that reads machine-scope secrets.
-$script:SmtpEntropy = [Text.Encoding]::UTF8.GetBytes('Copilot weekly report SMTP password')
-
-function Get-SmtpTarget {
-    <# What a saved password is bound to: the server, port, security and user name it may be sent to. #>
-    param([hashtable] $Setting)
-    @{ Server = ([string] $Setting.SmtpServer).Trim().ToLowerInvariant(); Port = [int] $Setting.SmtpPort
-       Ssl = [bool] $Setting.SmtpUseSsl; User = ([string] $Setting.SmtpUser).Trim() }
-}
-
-function Protect-SmtpPassword {
-    <# The password with what it is bound to, as bytes only this computer can read back (Windows data protection, machine scope). #>
-    param([hashtable] $Setting, [securestring] $Secret)
-    Add-Type -AssemblyName System.Security
-    $t = Get-SmtpTarget $Setting
-    $t.Password = (New-Object System.Net.NetworkCredential('', $Secret)).Password
-    $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $t -Compress))
-    [System.Security.Cryptography.ProtectedData]::Protect($bytes, $script:SmtpEntropy, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
-}
-
-function Unprotect-SmtpPassword {
-    param([byte[]] $Bytes)
-    Add-Type -AssemblyName System.Security
-    $plain = [System.Security.Cryptography.ProtectedData]::Unprotect($Bytes, $script:SmtpEntropy, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
-    ConvertFrom-Json -InputObject ([Text.Encoding]::UTF8.GetString($plain))
-}
-
-function Get-SmtpCredential {
-    <#
-        The credential to sign in to the relay with, or nothing when SmtpUser is not set. Refuses to send a password
-        without STARTTLS unless SmtpAllowPasswordWithoutSsl says so, and to send it anywhere but the server, port,
-        security and user name it was saved for: a changed setting sends nothing until the password is saved again.
-    #>
-    param([hashtable] $Setting)
-    if (-not $Setting.SmtpUser) { return $null }
-    if (-not $Setting.SmtpUseSsl -and -not $Setting.SmtpAllowPasswordWithoutSsl) {
-        throw 'SmtpUser is set but SmtpUseSsl is not: the password would cross the network unencrypted. Set SmtpUseSsl = $true (STARTTLS, usually port 587), or SmtpAllowPasswordWithoutSsl = $true for a relay on a trusted network.'
-    }
-    $path = [string] $Setting.SmtpPasswordPath
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "No saved password for $($Setting.SmtpUser): run this once with -SaveSmtpPassword (it writes $path)."
-    }
-    try { $saved = Unprotect-SmtpPassword ([IO.File]::ReadAllBytes($path)) }
-    catch { throw "The saved password in $path cannot be read on this computer (saved on another one, or damaged): run -SaveSmtpPassword again." }
-    $now = Get-SmtpTarget $Setting
-    if ($saved.Server -ne $now.Server -or [int] $saved.Port -ne $now.Port -or [bool] $saved.Ssl -ne $now.Ssl -or $saved.User -ne $now.User) {
-        $was = '{0} at {1}:{2}, STARTTLS {3}' -f $saved.User, $saved.Server, $saved.Port, $(if ($saved.Ssl) { 'on' } else { 'off' })
-        $is = '{0} at {1}:{2}, STARTTLS {3}' -f $now.User, $now.Server, $now.Port, $(if ($now.Ssl) { 'on' } else { 'off' })
-        throw "The saved password is for $was; the settings now say $is. It is not sent anywhere else: run -SaveSmtpPassword again."
-    }
-    New-Object System.Net.NetworkCredential($now.User, [string] $saved.Password)
-}
-
-function Save-SmtpPassword {
-    <# -SaveSmtpPassword: ask, save, and let only administrators, SYSTEM and the task's account read the file. #>
-    param([hashtable] $Setting)
-    if (-not $Setting.SmtpServer) { throw 'Set SmtpServer in the settings first: the password is saved for that relay.' }
-    if (-not $Setting.SmtpUser) { throw 'Set SmtpUser in the settings first: the password is saved for that user name.' }
-    $secret = Read-Host -AsSecureString -Prompt "Password for $($Setting.SmtpUser) at $($Setting.SmtpServer) (it is not shown)"
-    if ($secret.Length -eq 0) { throw 'No password given: nothing was saved.' }
-    $path = [string] $Setting.SmtpPasswordPath
-    [IO.File]::WriteAllBytes($path, (Protect-SmtpPassword -Setting $Setting -Secret $secret))
-    Write-Host "Saved to $path, encrypted for this computer and bound to $($Setting.SmtpUser) at $($Setting.SmtpServer):$($Setting.SmtpPort)."
-
-    $account = $null
-    foreach ($name in 'Copilot audit - weekly report', 'Copilot audit - nightly') {
-        $task = try { Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue } catch { $null }
-        if ($task -and $task.Principal.UserId) { $account = $task.Principal.UserId; break }
-    }
-    try {
-        if (-not $account) { throw 'no scheduled task names the account' }
-        $acl = New-Object System.Security.AccessControl.FileSecurity
-        $acl.SetAccessRuleProtection($true, $false)
-        $full = [System.Security.AccessControl.FileSystemRights]::FullControl
-        $read = [System.Security.AccessControl.FileSystemRights]::Read
-        $allow = [System.Security.AccessControl.AccessControlType]::Allow
-        foreach ($sid in 'S-1-5-32-544', 'S-1-5-18') {   # Administrators, SYSTEM
-            $who = New-Object System.Security.Principal.SecurityIdentifier($sid)
-            $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($who, $full, $allow)))
-        }
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($account, $read, $allow)))
-        Set-Acl -LiteralPath $path -AclObject $acl
-        Write-Host "Only administrators, SYSTEM and $account can read it."
-    }
-    catch {
-        Write-Warning "The file's access was not narrowed ($($_.Exception.Message)). Let only administrators and the task's account read it, for example: icacls `"$path`" /inheritance:r /grant:r `"BUILTIN\Administrators:F`" `"NT AUTHORITY\SYSTEM:F`" `"CORP\gmsa-copilot`$:R`""
-    }
-    Write-Host 'Send a test to check it: -To you@contoso.com'
 }
 
 # ===========================================================================
@@ -800,15 +697,104 @@ function New-ReportWorkbook {
 # Sending
 # ===========================================================================
 
+function Get-DashboardMail {
+    <#
+        How to send, as the dashboard sends (Admin > Email): from dash.Setting, and the password from dash.Secret
+        through dash.usp_GetSecret. Follows the dashboard's own rules (Infrastructure/Mail.cs, MailConfig): Exchange
+        Online is smtp.office365.com:587 with STARTTLS, signing in as the user name or else the From address; a
+        stored password is used only while the mode, server, port, security, certificate check and user name are
+        those it was typed in with. Throws, in words an administrator can act on, what stops it sending.
+    #>
+    param($Connection)
+    $hasDash = Invoke-ReportQuery $Connection "SELECT CASE WHEN OBJECT_ID(N'dash.Setting', N'U') IS NULL OR OBJECT_ID(N'dash.usp_GetSecret', N'P') IS NULL THEN 0 ELSE 1 END AS Has;"
+    if (-not [int] $hasDash.Tables[0].Rows[0].Has) {
+        throw 'The weekly report sends through the mail server set in the dashboard (Admin > Email), and this database has no dashboard settings: install with Install-CopilotAudit.ps1 -Dashboard and set up email there.'
+    }
+    $rows = (Invoke-ReportQuery $Connection "SELECT Name, Value FROM dash.Setting WHERE Name IN ('MailMode', 'MailFrom', 'MailReplyTo', 'SmtpHost', 'SmtpPort', 'SmtpSecurity', 'SmtpUser', 'SmtpAcceptAnyCertificate', 'ExoAuth');").Tables[0]
+    $v = @{}
+    foreach ($r in $rows.Rows) { if (-not ($r.Value -is [DBNull]) -and ([string] $r.Value).Trim()) { $v[[string] $r.Name] = ([string] $r.Value).Trim() } }
+    $get = { param([string] $k) if ($v.ContainsKey($k)) { $v[$k] } else { $null } }
+
+    $mode = 'Off'
+    foreach ($m in 'Off', 'ExchangeOnline', 'Smtp') { if ((& $get 'MailMode') -and $m -eq (& $get 'MailMode')) { $mode = $m } }
+    if ($mode -eq 'Off') { throw 'Email is off in the dashboard (Admin > Email): turn it on there; the weekly report sends through the same server.' }
+    $from = & $get 'MailFrom'
+    if (-not $from) { throw 'Set the From address in the dashboard (Admin > Email).' }
+    $exoAuth = if ((& $get 'ExoAuth') -eq 'OAuth') { 'OAuth' } else { 'Password' }
+    if ($mode -eq 'ExchangeOnline' -and $exoAuth -eq 'OAuth') {
+        throw 'Admin > Email signs in to Exchange Online with OAuth, which the weekly report cannot do: it needs the SMTP server mode, or Exchange Online with a password.'
+    }
+    $acceptAny = (& $get 'SmtpAcceptAnyCertificate') -eq '1'
+
+    if ($mode -eq 'ExchangeOnline') { $hostName = 'smtp.office365.com'; $port = 587; $tls = 'StartTls'; $user = & $get 'SmtpUser'; if (-not $user) { $user = $from } }
+    else {
+        $hostName = & $get 'SmtpHost'
+        if (-not $hostName) { throw 'Set the SMTP server in the dashboard (Admin > Email).' }
+        $port = 587; $parsed = 0
+        if ([int]::TryParse([string] (& $get 'SmtpPort'), [ref] $parsed)) { $port = $parsed }
+        if ($port -lt 1 -or $port -gt 65535) { throw 'The SMTP port in Admin > Email is not 1 to 65535.' }
+        $security = 'StartTls'
+        foreach ($c in 'StartTls', 'Implicit', 'Auto', 'None') { if ((& $get 'SmtpSecurity') -and $c -eq (& $get 'SmtpSecurity')) { $security = $c } }
+        # The names the dashboard's PasswordTarget writes (MailKit's SecureSocketOptions).
+        $tls = switch ($security) { 'Implicit' { 'SslOnConnect' } 'Auto' { 'Auto' } 'None' { 'None' } default { 'StartTls' } }
+        $user = & $get 'SmtpUser'
+    }
+    # The .NET mail client the report uses speaks STARTTLS or plain text, not TLS from the first byte.
+    if ($tls -eq 'SslOnConnect' -or ($tls -eq 'Auto' -and $port -eq 465)) {
+        throw "Admin > Email uses TLS from the first byte (Implicit, port $port), which the weekly report cannot send with: choose StartTls (port 587 or 25) there if the server offers it."
+    }
+
+    $password = $null
+    if ($user) {
+        $password = Get-DashboardSecret -Connection $Connection -Name 'SmtpPassword'
+        if (-not $password) { throw 'A user name is set in Admin > Email but no password is stored: type it there.' }
+        $target = '{0}|{1}|{2}|{3}|{4}|{5}' -f $mode, $hostName.ToLowerInvariant(), $port, $tls, $user.ToLowerInvariant(), $(if ($acceptAny) { 'any certificate' } else { 'checked' })
+        $savedFor = Get-DashboardSecret -Connection $Connection -Name 'SmtpPasswordFor'
+        if ($savedFor -and $savedFor -ne $target) {
+            throw 'The server, port, security or user name changed after the password was stored: type the password again in Admin > Email.'
+        }
+    }
+    @{ Mode = $mode; Host = $hostName; Port = $port; Ssl = ($tls -ne 'None'); User = $user; Password = $password
+       AcceptAnyCertificate = $acceptAny; From = $from; ReplyTo = (& $get 'MailReplyTo') }
+}
+
+function Get-DashboardSecret {
+    <# One secret the dashboard stored (dash.Secret), decrypted by its own procedure; $null when there is none. #>
+    param($Connection, [string] $Name)
+    $cmd = $Connection.CreateCommand()
+    $cmd.CommandText = 'dash.usp_GetSecret'
+    $cmd.CommandType = [System.Data.CommandType]::StoredProcedure
+    [void] $cmd.Parameters.Add('@Name', [System.Data.SqlDbType]::VarChar, 64)
+    $cmd.Parameters['@Name'].Value = $Name
+    $out = $cmd.Parameters.Add('@Value', [System.Data.SqlDbType]::NVarChar, 2000)
+    $out.Direction = [System.Data.ParameterDirection]::Output
+    [void] $cmd.ExecuteNonQuery()
+    if ($out.Value -is [DBNull]) { $null } else { [string] $out.Value }
+}
+
+function Get-AcceptAnyCertificateCallback {
+    <# A certificate check that accepts any certificate, for a mail server whose certificate Admin > Email says not to check. #>
+    if (-not ('CopilotWeeklyReportTls' -as [type])) {
+        Add-Type -TypeDefinition @'
+public static class CopilotWeeklyReportTls
+{
+    static bool Any(object sender, System.Security.Cryptography.X509Certificates.X509Certificate certificate,
+                    System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors errors) { return true; }
+    public static System.Net.Security.RemoteCertificateValidationCallback Callback { get { return Any; } }
+}
+'@
+    }
+    [CopilotWeeklyReportTls]::Callback
+}
+
 function Send-ReportMail {
-    param([hashtable] $Setting, [string] $Subject, [string] $Html, [string] $Text,
+    param([hashtable] $Mail, [string] $Subject, [string] $Html, [string] $Text,
           [hashtable] $ImageFiles, [string] $Workbook, [string[]] $ToList, [string[]] $CcList, [string[]] $BccList)
-    if (-not $Setting.SmtpServer) { throw 'No SmtpServer in the settings.' }
-    if (-not $Setting.From) { throw 'No From in the settings.' }
     $msg = New-Object System.Net.Mail.MailMessage
     $disposables = New-Object System.Collections.Generic.List[IDisposable]
     try {
-        $msg.From = New-Object System.Net.Mail.MailAddress($Setting.From)
+        $msg.From = New-Object System.Net.Mail.MailAddress($Mail.From)
+        if ($Mail.ReplyTo) { $msg.ReplyToList.Add($Mail.ReplyTo) }
         foreach ($a in $ToList) { if ($a) { $msg.To.Add($a) } }
         foreach ($a in $CcList) { if ($a) { $msg.CC.Add($a) } }
         foreach ($a in $BccList) { if ($a) { $msg.Bcc.Add($a) } }
@@ -833,14 +819,18 @@ function Send-ReportMail {
             $msg.Attachments.Add($att)
         }
 
-        $smtp = New-Object System.Net.Mail.SmtpClient($Setting.SmtpServer, [int] $Setting.SmtpPort)
+        $smtp = New-Object System.Net.Mail.SmtpClient($Mail.Host, [int] $Mail.Port)
         $disposables.Add($smtp)
-        $smtp.EnableSsl = [bool] $Setting.SmtpUseSsl
-        $smtp.UseDefaultCredentials = [bool] $Setting.SmtpUseDefaultCredentials
-        $credential = Get-SmtpCredential -Setting $Setting   # 3.1.3: a user name and saved password, when SmtpUser is set
-        if ($credential) { $smtp.UseDefaultCredentials = $false; $smtp.Credentials = $credential }
+        $smtp.EnableSsl = [bool] $Mail.Ssl
+        $smtp.UseDefaultCredentials = $false
+        if ($Mail.User) { $smtp.Credentials = New-Object System.Net.NetworkCredential($Mail.User, $Mail.Password) }
         $smtp.Timeout = 120000
-        $smtp.Send($msg)
+        # The .NET Framework's mail client checks certificates through ServicePointManager: replaced for this send
+        # alone, when Admin > Email says not to check (a relay whose certificate does not match its name, say).
+        $previousCheck = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+        if ($Mail.AcceptAnyCertificate) { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = Get-AcceptAnyCertificateCallback }
+        try { $smtp.Send($msg) }
+        finally { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCheck }
     }
     finally {
         $msg.Dispose()
@@ -853,7 +843,6 @@ function Send-ReportMail {
 # ===========================================================================
 
 $setting = Get-ReportSetting -Path $SettingsPath
-if ($SaveSmtpPassword) { Save-SmtpPassword -Setting $setting; exit 0 }
 $logDir = Join-Path $script:Root 'logs'
 if (-not (Test-Path -LiteralPath $logDir)) { [void] (New-Item -ItemType Directory -Path $logDir) }
 $script:LogPath = Join-Path $logDir 'weekly-report.log'
@@ -903,6 +892,9 @@ try {
     $complete = [bool] $meta.DataComplete
 
     $warnings = New-Object System.Collections.Generic.List[string]
+    if ($script:UnusedMailSettings.Count) {
+        Write-ReportLog "Not read from 3.1.3, and safe to delete from the settings file: $($script:UnusedMailSettings -join ', '). The mail server and From address come from the dashboard (Admin > Email)." 'WARN'
+    }
     if (-not $complete) {
         $through = ([datetime] $meta.DataThrough).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
         if ($Scheduled -and $nowLocal -lt $due.AddHours([double] $setting.MaxWaitHours)) {
@@ -957,6 +949,8 @@ try {
         Write-ReportLog "Preview of the week ending ${stamp}: $htmlPath"
         if ($workbook) { Write-ReportLog "Workbook: $workbook" }
         Write-ReportLog "Subject would be: $subject"
+        try { $previewMail = Get-DashboardMail $conn; Write-ReportLog "It would go from $($previewMail.From) through $($previewMail.Host):$($previewMail.Port) (Admin > Email)." }
+        catch { Write-ReportLog "It could not be sent as things stand: $($_.Exception.Message)" 'WARN' }
         exit 0
     }
 
@@ -973,7 +967,8 @@ try {
     $keepRecord = -not $To
 
     try {
-        Send-ReportMail -Setting $setting -Subject $subject -Html $html -Text $text -ImageFiles $cidFiles -Workbook $workbook `
+        $mail = Get-DashboardMail $conn
+        Send-ReportMail -Mail $mail -Subject $subject -Html $html -Text $text -ImageFiles $cidFiles -Workbook $workbook `
             -ToList $toList -CcList $ccList -BccList $bccList
     }
     catch {

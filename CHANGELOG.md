@@ -6,25 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [3.1.3] - 2026-11-21
 
-A run that finds the Copilot database in use now says which session holds it, and the weekly report can sign in
-to a mail relay with a user name and password.
+A run that finds the Copilot database in use now says which session holds it, and the weekly report sends through
+the mail server the dashboard uses.
 
 **Install over 3.1.2:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
 `CopilotWeeklyReport.settings.psd1` and `logs`); the new file is `tools\RunLock.ps1`, which the others load. Nothing in
 the databases, the dashboard or the Workbench changes: no installer run and no new dashboard or worker package is
-needed. For a relay that takes a user name and password, set `SmtpUser` (with `SmtpUseSsl = $true`, usually port 587)
-and run `tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword` once, as docs\WEEKLY-REPORT.md step 3a says.
-
-### Added
-
-- **The weekly report signs in to the relay with a user name and password** (`SmtpUser`), for a relay such as
-  Proofpoint that requires it. The password is never in the settings or the log: `-SaveSmtpPassword` asks for it and
-  saves it beside the settings (`SmtpPasswordPath`), encrypted for the job server (Windows data protection, machine
-  scope), and lets only administrators, SYSTEM and the task's account read the file. A saved password is sent only to
-  the server, port, STARTTLS setting and user name it was saved with: change one and it sends nothing, and says so,
-  until it is saved again. It is not sent without STARTTLS unless `SmtpAllowPasswordWithoutSsl = $true`, and
-  `SmtpUser` with `SmtpUseDefaultCredentials` is refused as ambiguous. Before, the report could sign in only as the
-  task's own Windows account, or not at all.
+needed. Before the next weekly report, check that the dashboard's email works (Admin › Email, *Send a test*) and that
+the job server can reach that server; then `SmtpServer`, `SmtpPort`, `SmtpUseSsl`, `SmtpUseDefaultCredentials` and
+`From` can be deleted from `CopilotWeeklyReport.settings.psd1`.
 
 ### Changed
 
@@ -37,6 +27,15 @@ and run `tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword` once, as docs\WEE
 - **Without the permission to see it, the message says so.** Seeing another session needs VIEW SERVER PERFORMANCE
   STATE (SQL Server 2022 and later) or VIEW SERVER STATE (before): the message names the account and the permission a
   DBA would grant. The run is refused exactly as before; nothing else changes.
+- **The weekly report sends through the dashboard's mail server.** It reads Admin › Email from the database: the way
+  of sending, the server, port and security, the user name, the password (through `dash.usp_GetSecret`), whether the
+  server's certificate is checked, and the From and Reply-To addresses. So a relay that needs a user name and password,
+  such as Proofpoint, is set up once, in the dashboard, and nothing about it is in the report's settings or stored on
+  the job server. It follows the dashboard's rules: the stored password is used only while the server, port,
+  security, certificate check and user name are those it was typed in with, and Exchange Online signs in as the user
+  name or else the From address. Before, the report had a relay of its own in its settings file and could sign in only
+  as the task's Windows account, or not at all. The settings file's `SmtpServer`, `SmtpPort`, `SmtpUseSsl`,
+  `SmtpUseDefaultCredentials` and `From` are no longer read; the log says so while they are there.
 
 ### Known limits
 
@@ -44,11 +43,14 @@ and run `tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword` once, as docs\WEE
   holder until a DBA grants it. A run started by an administrator shows the holder.
 - Tested against SQL Server 2022: a holder working, a holder idle, no holder, and an account without the permission;
   the integration test checks the installer's, the maintenance tool's, the load's and the CSV import's refusals.
-- The relay password: tested against a test SMTP server requiring AUTH LOGIN (the right password delivers, a wrong one
-  is refused) and each refusal (no saved password, a changed server or port, no STARTTLS, both ways of signing in);
-  Windows data protection itself and `-SaveSmtpPassword`'s file permissions are not tested on Windows yet. Implicit
-  TLS (port 465) is not supported: the relay must offer STARTTLS. A relay that offers only AUTH PLAIN cannot be used:
-  the .NET mail client signs in with LOGIN, NTLM or Kerberos.
+- The weekly report cannot use two of Admin › Email's choices, and says so instead of sending: TLS from the first byte
+  (*Implicit*, port 465) and Exchange Online with OAuth. *Auto* on another port requires STARTTLS. The .NET mail client
+  it uses signs in with LOGIN, NTLM or Kerberos, not PLAIN alone.
+- Tested against SQL Server 2022 with the dashboard's settings and its encrypted password, and a test relay offering
+  STARTTLS with a self-signed certificate and requiring a password: it signs in and delivers, with From and Reply-To
+  from Admin › Email, when the certificate is not checked; it is refused when the certificate is checked, and stops with
+  its message when email is off, the password was stored for another server, the security is Implicit or Exchange
+  Online uses OAuth. Not tested on Windows or against Proofpoint itself.
 
 ## [3.1.2] - 2026-11-20
 
