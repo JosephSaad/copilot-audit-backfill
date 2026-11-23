@@ -37,6 +37,14 @@ the job server can reach that server; then `SmtpServer`, `SmtpPort`, `SmtpUseSsl
   as the task's Windows account, or not at all. The settings file's `SmtpServer`, `SmtpPort`, `SmtpUseSsl`,
   `SmtpUseDefaultCredentials` and `From` are no longer read; the log says so while they are there.
 
+### Fixed
+
+- **A load stopped by hand could end as failed.** After a stop (Ctrl+C, or the run asked to stop), a page download the
+  stop cut short could end on an aborted connection rather than a cancellation, or a SQL write on a transient error it
+  no longer retried; the engine took either for a fault, logged an ERROR and ended the run Faulted instead of stopped.
+  It happened now and then, by timing. A stage that ends on any error after a stop is now logged as stopping, and the
+  run ends stopped; the windows it left part-done are resumed by the next run, as before.
+
 ### Known limits
 
 - The nightly task's account usually lacks that permission, so the nightly log names the permission rather than the
