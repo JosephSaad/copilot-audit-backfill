@@ -154,7 +154,7 @@ namespace CopilotInsights.Pages.Compliance
         protected override async Task BuildAsync()
         {
             var upn = Request.Query["upn"].FirstOrDefault()?.Trim();
-            var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Days}\"/>" +
+            var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Choice}\"/>" +
                        PersonBox("upn", "Person", upn, 36, "Type three letters of the person's first or last name and choose them from the names offered, or type their sign-in (name@domain). Only people with Copilot records, in the part of the organization you may see, are offered.") +
                        "<button class=\"btn\" type=\"submit\">Look up</button></form>";
             Panels.Add(new("Whose record", new HtmlString(form), "Names are offered from three letters on, by first or last name. The period above sets how far back the interactions go; choose 365 days for everything the dashboard holds.", "half"));
@@ -186,9 +186,9 @@ GROUP BY {Ctx.BucketSql("dd")};", Ctx.Args(new { key = who.UserKey }));
             var buckets = Buckets();
             long At(DateTime b, Func<(DateTime Bucket, long Interactions, long Sessions, int Days), long> f) => trend.Where(x => x.Bucket == b).Sum(f);
             var windows = string.Join(" · ", ReportContext.DayChoices.Select(n =>
-                $"<a href=\"{E(Ctx.Url(Request.Path, days: n, extra: "upn=" + Uri.EscapeDataString(who.UserPrincipalName)))}\"{(n == Ctx.Days ? " class=\"on\"" : "")}>{n} days</a>"));
+                $"<a href=\"{E(Ctx.Url(Request.Path, days: n, extra: "upn=" + Uri.EscapeDataString(who.UserPrincipalName)))}\"{(n == Ctx.Choice ? " class=\"on\"" : "")}>{E(ReportContext.ChoiceLabel(n))}</a>"));
             var activeDays = trend.Sum(x => x.Days);
-            Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days} in the period"));
+            Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days:#,0} in the period"));
             Kpis.Add(new("Interactions a day active", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
             Panels.Add(new("Use over time",
                 new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Sized(Chart.Columns(Labels(), [

@@ -20,24 +20,33 @@
                      (LicenseStatusKey = 1).
       Copilot Chat   use made without one (Not licensed, and Unknown: a license
                      the history could not place).
-    Only people whose AD account is enabled now are counted (bi.DimUser
-    AccountEnabled = 1): accounts since disabled, people who have left and
-    guests are left out of every figure.
+    People are counted only while their AD account is enabled (bi.DimUser
+    AccountEnabled = 1): accounts since disabled and people who have left are
+    not among the Active Users. What they did still counts: actions taken and
+    security alerts are every interaction of the week (3.1.3).
 
-      Number of Users Enabled  the enabled members of the AD group named for
-                               each column (CopilotLicenseGroup,
-                               CopilotChatGroup in copilot-audit.settings.psd1),
-                               as the nightly AD load counted them on the last
-                               day it ran in the week (audit.ReportGroupDay).
-                               NULL for a week before the groups were counted.
-      Active Users             people who used Copilot in the week, with a
-                               license or without one.
-      Number of actions taken  interactions: one per Copilot audit record.
+      Number of Users Enabled  the members of the AD group named for each
+                               column (CopilotLicenseGroup, CopilotChatGroup
+                               in copilot-audit.settings.psd1), as the nightly
+                               AD load counted them on the last day it ran in
+                               the week (audit.ReportGroupDay): enabled
+                               accounts only, or every member, disabled
+                               included, as @GroupCount says. NULL for a week
+                               before the groups were counted.
+      Active Users             people with an enabled account who used Copilot
+                               in the week, with a license or without one.
+      Number of actions taken  interactions: one per Copilot audit record,
+                               whoever made it.
       Security Alerts          interactions with a jailbreak attempt, a prompt
                                injection or a blocked resource: the dashboard's
-                               Security signals.
+                               Security signals, whoever made them.
     Someone licensed part-way through a week can be active in both columns;
     each interaction is in one only.
+
+    @GroupCount (3.1.3): 'Enabled' counts the groups' enabled accounts,
+    'All' every member, disabled accounts included. NULL takes the dashboard's
+    setting WeeklyReportGroupCount (Admin › Alerts and digests), or 'Enabled'
+    when there is none.
 
     @ChatEnabled is read no more (3.1.3): Users Enabled comes from the groups.
     It is kept so a caller that passes it still runs.
@@ -46,7 +55,9 @@
       1. The week: WeekStart, WeekEnding, WeekLabel, DataThrough (last day
          with data), DataComplete (data reaches the Monday after the week, so
          records Purview delivers late are in), GroupsCounted (the day the
-         groups' count was taken, or NULL), ReportingTimeZone, and the
+         groups' count was taken, or NULL), GroupCount ('Enabled' or 'All',
+         the count used), M365Group and ChatGroup (the groups' names that
+         day, or NULL), ReportingTimeZone, and the
          footnote's two counts: M365OutsideGroup (people who used Copilot with
          a license in the week but are not in the license group now) and
          ChatOutsideGroup (people who used it without one and are not in the
@@ -78,7 +89,8 @@ GO
 CREATE OR ALTER PROCEDURE bi.usp_WeeklyCopilotReport
     @WeekEnding  DATE        = NULL,        -- the Friday; NULL = the last complete week
     @Weeks       INT         = 13,          -- weeks in the trend, this one included (13 = about 90 days)
-    @ChatEnabled VARCHAR(16) = NULL         -- not read from 3.1.3; kept for callers that pass it
+    @ChatEnabled VARCHAR(16) = NULL,        -- not read from 3.1.3; kept for callers that pass it
+    @GroupCount  VARCHAR(8)  = NULL         -- 'Enabled' or 'All' (disabled included); NULL = the dashboard's setting
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -86,6 +98,16 @@ BEGIN
     IF @Weeks IS NULL OR @Weeks < 1 OR @Weeks > 104
     BEGIN
         RAISERROR('@Weeks must be between 1 and 104.', 16, 1);
+        RETURN;
+    END;
+
+    IF @GroupCount IS NULL AND OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL
+        EXEC sys.sp_executesql N'SELECT @g = CAST(NULLIF(LTRIM(RTRIM(Value)), N'''') AS VARCHAR(8)) FROM dash.Setting WHERE Name = N''WeeklyReportGroupCount'';',
+            N'@g VARCHAR(8) OUTPUT', @g = @GroupCount OUTPUT;
+    SET @GroupCount = ISNULL(@GroupCount, 'Enabled');
+    IF @GroupCount NOT IN ('Enabled', 'All')
+    BEGIN
+        RAISERROR('@GroupCount must be Enabled or All (the setting WeeklyReportGroupCount says %s).', 16, 1, @GroupCount);
         RETURN;
     END;
 
@@ -115,28 +137,30 @@ BEGIN
     DECLARE @lastKey INT = (SELECT MAX(DateKey) FROM bi.FactInteraction);
     DECLARE @hasGroups BIT = CASE WHEN OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NULL THEN 0 ELSE 1 END;
 
-    /* ---- one pass over the interactions of enabled accounts in the trend's weeks */
+    /* ---- one pass over the trend's weeks: everyone's interactions, and whose account is enabled now */
 
     CREATE TABLE #use
     (
         WeekEnding   DATE    NOT NULL,
         UserKey      INT     NOT NULL,
         IsLic        BIT     NOT NULL,
+        Enabled      BIT     NOT NULL,
         Interactions BIGINT  NOT NULL,
         Signals      BIGINT  NOT NULL,
         PRIMARY KEY (WeekEnding, UserKey, IsLic)
     );
 
-    INSERT INTO #use (WeekEnding, UserKey, IsLic, Interactions, Signals)
+    INSERT INTO #use (WeekEnding, UserKey, IsLic, Enabled, Interactions, Signals)
     SELECT d.WeekEnding,
            f.UserKey,
            CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END,
+           MAX(CASE WHEN u.AccountEnabled = 1 THEN 1 ELSE 0 END),
            COUNT_BIG(*),
            SUM(CAST(CASE WHEN f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1
                            OR f.HasBlockedResource = 1 THEN 1 ELSE 0 END AS BIGINT))
     FROM bi.FactInteraction AS f
     JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-    JOIN bi.DimUser AS u ON u.UserKey = f.UserKey AND u.AccountEnabled = 1
+    JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
     WHERE f.DateKey BETWEEN @rangeKey AND @endKey
     GROUP BY d.WeekEnding, f.UserKey, CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END;
 
@@ -163,18 +187,21 @@ BEGIN
     WHERE d.WeekEnding BETWEEN @firstWeekEnd AND @WeekEnding;
 
     UPDATE w SET
-        M365Active  = (SELECT COUNT(*) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 1),
+        M365Active  = (SELECT COUNT(*) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 1 AND u.Enabled = 1),
         M365Actions = (SELECT ISNULL(SUM(u.Interactions), 0) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 1),
         M365Signals = (SELECT ISNULL(SUM(u.Signals), 0) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 1),
-        ChatActive  = (SELECT COUNT(*) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 0),
+        ChatActive  = (SELECT COUNT(*) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 0 AND u.Enabled = 1),
         ChatActions = (SELECT ISNULL(SUM(u.Interactions), 0) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 0),
         ChatSignals = (SELECT ISNULL(SUM(u.Signals), 0) FROM #use AS u WHERE u.WeekEnding = w.WeekEnding AND u.IsLic = 0)
     FROM #wk AS w;
 
     /* Users Enabled: the groups' count on the last day the nightly AD load ran in the week. A load in the small
-       hours of a Saturday counts the week that ended on the Friday, so the day after the week counts too. */
+       hours of a Saturday counts the week that ended on the Friday, so the day after the week counts too.
+       @GroupCount picks the column: EnabledMembers, or Members (disabled accounts included). */
+    DECLARE @countCol SYSNAME = CASE @GroupCount WHEN 'All' THEN N'Members' ELSE N'EnabledMembers' END;
     IF @hasGroups = 1
-        EXEC sys.sp_executesql N'
+    BEGIN
+        DECLARE @groupSql NVARCHAR(MAX) = N'
         UPDATE w SET
             GroupsCounted = g.SnapshotDate,
             M365Enabled   = g.M365,
@@ -186,20 +213,32 @@ BEGIN
                      FROM audit.ReportGroupDay AS r
                      WHERE r.SnapshotDate > w.WeekStart AND r.SnapshotDate <= DATEADD(DAY, 1, w.WeekEnding)
                      ORDER BY r.SnapshotDate DESC) AS g;';
+        SET @groupSql = REPLACE(@groupSql, N'x.EnabledMembers', N'x.' + QUOTENAME(@countCol));
+        EXEC sys.sp_executesql @groupSql;
+    END;
 
     /* ---- the footnote: who used Copilot outside the group of their column ---- */
+
+    /* The groups' names on the day they were counted, for the definitions under the table. */
+    DECLARE @m365Group NVARCHAR(256), @chatGroup NVARCHAR(256);
+    DECLARE @groupsDay DATE = (SELECT GroupsCounted FROM #wk WHERE WeekEnding = @WeekEnding);
+    IF @hasGroups = 1 AND @groupsDay IS NOT NULL
+        EXEC sys.sp_executesql N'
+        SELECT @m = (SELECT GroupName FROM audit.ReportGroupDay WHERE SnapshotDate = @d AND Role = ''CopilotLicense''),
+               @c = (SELECT GroupName FROM audit.ReportGroupDay WHERE SnapshotDate = @d AND Role = ''CopilotChat'');',
+            N'@d DATE, @m NVARCHAR(256) OUTPUT, @c NVARCHAR(256) OUTPUT', @d = @groupsDay, @m = @m365Group OUTPUT, @c = @chatGroup OUTPUT;
 
     DECLARE @m365Outside INT, @chatOutside INT;
     IF @hasGroups = 1
         EXEC sys.sp_executesql N'
         SELECT @m = CASE WHEN EXISTS (SELECT 1 FROM audit.ReportGroupMember WHERE Role = ''CopilotLicense'') THEN
                         (SELECT COUNT(*) FROM #use AS x JOIN bi.DimUser AS u ON u.UserKey = x.UserKey
-                         WHERE x.WeekEnding = @w AND x.IsLic = 1
+                         WHERE x.WeekEnding = @w AND x.IsLic = 1 AND x.Enabled = 1
                            AND NOT EXISTS (SELECT 1 FROM audit.ReportGroupMember AS g
                                            WHERE g.Role = ''CopilotLicense'' AND g.UserPrincipalName = u.UserPrincipalName)) END,
                @c = CASE WHEN EXISTS (SELECT 1 FROM audit.ReportGroupMember WHERE Role = ''CopilotChat'') THEN
                         (SELECT COUNT(*) FROM #use AS x JOIN bi.DimUser AS u ON u.UserKey = x.UserKey
-                         WHERE x.WeekEnding = @w AND x.IsLic = 0
+                         WHERE x.WeekEnding = @w AND x.IsLic = 0 AND x.Enabled = 1
                            AND NOT EXISTS (SELECT 1 FROM audit.ReportGroupMember AS g
                                            WHERE g.Role = ''CopilotChat'' AND g.UserPrincipalName = u.UserPrincipalName)) END;',
             N'@w DATE, @m INT OUTPUT, @c INT OUTPUT', @w = @WeekEnding, @m = @m365Outside OUTPUT, @c = @chatOutside OUTPUT;
@@ -212,6 +251,9 @@ BEGIN
            CONVERT(DATE, CONVERT(CHAR(8), @lastKey), 112)                    AS DataThrough,
            CAST(CASE WHEN @lastKey >= @mondayKey THEN 1 ELSE 0 END AS BIT)   AS DataComplete,
            (SELECT GroupsCounted FROM #wk WHERE WeekEnding = @WeekEnding)    AS GroupsCounted,
+           @GroupCount                                                       AS GroupCount,
+           @m365Group                                                        AS M365Group,
+           @chatGroup                                                        AS ChatGroup,
            @zone                                                             AS ReportingTimeZone,
            @m365Outside                                                      AS M365OutsideGroup,
            @chatOutside                                                      AS ChatOutsideGroup;

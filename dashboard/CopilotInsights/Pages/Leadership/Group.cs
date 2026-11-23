@@ -37,7 +37,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                     Viewer v;
                     using (QueryCache.Off()) v = await S.Viewers.ResolveAsync();
                     if (!v.OrgWide) { rows.Add(new(t.Name, null, v.InDirectory ? "you see part of this organization" : "you are not in this tenant's directory")); continue; }
-                    var c = await S.Contexts.CreateAsync(v, Ctx.Days, null);
+                    var c = await S.Contexts.CreateAsync(v, Ctx.Choice, null);
                     rows.Add(new(t.Name, await metrics.TotalsAsync(c), null));
                 }
                 catch (Microsoft.Data.SqlClient.SqlException ex) { rows.Add(new(t.Name, null, Failure(ex, "Its database did not answer"))); }

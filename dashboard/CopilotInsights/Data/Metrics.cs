@@ -26,7 +26,9 @@ public sealed class TrendRow
 public sealed class Totals
 {
     public int People { get; set; }            // enabled accounts in the directory, in scope
-    public int LicensedNow { get; set; }       // holding a license on the last day
+    /* The people counts below are of accounts enabled today (3.1.3); the use totals are everyone's. */
+    public int LicensedNow { get; set; }       // holding a license on the last day, enabled accounts (3.1.3)
+    public int LicensedNotEnabled { get; set; } // holding one on the last day with the account disabled or gone: seats to reclaim
     public int Active { get; set; }            // used Copilot in the period
     public int ActiveLicensed { get; set; }    // used it while licensed
     public int PremiumLicensed { get; set; }   // of those, used Premium features (PremiumUse > 0); the rest used only free features
@@ -75,10 +77,11 @@ ud AS (SELECT b.Bucket, ud.* FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} JOI
 per AS (SELECT Bucket, UserKey, SUM(Interactions) AS I, SUM(LicensedUse) AS L FROM ud GROUP BY Bucket, UserKey),
 /* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
+/* People are accounts enabled today (3.1.3); the sums below still count everyone's use. */
 people AS (SELECT per.Bucket, COUNT(CASE WHEN per.I > 0 THEN 1 END) AS Active,
                   COUNT(CASE WHEN per.L > 0 AND le.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
                   COUNT(CASE WHEN per.I > 0 AND per.L = 0 THEN 1 END) AS ActiveUnlicensed
-           FROM per JOIN ends AS e ON e.Bucket = per.Bucket
+           FROM per {ReportContext.EnabledJoin("per.UserKey")} JOIN ends AS e ON e.Bucket = per.Bucket
            LEFT JOIN bi.FactLicensedDay AS le ON le.DateKey = e.EndKey AND le.UserKey = per.UserKey
            GROUP BY per.Bucket),
 sums AS (SELECT Bucket, SUM(CAST(Interactions AS BIGINT)) AS Interactions, SUM(CAST(Prompts AS BIGINT)) AS Prompts,
@@ -88,7 +91,7 @@ sums AS (SELECT Bucket, SUM(CAST(Interactions AS BIGINT)) AS Interactions, SUM(C
                 SUM(CAST(PromptInjection AS BIGINT)) AS Injection, SUM(CAST(BlockedResource AS BIGINT)) AS Blocked,
                 SUM(CAST(LabeledContent AS BIGINT)) AS Labeled
          FROM ud GROUP BY Bucket),
-lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} GROUP BY e.Bucket)
+lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket)
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
        ISNULL(s.Interactions, 0) AS Interactions, ISNULL(s.Prompts, 0) AS Prompts, ISNULL(s.Sessions, 0) AS Sessions,
        ISNULL(s.MultiTurn, 0) AS MultiTurn, ISNULL(s.Chat, 0) AS Chat, ISNULL(s.Agent, 0) AS Agent, ISNULL(s.Web, 0) AS Web,
@@ -130,6 +133,7 @@ SELECT e.Bucket, COUNT(*) AS Adopted
 FROM iv JOIN k ON k.n < iv.Gap
 JOIN endn AS e ON e.EndN = iv.N + k.n
 JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey AND ld.UserKey = iv.UserKey
+{ReportContext.EnabledJoin("iv.UserKey")}
 GROUP BY e.Bucket;", c.Args(new { kw = ReportContext.Key(c.Start.AddDays(1 - AdoptionDays)) }));
         return rows.ToDictionary(r => r.Bucket, r => r.Adopted);
     }
@@ -144,20 +148,25 @@ WITH u AS (
     WHERE ud.DateKey BETWEEN @k0 AND @k1
     GROUP BY ud.UserKey)
 /* One pass over u (2.4.2): as nine subqueries, each re-aggregated dash.UserDay. */
+/* People counts are of accounts enabled today (3.1.3, IsEnabled); interactions, prompts and sessions are everyone's. */
 SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.AccountEnabled = 1) AS People,
-       (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} WHERE ld.DateKey = @k1) AS LicensedNow,
-       COUNT(CASE WHEN u.I > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
-       COUNT(CASE WHEN u.L > 0 AND u.PU > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS PremiumLicensed,
-       (SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS EverActive,
+       (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} WHERE ld.DateKey = @k1) AS LicensedNow,
+       (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey", left: true)}
+        WHERE ld.DateKey = @k1 AND en.UserKey IS NULL) AS LicensedNotEnabled,
+       COUNT(CASE WHEN u.I > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
+       COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
+       COUNT(CASE WHEN u.L > 0 AND u.PU > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS PremiumLicensed,
+       (SELECT COUNT(*) FROM (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS ev
+        {ReportContext.EnabledJoin("ev.UserKey")}) AS EverActive,
        ISNULL(SUM(CAST(u.I AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(u.P), 0) AS Prompts,
        ISNULL(SUM(CAST(u.S AS BIGINT)), 0) AS Sessions,
        ISNULL(SUM(CAST(u.MT AS BIGINT)), 0) AS MultiTurn,
        ISNULL(SUM(CAST(u.D AS BIGINT)), 0) AS ActiveDays,
-       COUNT(CASE WHEN u.Last7 = 1 THEN 1 END) AS ActiveLast7,
-       COUNT(CASE WHEN u.MT > 0 THEN 1 END) AS MultiTurnUsers
-FROM u LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1;", c.Args())).Single();
+       COUNT(CASE WHEN u.Last7 = 1 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLast7,
+       COUNT(CASE WHEN u.MT > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS MultiTurnUsers
+FROM u LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
+{ReportContext.EnabledJoin("u.UserKey", left: true)};", c.Args())).Single();
 
     /* The members of each unit one level below the root (or the top): a manager with everyone under them,
        people reporting straight to the root as one "direct team"; divisions when there is no top. */
@@ -194,10 +203,10 @@ SELECT u.Unit,
        {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN N'Reporting directly' ELSE MAX(mp.DisplayName) END")} AS Name,
        {(parent is null ? "NULL" : "MAX(mp.Department)")} AS Department,
        COUNT(CASE WHEN u.AccountEnabled = 1 THEN 1 END) AS People,
-       COUNT(ld.UserKey) AS Licensed,
-       COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
-       COUNT(CASE WHEN a.L > 0 AND a.PU > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS PremiumLicensed,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND u.AccountEnabled = 1 THEN 1 END) AS Licensed,
+       COUNT(CASE WHEN a.I > 0 AND u.AccountEnabled = 1 THEN 1 END) AS Active,
+       COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL AND u.AccountEnabled = 1 THEN 1 END) AS ActiveLicensed,
+       COUNT(CASE WHEN a.L > 0 AND a.PU > 0 AND ld.UserKey IS NOT NULL AND u.AccountEnabled = 1 THEN 1 END) AS PremiumLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn,
        ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled, ISNULL(SUM(CAST(a.W AS BIGINT)), 0) AS Web
@@ -275,14 +284,18 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
                     SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
-SELECT {expr} AS Name, COUNT(*) AS People, COUNT(ld.UserKey) AS Licensed,
-       COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
+SELECT {expr} AS Name, COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND du.AccountEnabled = 1 THEN 1 END) AS Licensed,
+       COUNT(CASE WHEN a.I > 0 AND du.AccountEnabled = 1 THEN 1 END) AS Active,
+       COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL AND du.AccountEnabled = 1 THEN 1 END) AS ActiveLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN act AS a ON a.UserKey = du.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
-WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1
+/* Everyone with use is in a group, so the groups' use adds up to the total (3.1.3): a person disabled or gone
+   from the directory since counts in no group's people, and their use stays in the group the directory last gave them. */
+WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR a.UserKey IS NOT NULL
 GROUP BY {expr};", c.Args());
     }
 

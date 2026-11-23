@@ -153,10 +153,31 @@ public sealed record Bucket(DateTime Key, string Label, bool Partial);
 /// </summary>
 public sealed class ReportContext
 {
-    public static readonly int[] DayChoices = [7, 14, 30, 90, 180, 365];
+    /// <summary>The period choice that means every day with data, from the first record to the last complete day (3.1.3).</summary>
+    public const int AllData = 0;
+
+    /// <summary>The periods every report offers: 7 days to two years, and all the data there is (3.1.3: 730 and All data).</summary>
+    public static readonly int[] DayChoices = [7, 14, 30, 90, 180, 365, 730, AllData];
+
+    /// <summary>How a period choice reads in a list: "Last 90 days", or "All data".</summary>
+    public static string ChoiceLabel(int choice) => choice == AllData ? "All data" : $"Last {choice:#,0} days";
 
     public required Viewer Viewer { get; init; }
+
+    /// <summary>
+    /// The days the period covers, start to end: for All data, every day from the first with data. What a query
+    /// counts and divides by; <see cref="Choice"/> is what was chosen.
+    /// </summary>
     public required int Days { get; init; }
+
+    int? _choice;
+    /// <summary>The period as chosen and kept in links: a number of days, or <see cref="AllData"/>.</summary>
+    public int Choice { get => _choice ?? Days; init => _choice = value; }
+
+    public bool IsAllData => Choice == AllData;
+
+    /// <summary>The period in words for a sentence: "the last 90 days", or "all the data, since 14 Aug 2025".</summary>
+    public string PeriodPhrase => IsAllData ? $"all the data, since {Start:d MMM yyyy}" : $"the last {Days:#,0} days";
     public required DateTime Start { get; init; }
     public required DateTime End { get; init; }     // the last complete day with data
 
@@ -251,6 +272,20 @@ public sealed class ReportContext
     public string Scope(string userKeyExpr) =>
         Root is null ? "" : $"JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = {userKeyExpr}";
 
+    /// <summary>
+    /// People counts are of accounts enabled today (3.1.3). A person whose account has since been disabled, or who has
+    /// left and is gone from the directory (no AccountEnabled at all), is not counted among the people, the active, the
+    /// licensed or the adopted, and is not ranked; what they did still counts in every total of interactions, prompts
+    /// and sessions. This is the join that keeps only them, on the given UserKey expression: an inner join to filter
+    /// people (rankings, people-only queries), or with <paramref name="left"/> a left join whose alias is tested by
+    /// <see cref="IsEnabled"/> inside the people counts of a query that also sums use.
+    /// </summary>
+    public static string EnabledJoin(string userKeyExpr, string alias = "en", bool left = false) =>
+        $"{(left ? "LEFT " : "")}JOIN bi.DimUser AS {alias} ON {alias}.UserKey = {userKeyExpr} AND {alias}.AccountEnabled = 1";
+
+    /// <summary>The test of a left <see cref="EnabledJoin"/>: the person's account is enabled today.</summary>
+    public static string IsEnabled(string alias = "en") => $"{alias}.UserKey IS NOT NULL";
+
     /// <summary>The same, for directory people by UPN.</summary>
     public string PersonScope(string upnExpr) =>
         Root is null ? "" : $"JOIN dash.OrgClosure AS psc ON psc.AncestorUpn = @root AND psc.DescendantUpn = {upnExpr}";
@@ -281,7 +316,7 @@ public sealed class ReportContext
 
     public string Url(string path, int? days = null, string? org = null, bool keepOrg = true, string? extra = null)
     {
-        var q = new List<string> { $"d={days ?? Days}" };
+        var q = new List<string> { $"d={days ?? Choice}" };
         var o = org ?? (keepOrg ? Root : null);
         if (o is not null && !(o == Viewer.Upn && !Viewer.OrgWide)) q.Add("org=" + Uri.EscapeDataString(o));
         if (Kept is { } k && string.Equals(path, k.Path, StringComparison.OrdinalIgnoreCase)) q.Add(k.Query);
@@ -336,6 +371,14 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
 SELECT (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today), (SELECT MAX(DateKey) FROM dash.UserDay);", new { today })).Single();
         var end = (completeKey ?? lastKey) is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : ReportContext.Day(today).AddDays(-1);
         DateTime? lastRecord = lastKey is int l ? ReportContext.Day(l) : null;
+        /* All data (3.1.3): from the first day with data to the end, so its days are counted, not taken as chosen. */
+        var choice = days;
+        if (days == ReportContext.AllData)
+        {
+            var firstKey = await db.ScalarAsync<int?>("SELECT MIN(DateKey) FROM dash.UserDay;");
+            var first = firstKey is int f ? ReportContext.Day(f) : end;
+            days = Math.Max(1, (end - first).Days + 1);
+        }
         var start = end.AddDays(-(days - 1));
 
         /* Whose data: whole organization, or a subtree the viewer may see. */
@@ -418,7 +461,7 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
 
         return new ReportContext
         {
-            Viewer = viewer, Days = days, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
+            Viewer = viewer, Days = days, Choice = choice, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
             PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
         };

@@ -386,7 +386,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Settings", new HtmlString(Form("settings",
             Input("OrgTopUpn", "Top of the organization (UPN)", set.GetValueOrDefault("OrgTopUpn"), 34) +
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
-            Select("DefaultDays", "Default period (days)", ReportContext.DayChoices.Select(d => d.ToString()), set.GetValueOrDefault("DefaultDays")) +
+            Select("DefaultDays", "Default period", ReportContext.DayChoices.Select(d => (d.ToString(), ReportContext.ChoiceLabel(d))), set.GetValueOrDefault("DefaultDays")) +
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
             Input("LicenseMonthlyCost", "Copilot license cost a month, after discount", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
@@ -1230,12 +1230,12 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
         var rows = await Db.QueryAsync<Row>($@"
 SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, {(hasChange ? "a.Change" : "CAST(NULL AS NVARCHAR(MAX)) AS Change")}, COUNT(*) OVER () AS TotalRows
 FROM dash.AuditLog AS a
-WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.Kind = @kind)
+WHERE (@days = 0 OR a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME())) AND (@kind IS NULL OR a.Kind = @kind)
   AND (@q IS NULL OR a.Viewer LIKE @q OR a.Page LIKE @q OR a.Detail LIKE @q OR a.Scope LIKE @q)
 {pg.OrderAndPage()};", new { days, kind, q = pg.Like });
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var counts = await Db.QueryAsync<(string Kind, int N, int People)>(
-            "SELECT Kind, COUNT(*), COUNT(DISTINCT Viewer) FROM dash.AuditLog WHERE AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) GROUP BY Kind;", new { days });
+            "SELECT Kind, COUNT(*), COUNT(DISTINCT Viewer) FROM dash.AuditLog WHERE @days = 0 OR AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) GROUP BY Kind;", new { days });
         foreach (var kn in Kinds)
         {
             var c = counts.FirstOrDefault(x => x.Kind == kn);
@@ -1258,7 +1258,7 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
         CsvTable = csv;
         string Link(string label, int dd, string? kk, bool on) =>
             $"<a href=\"{E(Request.Path + $"?d={dd}" + (kk is null ? "" : "&kind=" + kk))}\"{(on ? " class=\"on\"" : "")}>{label}</a>";
-        var periodLinks = string.Join(" · ", ReportContext.DayChoices.Select(x => Link($"{x} days", x, kind, x == days)));
+        var periodLinks = string.Join(" · ", ReportContext.DayChoices.Select(x => Link(x == ReportContext.AllData ? "All" : $"{x:#,0} days", x, kind, x == days)));
         var kindLinks = Link("All", days, null, kind is null) + string.Concat(Kinds.Select(x => " · " + Link(KindName(x, many: true), days, x, x == kind)));
         Panels.Add(new("Entries", new HtmlString($"<p class=\"sub\">Last: {periodLinks}</p><p class=\"sub\">Show: {kindLinks}</p>" +
             pg.Controls(Request, new Dictionary<string, string> { ["new"] = "Newest", ["old"] = "Oldest", ["who"] = "Who" }).Value + t.Render().Value),

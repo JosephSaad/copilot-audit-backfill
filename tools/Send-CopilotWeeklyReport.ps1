@@ -394,10 +394,75 @@ function New-WeeklyChartPng {
 # The email (HTML)
 # ===========================================================================
 
+function Test-GroupCountAll {
+    <# True when Users Enabled counts every group member, disabled accounts included (the dashboard's
+       WeeklyReportGroupCount, Admin > Alerts and digests; 3.1.3). An older procedure has no GroupCount: enabled only. #>
+    param($Meta)
+    $Meta.Table.Columns.Contains('GroupCount') -and -not ($Meta.GroupCount -is [DBNull]) -and [string] $Meta.GroupCount -eq 'All'
+}
+
+function Get-GroupMembersPhrase {
+    <# How Users Enabled counts the groups' members, for the notes. #>
+    param($Meta)
+    if (Test-GroupCountAll $Meta) { 'every member, disabled accounts included,' } else { 'the members whose AD account is enabled' }
+}
+
+function Get-MetaText {
+    <# A text column of the week's row, or '' when it is NULL or an older procedure does not return it. #>
+    param($Meta, [string] $Name)
+    if (-not $Meta.Table.Columns.Contains($Name) -or $Meta.$Name -is [DBNull]) { return '' }
+    ([string] $Meta.$Name).Trim()
+}
+
+function Get-DisabledCallout {
+    <# The warning under the table (3.1.3): which numbers leave out accounts that are disabled or gone, and which keep their use. #>
+    param($Meta)
+    $row1 = if (Test-GroupCountAll $Meta) { 'Users Enabled includes disabled members of the AD groups (set on the dashboard, Admin > Alerts and digests).' }
+            else { 'Users Enabled leaves out members of the AD groups whose account is disabled.' }
+    @(
+        'Disabled accounts and people who have left are counted differently in each row.',
+        "$row1 Active Users leaves out everyone whose AD account is disabled today or who is gone from the directory, even if they used Copilot that week.",
+        'Actions taken and Security Alerts count every interaction of the week, whoever made it: they do not drop when someone leaves or is disabled.',
+        'So the rows answer different questions. Active Users counts people, while actions taken and Security Alerts count interactions, which can include use by people who are no longer counted in Active Users.'
+    )
+}
+
+function Get-ValueDefinition {
+    <# The definitions of the 8 values, one per row and column, with whether accounts that are disabled or gone count. #>
+    param($Meta)
+    $m365Group = Get-MetaText $Meta 'M365Group'; $chatGroup = Get-MetaText $Meta 'ChatGroup'
+    if (-not $m365Group) { $m365Group = 'CopilotLicenseGroup' }
+    if (-not $chatGroup) { $chatGroup = 'CopilotChatGroup' }
+    $day = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
+    $who = if (Test-GroupCountAll $Meta) { 'All members' } else { 'Members with an enabled account' }
+    $disabled1 = if (Test-GroupCountAll $Meta) { 'Counted (dashboard setting)' } else { 'Not counted' }
+    @(
+        [pscustomobject] @{ Metric = 'Number of Users Enabled'; Kind = 'people, from AD'
+            M365 = "$who of $m365Group, nested groups included ($day)."
+            Chat = "$who of $chatGroup, nested groups included ($day)."
+            Disabled = $disabled1 },
+        [pscustomobject] @{ Metric = 'Active Users'; Kind = 'people, from use'
+            M365 = 'People who used Copilot with a Microsoft 365 Copilot license at the time, in the week. Each person once.'
+            Chat = 'People who used Copilot Chat without a license, in the week. Each person once; someone licensed mid-week can be in both columns.'
+            Disabled = 'Not counted' },
+        [pscustomobject] @{ Metric = 'Number of actions taken'; Kind = 'interactions'
+            M365 = 'Interactions made with a license: one per prompt and its answer (one Copilot audit record). Not sessions, not people.'
+            Chat = 'Interactions made without a license, counted the same way.'
+            Disabled = 'Counted: all use' },
+        [pscustomobject] @{ Metric = 'Security Alerts'; Kind = 'interactions'
+            M365 = 'Interactions made with a license that had a jailbreak attempt, a prompt injection or a blocked resource.'
+            Chat = 'The same, for interactions made without a license.'
+            Disabled = 'Counted: all use' }
+    )
+}
+
 function Get-ReportNote {
     <# The lines under the table: what is not counted, and who used Copilot outside the group of their column. #>
     param($Meta)
     $notes = New-Object System.Collections.Generic.List[string]
+    if (Test-GroupCountAll $Meta) {
+        $notes.Add('Users Enabled counts every member of the two AD groups, disabled accounts included, as set on the dashboard (Admin > Alerts and digests).')
+    }
     if ($Meta.GroupsCounted -is [DBNull]) {
         $notes.Add('Users Enabled was not counted this week: the nightly AD load counts the two groups named by CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1, from the night they are set.')
     }
@@ -448,6 +513,27 @@ function New-ReportHtml {
     [void] $sb.Append('</table>')
 
     $n = "$f font-size:12px;color:$($p.Muted);line-height:1.5;"
+    # What each of the 8 numbers is, straight under them, with the rule on disabled accounts first (3.1.3).
+    $callout = Get-DisabledCallout $Meta
+    [void] $sb.Append("<div style=`"$f font-size:13px;line-height:1.5;color:$($p.Text);background:#FFF4CE;border-left:5px solid #E3A400;padding:10px 14px;margin:14px 0 0 0;width:880px;`">")
+    [void] $sb.Append("<b>Read this first: $(ConvertTo-Html5Text $callout[0])</b><br>")
+    [void] $sb.Append(($callout[1..($callout.Count - 1)] | ForEach-Object { ConvertTo-Html5Text $_ }) -join '<br>')
+    [void] $sb.Append('</div>')
+    $dh = "$f font-size:12px;font-weight:700;padding:7px 9px;text-align:left;vertical-align:bottom;background:$($p.SubHead);color:$($p.Text);border:1px solid #ffffff;"
+    $dd = "$f font-size:12px;line-height:1.4;padding:7px 9px;text-align:left;vertical-align:top;border:1px solid #ffffff;"
+    [void] $sb.Append("<div style=`"$f font-size:14px;font-weight:700;color:$($p.Navy);padding:14px 0 6px 0;`">What each number means</div>")
+    [void] $sb.Append("<table cellpadding=`"0`" cellspacing=`"0`" border=`"0`" style=`"border-collapse:collapse;width:908px;`">")
+    [void] $sb.Append("<tr><td style=`"$dh width:170px;`">Row</td><td style=`"$dh width:300px;`">M365 Copilot (with a license)</td><td style=`"$dh width:300px;`">Copilot Chat (without a license)</td><td style=`"$dh width:138px;`">Disabled accounts and leavers</td></tr>")
+    $i = 0
+    foreach ($d in (Get-ValueDefinition $Meta)) {
+        $bg = if ($i % 2 -eq 0) { $p.RowA } else { $p.RowB }
+        $mark = if ($d.Disabled -like 'Not*') { "color:#A4262C;" } else { "color:#107C10;" }
+        [void] $sb.Append("<tr><td style=`"$dd background:$bg;`"><b>$(ConvertTo-Html5Text $d.Metric)</b><br><span style=`"color:$($p.Muted);`">$(ConvertTo-Html5Text $d.Kind)</span></td>")
+        [void] $sb.Append("<td style=`"$dd background:$bg;`">$(ConvertTo-Html5Text $d.M365)</td><td style=`"$dd background:$bg;`">$(ConvertTo-Html5Text $d.Chat)</td>")
+        [void] $sb.Append("<td style=`"$dd background:$bg;font-weight:700;$mark`">$(ConvertTo-Html5Text $d.Disabled)</td></tr>")
+        $i++
+    }
+    [void] $sb.Append('</table>')
     foreach ($note in (Get-ReportNote $Meta)) { [void] $sb.Append("<div style=`"$n padding:6px 0 0 0;`">$(ConvertTo-Html5Text $note)</div>") }
 
     foreach ($key in 'Chat', 'M365') {
@@ -456,12 +542,7 @@ function New-ReportHtml {
         }
     }
 
-    [void] $sb.Append("<div style=`"$n padding:18px 0 0 0;`"><b>How the figures are counted.</b> ")
-    [void] $sb.Append('<b>M365 Copilot</b> is use made with a Microsoft 365 Copilot license at the time; <b>Copilot Chat</b> is use made without one. Only people whose account is enabled today are counted. ')
-    [void] $sb.Append('<b>Users Enabled</b>: the enabled members of each column''s AD group, as the nightly load counted them at the end of the week. ')
-    [void] $sb.Append('<b>Active Users</b>: people who used Copilot in the week. ')
-    [void] $sb.Append('<b>Actions taken</b>: interactions, one for each prompt and its answer. <b>Security Alerts</b>: interactions with a jailbreak attempt, a prompt injection or a blocked resource.')
-    [void] $sb.Append(' An Excel workbook with these figures and the charts is attached.</div>')
+    [void] $sb.Append("<div style=`"$n padding:18px 0 0 0;`">The charts show the same figures for each of the last weeks. An Excel workbook with the figures, the definitions and the charts is attached.</div>")
     [void] $sb.Append('</td></tr></table></body></html>')
     $sb.ToString()
 }
@@ -474,6 +555,18 @@ function New-ReportText {
     $lines.Add(('{0,-26}{1,14}{2,14}' -f '', 'M365 Copilot', 'Copilot Chat'))
     foreach ($r in $Table.Rows) {
         $lines.Add(('{0,-26}{1,14}{2,14}' -f $r.Metric, (Format-Count $r.WeekM365), (Format-Count $r.WeekChat)))
+    }
+    $callout = Get-DisabledCallout $Meta
+    $lines.Add('')
+    $lines.Add("READ THIS FIRST: $($callout[0])")
+    foreach ($c in $callout[1..($callout.Count - 1)]) { $lines.Add("  $c") }
+    $lines.Add('')
+    $lines.Add('WHAT EACH NUMBER MEANS')
+    foreach ($d in (Get-ValueDefinition $Meta)) {
+        $lines.Add('')
+        $lines.Add("$($d.Metric) ($($d.Kind)). Disabled accounts and leavers: $($d.Disabled).")
+        $lines.Add("  M365 Copilot: $($d.M365)")
+        $lines.Add("  Copilot Chat: $($d.Chat)")
     }
     foreach ($note in (Get-ReportNote $Meta)) { $lines.Add(''); $lines.Add($note) }
     $lines.Add('')
@@ -601,7 +694,7 @@ function New-ReportWorkbook {
         $ws.View.ShowGridLines = $false
         $ws.Column(1).Width = 2
         $ws.Column(2).Width = 30
-        for ($c = 3; $c -le 4; $c++) { $ws.Column($c).Width = 18 }
+        for ($c = 3; $c -le 4; $c++) { $ws.Column($c).Width = 34 }
         $through = ([datetime] $Meta.DataThrough).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
         $ws.Cells['B2'].Value = 'Copilot Chat and M365 Copilot: Adoption and Security'
         $ws.Cells['B2'].Style.Font.Size = 15
@@ -646,20 +739,65 @@ function New-ReportWorkbook {
             $b.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $b.Color.SetColor([Drawing.Color]::White)
         }
-        # The lines under the table, as in the email.
+        # Under the table, as in the email: the rule on disabled accounts, then what each of the 8 numbers is (3.1.3).
+        $ws.Column(5).Width = 22
         $row = 12
+        $callout = Get-DisabledCallout $Meta
+        $box = $ws.Cells[$row, 2, ($row + $callout.Count - 1), 5]
+        & $fill $box '#FFF4CE' $p.Text $false
+        $box.Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thick
+        $box.Style.Border.Left.Color.SetColor((& $color '#E3A400'))
+        for ($k = 0; $k -lt $callout.Count; $k++) {
+            $line = $ws.Cells[($row + $k), 2, ($row + $k), 5]
+            $line.Merge = $true
+            $line.Style.WrapText = $true
+            $line.Value = $(if ($k -eq 0) { "Read this first: $($callout[0])" } else { $callout[$k] })
+            $ws.Row($row + $k).Height = $(if ($k -eq 0) { 18 } else { 30 })
+        }
+        $ws.Cells[$row, 2].Style.Font.Bold = $true
+        $row += $callout.Count + 1
+        $ws.Cells[$row, 2].Value = 'What each number means'
+        $ws.Cells[$row, 2].Style.Font.Bold = $true; $ws.Cells[$row, 2].Style.Font.Size = 12
+        $ws.Cells[$row, 2].Style.Font.Color.SetColor((& $color $p.Navy))
+        $row++
+        $defHeads = 'Row', 'M365 Copilot (with a license)', 'Copilot Chat (without a license)', 'Disabled accounts and leavers'
+        for ($c = 0; $c -lt 4; $c++) { $ws.Cells[$row, ($c + 2)].Value = $defHeads[$c] }
+        & $fill $ws.Cells[$row, 2, $row, 5] $p.SubHead $p.Text $true
+        $ws.Cells[$row, 2, $row, 5].Style.WrapText = $true
+        $ws.Row($row).Height = 30
+        $row++; $i = 0
+        foreach ($d in (Get-ValueDefinition $Meta)) {
+            $ws.Cells[$row, 2].Value = "$($d.Metric) ($($d.Kind))"
+            $ws.Cells[$row, 3].Value = $d.M365
+            $ws.Cells[$row, 4].Value = $d.Chat
+            $ws.Cells[$row, 5].Value = $d.Disabled
+            $bg = if ($i % 2 -eq 0) { $p.RowA } else { $p.RowB }
+            & $fill $ws.Cells[$row, 2, $row, 5] $bg $p.Text $false
+            $ws.Cells[$row, 2].Style.Font.Bold = $true
+            $ws.Cells[$row, 5].Style.Font.Bold = $true
+            $ws.Cells[$row, 5].Style.Font.Color.SetColor((& $color $(if ($d.Disabled -like 'Not*') { '#A4262C' } else { '#107C10' })))
+            $ws.Cells[$row, 2, $row, 5].Style.WrapText = $true
+            $ws.Cells[$row, 2, $row, 5].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Top
+            $ws.Row($row).Height = 58
+            $row++; $i++
+        }
+        $row++
         foreach ($note in (Get-ReportNote $Meta)) {
+            $ws.Cells[$row, 2, $row, 5].Merge = $true
             $ws.Cells[$row, 2].Value = $note
+            $ws.Cells[$row, 2].Style.WrapText = $true
             $ws.Cells[$row, 2].Style.Font.Color.SetColor((& $color $p.Muted))
+            $ws.Row($row).Height = 30
             $row++
         }
+        $chartTop = $row + 2
 
         # ---- the two charts: native Excel charts over the Weekly sheet -------
         $specs = @(
-            @{ Name = 'ChatChart'; Prefix = 'Chat'; Title = 'Copilot Chat Enabled vs. Active vs. Actions Taken'; Top = 16
+            @{ Name = 'ChatChart'; Prefix = 'Chat'; Title = 'Copilot Chat Enabled vs. Active vs. Actions Taken'; Top = $chartTop
                Enabled = "H2:H$lastRow"; Active = "I2:I$lastRow"; Actions = "J2:J$lastRow"
                EnabledName = 'Chat Users Enabled'; ActiveName = 'Chat Users Active'; ActionsName = 'Chat Actions Taken' },
-            @{ Name = 'M365Chart'; Prefix = 'M365'; Title = 'M365 Copilot Users Enabled vs. Active vs. Actions Taken'; Top = 39
+            @{ Name = 'M365Chart'; Prefix = 'M365'; Title = 'M365 Copilot Users Enabled vs. Active vs. Actions Taken'; Top = ($chartTop + 23)
                Enabled = "D2:D$lastRow"; Active = "E2:E$lastRow"; Actions = "F2:F$lastRow"
                EnabledName = 'M365 Copilot Users Enabled'; ActiveName = 'M365 Copilot Users Active'; ActionsName = 'M365 Copilot Actions Taken' }
         )
@@ -681,13 +819,14 @@ function New-ReportWorkbook {
 
         # ---- Notes -------------------------------------------------------------
         $groupsDay = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted on ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
+        $members = if (Test-GroupCountAll $Meta) { 'Every member, disabled accounts included,' } else { 'The members whose AD account is enabled' }
         $notes = @(
             @('Week', "Saturday 00:00 to Friday 23:59:59.9999 in the reporting time zone ($($Meta.ReportingTimeZone)): the weeks the dashboard and Power BI model use."),
             @('M365 Copilot', 'Use made with a Microsoft 365 Copilot license at the time of use.'),
             @('Copilot Chat', 'Use made without a Copilot license (including use the license history could not place).'),
-            @('Who is counted', 'Only people whose AD account is enabled today. Accounts since disabled, people who have left and guests are left out.'),
-            @('Users Enabled', "The enabled members of each column's AD group (CopilotLicenseGroup, CopilotChatGroup in copilot-audit.settings.psd1), nested groups included, as the nightly AD load counted them on the last day it ran in the week ($groupsDay). Blank for a week before the groups were counted."),
-            @('Active Users', 'People who used Copilot in the week, with a license (M365 Copilot) or without one (Copilot Chat). Someone licensed part-way through a week can be in both.'),
+            @('Who is counted', 'Active Users counts only people whose AD account is enabled today: accounts since disabled and people who have left are not among them. Actions taken and Security Alerts count all use, theirs included.'),
+            @('Users Enabled', "$members of each column's AD group (CopilotLicenseGroup, CopilotChatGroup in copilot-audit.settings.psd1), nested groups included, as the nightly AD load counted them on the last day it ran in the week ($groupsDay). Blank for a week before the groups were counted."),
+            @('Active Users', 'People whose AD account is enabled today who used Copilot in the week, with a license (M365 Copilot) or without one (Copilot Chat). Someone licensed part-way through a week can be in both.'),
             @('Actions taken', 'Interactions: one for each Copilot audit record, a prompt and its answer. Not sessions.'),
             @('Security Alerts', 'Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource.'),
             @('Data through', "$through. Data is complete when it reaches the Monday after the week: $([bool] $Meta.DataComplete)."),

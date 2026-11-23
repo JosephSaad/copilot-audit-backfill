@@ -772,6 +772,7 @@ USING (VALUES
     ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.'),
     ('ReservationGatePercent', N'95',    N'2.6.8: no more Copilot licenses are bought until this share of the purchase-gate baseline is assigned (Leadership > Copilot reservations).'),
     ('ReservationGateBaseline', NULL,    N'2.6.8: the unassigned Copilot add-on licenses the purchase gate counts from (1,136 in the policy example); empty: no gate.'),
+    ('WeeklyReportGroupCount', N'Enabled', N'3.1.3: the weekly Copilot report''s Number of Users Enabled: Enabled counts the AD groups'' enabled accounts, All every member, disabled accounts included (Admin > Alerts and digests).'),
     ('SeatModel',              N'Leader', N'The Copilot seat record: Leader (the reservation register on Leadership > Copilot reservations) or Governance (the Workbench''s lines of business). The dashboard sets it when it starts; with Governance the nightly run keeps no reservation snapshot.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
@@ -928,7 +929,9 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun'),
                              /* 2.6.6's cost tables and 2.6.9's AI apps: a new install makes the role after their scripts ran. */
                              (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
-                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource'), (N'ActivityUserDay'), (N'DlpDay')) AS v (name)
+                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource'), (N'ActivityUserDay'), (N'DlpDay'),
+                             /* 3.1.3: the weekly report's AD groups, shown on Admin > Alerts and digests. */
+                             (N'ReportGroupDay')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

@@ -6,7 +6,7 @@ namespace CopilotInsights.Infrastructure;
 /// The read-only data API, /api/v1: the dashboard's figures as JSON for other tools (a service
 /// desk, an HR system, a SIEM). Same Windows sign-in, same scope and roles as the pages:
 /// each call needs the section its figures belong to (usage, units and value are Leadership's), named lists the
-/// page's role too, and never in privacy mode. ?d= is the period (7 to 365 days) and ?org= a manager's UPN, as on the pages.
+/// page's role too, and never in privacy mode. ?d= is the period (7 to 730 days, or 0 for all the data) and ?org= a manager's UPN, as on the pages.
 /// Every call is written to the audit log. Off when the ApiEnabled setting is 0.
 /// </summary>
 public static class DataApi

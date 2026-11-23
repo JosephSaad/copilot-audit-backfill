@@ -36,7 +36,7 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
 
         /* Each box offers managers once three letters of a first or a last name are typed (PersonBox): those in the
            viewer's part of the organization with a team that can reach the minimum group size. */
-        var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Days}\"/>" +
+        var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Choice}\"/>" +
                    PersonBox("a", "First manager", a, tip: "Type three letters of the manager's first or last name and choose them from the names offered, or type their sign-in (name@domain). The team is the manager and everyone under them, at any depth.") +
                    PersonBox("b", "Second manager", b, tip: "The manager of the team to set beside the first. The two teams may overlap: one manager can report to the other.") +
                    $"{Button("Compare")}</form>";
@@ -130,7 +130,7 @@ SELECT TOP (2) p.Upn FROM dash.Person AS p {Ctx.PersonScope("p.Upn")} WHERE p.Di
             if (byName.Count == 1) upn = byName[0];
             else if (byName.Count > 1) return (null, $"More than one manager is named {asked}: choose one from the list, which gives each by sign-in.");
         }
-        var c = await S.Contexts.CreateAsync(Viewer, Ctx.Days, upn);
+        var c = await S.Contexts.CreateAsync(Viewer, Ctx.Choice, upn);
         /* What was asked for is not the part the scope covers: not in the directory, outside the viewer's part, or too small. */
         if (c.OrgAsked is not null || !string.Equals(c.Root, upn, StringComparison.OrdinalIgnoreCase))
             return (null, c.OrgWhy switch

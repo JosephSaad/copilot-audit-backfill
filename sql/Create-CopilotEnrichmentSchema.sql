@@ -127,6 +127,9 @@ IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NULL
         LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_ReportGroupDay_Loaded DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT PK_ReportGroupDay PRIMARY KEY (SnapshotDate, Role)
     );
+/* The dashboard shows the latest count (Admin > Alerts and digests); a new install grants it when the dashboard's role is made. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
+    GRANT SELECT ON audit.ReportGroupDay TO CopilotInsightsApp;
 
 /*
     The tenant's license pool, from /subscribedSkus (LicenseAssignment.Read.All),
