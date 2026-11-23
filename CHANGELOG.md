@@ -6,11 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [3.1.3] - 2026-11-21
 
-A run that finds the Copilot database in use now says which session holds it.
+A run that finds the Copilot database in use now says which session holds it, and the weekly report can sign in
+to a mail relay with a user name and password.
 
-**Install over 3.1.2:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`
-and `logs`); the new file is `tools\RunLock.ps1`, which the others load. Nothing in the databases, the dashboard or the
-Workbench changes: no installer run and no new dashboard or worker package is needed.
+**Install over 3.1.2:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+`CopilotWeeklyReport.settings.psd1` and `logs`); the new file is `tools\RunLock.ps1`, which the others load. Nothing in
+the databases, the dashboard or the Workbench changes: no installer run and no new dashboard or worker package is
+needed. For a relay that takes a user name and password, set `SmtpUser` (with `SmtpUseSsl = $true`, usually port 587)
+and run `tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword` once, as docs\WEEKLY-REPORT.md step 3a says.
+
+### Added
+
+- **The weekly report signs in to the relay with a user name and password** (`SmtpUser`), for a relay such as
+  Proofpoint that requires it. The password is never in the settings or the log: `-SaveSmtpPassword` asks for it and
+  saves it beside the settings (`SmtpPasswordPath`), encrypted for the job server (Windows data protection, machine
+  scope), and lets only administrators, SYSTEM and the task's account read the file. A saved password is sent only to
+  the server, port, STARTTLS setting and user name it was saved with: change one and it sends nothing, and says so,
+  until it is saved again. It is not sent without STARTTLS unless `SmtpAllowPasswordWithoutSsl = $true`, and
+  `SmtpUser` with `SmtpUseDefaultCredentials` is refused as ambiguous. Before, the report could sign in only as the
+  task's own Windows account, or not at all.
 
 ### Changed
 
@@ -30,6 +44,11 @@ Workbench changes: no installer run and no new dashboard or worker package is ne
   holder until a DBA grants it. A run started by an administrator shows the holder.
 - Tested against SQL Server 2022: a holder working, a holder idle, no holder, and an account without the permission;
   the integration test checks the installer's, the maintenance tool's, the load's and the CSV import's refusals.
+- The relay password: tested against a test SMTP server requiring AUTH LOGIN (the right password delivers, a wrong one
+  is refused) and each refusal (no saved password, a changed server or port, no STARTTLS, both ways of signing in);
+  Windows data protection itself and `-SaveSmtpPassword`'s file permissions are not tested on Windows yet. Implicit
+  TLS (port 465) is not supported: the relay must offer STARTTLS. A relay that offers only AUTH PLAIN cannot be used:
+  the .NET mail client signs in with LOGIN, NTLM or Kerberos.
 
 ## [3.1.2] - 2026-11-20
 

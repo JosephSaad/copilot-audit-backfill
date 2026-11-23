@@ -12,6 +12,11 @@
     SmtpPort   = 25
     SmtpUseSsl = $false                  # $true: STARTTLS
     SmtpUseDefaultCredentials = $false   # $true: sign in to the relay as the task's account
+    # A relay that takes a user name and password (Proofpoint, say): SmtpUseSsl = $true, SmtpPort = 587, and
+    # SmtpUser set; then save the password once: .\tools\Send-CopilotWeeklyReport.ps1 -SaveSmtpPassword
+    SmtpUser = ''                        # the relay's user name; never the password
+    # SmtpPasswordPath = 'D:\Secrets\CopilotWeeklyReport.smtp-password'   # only if not beside this file
+    # SmtpAllowPasswordWithoutSsl = $true   # only for a relay on a trusted network without STARTTLS
 
     # ---- The message --------------------------------------------------------
     From = 'Copilot Reports <copilot-reports@contoso.com>'

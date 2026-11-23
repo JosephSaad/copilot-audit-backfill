@@ -28,3 +28,8 @@ Modules/
 tools/dev/schema/out/
 tools/dev/ui/ui-audit/
 tools/dev/ui/edge-audit/
+
+# Secrets and local settings written on a job server, never committed (3.1.3)
+CopilotWeeklyReport.smtp-password
+CopilotWeeklyReport.settings.psd1
+github-copilot.token
