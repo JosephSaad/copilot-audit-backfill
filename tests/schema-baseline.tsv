@@ -581,6 +581,16 @@ C	copilot	audit.RawLogRecordShape	U	6	Version	tinyint	1
 C	copilot	audit.RawLogRecordShape	U	7	CopilotLogVersion	varchar(32)	1	
 C	copilot	audit.RawLogRecordShape	U	8	SubjectType	tinyint	1	
 C	copilot	audit.RawLogRecordShape	U	9	AgentVersion	varchar(32)	1	
+C	copilot	audit.ReportGroupDay	U	1	SnapshotDate	date	0	
+C	copilot	audit.ReportGroupDay	U	2	Role	varchar(16)	0	
+C	copilot	audit.ReportGroupDay	U	3	GroupName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupDay	U	4	Members	int	0	
+C	copilot	audit.ReportGroupDay	U	5	EnabledMembers	int	0	
+C	copilot	audit.ReportGroupDay	U	6	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.ReportGroupMember	U	1	Role	varchar(16)	0	
+C	copilot	audit.ReportGroupMember	U	2	GroupName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupMember	U	3	UserPrincipalName	nvarchar(256)	0	
+C	copilot	audit.ReportGroupMember	U	4	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.SessionAppCategory	U	1	App	nvarchar(200)	0	
 C	copilot	audit.SessionAppCategory	U	2	AppCategory	nvarchar(50)	0	
 C	copilot	audit.UserDirectory	U	1	UserPrincipalName	nvarchar(256)	0	
@@ -1940,6 +1950,8 @@ O	copilot	audit.RawLogAccessedResource	U
 O	copilot	audit.RawLogContext	U
 O	copilot	audit.RawLogFlattened	U
 O	copilot	audit.RawLogRecordShape	U
+O	copilot	audit.ReportGroupDay	U
+O	copilot	audit.ReportGroupMember	U
 O	copilot	audit.ReportingTimeZone	FN
 O	copilot	audit.SessionAppCategory	U
 O	copilot	audit.UserDirectory	U

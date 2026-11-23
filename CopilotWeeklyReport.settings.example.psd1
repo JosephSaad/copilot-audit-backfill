@@ -27,7 +27,5 @@
 
     # ---- What ---------------------------------------------------------------
     Weeks       = 13           # weeks in the charts, the reported week included (13 = about 90 days)
-    ChatEnabled = 'AllUsers'   # Copilot Chat users enabled: AllUsers = everyone seen in the audit log since the data starts;
-                               # Unlicensed = only those seen using Copilot without a license
     KeepCopies  = $true        # keep each week's email, charts and workbook under reports\<week ending>
 }

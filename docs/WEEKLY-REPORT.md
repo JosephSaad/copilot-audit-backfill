@@ -4,25 +4,38 @@ An email every Tuesday morning with one table and two charts, and an Excel workb
 
 ## What it sends
 
-**The table**, for the week (Saturday 00:00 to Friday 23:59:59.9999) and for all time, split into two columns:
+**The table**: eight figures for the week (Saturday 00:00 to Friday 23:59:59.9999), in two columns (3.1.3):
 
 | | M365 Copilot | Copilot Chat |
 |---|---|---|
-| **Who** | Use made with a Microsoft 365 Copilot license | Use made without one (and use the license history could not place) |
-| **Number of Users Enabled** | People holding a Copilot license on the week's last day. All time: everyone who has held one | People seen in the Copilot audit log from the first day of data to the week's end (`ChatEnabled = 'AllUsers'`), or only those seen using it without a license (`'Unlicensed'`) |
-| **Active Users** | People who used Copilot with a license in the week and still held one at its end (the dashboard's *Active licensed users*) | People who used Copilot without a license in the week |
-| **Number of actions taken** | Prompts submitted (`SUM(PromptCount)`) | The same, without a license |
+| **Who** | Use made with a Microsoft 365 Copilot license at the time | Use made without one (and use the license history could not place) |
+| **Number of Users Enabled** | The enabled members of the license group (`CopilotLicenseGroup`) | The enabled members of the Chat group (`CopilotChatGroup`) |
+| **Active Users** | People who used Copilot with a license in the week | People who used Copilot without one in the week |
+| **Number of actions taken** | Interactions: one for each Copilot audit record, a prompt and its answer. Not sessions | The same, without a license |
 | **Security Alerts** | Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource (the dashboard's *Security signals*) | The same, without a license |
 
-*All time* runs from the first day of data to the end of the reported week, so the same week run again later gives the same figures.
+**Only enabled accounts are counted.** Every figure leaves out people whose AD account is not enabled today: accounts since disabled, people who have left, and guests.
+
+**Users Enabled comes from two AD groups**, named in `copilot-audit.settings.psd1` (never in code):
+
+```powershell
+    CopilotLicenseGroup = 'CORP\Copilot-M365-License'
+    CopilotChatGroup    = 'CORP\Copilot-Chat'
+```
+
+Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both groups' members, nested groups included, and records each group's count and how many of those accounts are enabled (`audit.ReportGroupDay`). A week takes the count from the last night the load ran in it; the load early on a Saturday closes the week that ended on the Friday. Weeks before the groups were first counted have no Users Enabled: the table says so, and the charts leave a gap.
+
+**The note under the table** names anyone counted in Active Users but not in Users Enabled: people who used Copilot with a license but are not in the license group today, or without a license and not in the Chat group. With licenses assigned through the group, it is the few whose license and group membership are out of step.
+
+**The columns split by license, not by group.** Each interaction counts where the license stood that day, so the two columns add up to all use, past weeks do not change when someone moves group, and nobody is counted twice. Someone licensed part-way through a week can be in both columns' Active Users.
 
 **Two charts**, one point per week for the 13 weeks ending with the reported one (about 90 days, `Weeks` in the settings): *Copilot Chat Enabled vs. Active vs. Actions Taken* and *M365 Copilot Users Enabled vs. Active vs. Actions Taken*. Users enabled and active users are lines on the left axis; actions taken is the shaded area on the right axis. Each week is labeled by the Saturday it starts.
 
-**The workbook** (`Copilot weekly report <week ending>.xlsx`): *Summary* has the table and both charts as native Excel charts that can be edited; *Weekly* has every week's figures, both columns and security alerts included; *Notes* says how each figure is counted.
+**The workbook** (`Copilot weekly report <week ending>.xlsx`): *Summary* has the table, the note under it and both charts as native Excel charts that can be edited; *Weekly* has every week's figures, both columns and security alerts included; *Notes* says how each figure is counted.
 
 **Days are in the reporting time zone** (`audit.ReportingTimeZone()`, the dashboard's), the same days `bi.Calendar` and every report use.
 
-**The figures come from the Copilot database**, not the Microsoft 365 admin center, so they differ from its reports: the admin center counts Copilot Chat *enabled* users from licenses, and counts activity its own way. Within this product they agree with the dashboard and the Power BI model.
+**The figures come from the Copilot database and AD**, not the Microsoft 365 admin center, so they differ from its reports, which count activity their own way.
 
 ## When it sends
 

@@ -216,6 +216,9 @@ function Get-PipelineStep {
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # Where the department is
             if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
+            # 3.1.3: the weekly report's two groups, counted each night for its "Users Enabled"
+            if (Has 'CopilotLicenseGroup') { $a.CopilotLicenseGroup = [string] $Setting.CopilotLicenseGroup }
+            if (Has 'CopilotChatGroup') { $a.CopilotChatGroup = [string] $Setting.CopilotChatGroup }
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' (Drop $a 'UserDirectoryMaxDropPercent')
         }
     }

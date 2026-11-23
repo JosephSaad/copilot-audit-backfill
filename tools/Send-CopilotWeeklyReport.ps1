@@ -110,11 +110,12 @@ function Get-ReportSetting {
         SqlServer = ''; Database = ''; TrustServerCertificate = $null; ConnectionString = ''
         To = @(); Cc = @(); Bcc = @(); SubjectPrefix = 'Copilot weekly report'
         SendDay = 'Tuesday'; SendTime = '08:00'; MaxWaitHours = 24; MaxAttempts = 8
-        Weeks = 13; ChatEnabled = 'AllUsers'; KeepCopies = $true
+        Weeks = 13; KeepCopies = $true
     }
     foreach ($k in @($s.Keys)) { $d[$k] = $s[$k] }
     # 3.1.3: the mail server and From come from the dashboard's Admin > Email; 3.1.2's own settings for them are not read.
-    $script:UnusedMailSettings = @(@('SmtpServer', 'SmtpPort', 'SmtpUseSsl', 'SmtpUseDefaultCredentials', 'From') | Where-Object { $s.Contains($_) })
+    # ChatEnabled likewise: Users Enabled comes from the AD groups the nightly load counts.
+    $script:UnusedMailSettings = @(@('SmtpServer', 'SmtpPort', 'SmtpUseSsl', 'SmtpUseDefaultCredentials', 'From', 'ChatEnabled') | Where-Object { $s.Contains($_) })
 
     # The database comes from the pipeline's own settings when this file leaves it out.
     $main = Join-Path $script:Root 'copilot-audit.settings.psd1'
@@ -127,7 +128,6 @@ function Get-ReportSetting {
     }
     if (-not $d.Database) { $d.Database = 'CopilotAudit' }
     if (-not $d.SqlServer -and -not $d.ConnectionString) { throw 'No SqlServer in the settings, and none in copilot-audit.settings.psd1.' }
-    if (@('AllUsers', 'Unlicensed') -notcontains $d.ChatEnabled) { throw "ChatEnabled must be AllUsers or Unlicensed, not '$($d.ChatEnabled)'." }
     $null = [DayOfWeek] $d.SendDay
     $null = [TimeSpan]::Parse($d.SendTime)
     $d
@@ -216,13 +216,9 @@ $script:Palette = @{
     AreaFill  = '#BCCFE0'   # actions area
     AreaEdge  = '#8FAAC4'
     HeadDark  = '#1F5C7A'   # table header
-    HeadAll   = '#16465E'   # all-time header
     SubHead   = '#BDD7EE'
-    SubHeadAll= '#D6E4F0'
     RowA      = '#DDEBF7'
     RowB      = '#CFE2F3'
-    RowAllA   = '#F2F7FC'
-    RowAllB   = '#E8F0F8'
     Label     = '#24607F'
     Grid      = '#E3E8EE'
     Text      = '#1B1B1B'
@@ -281,9 +277,9 @@ function New-WeeklyChartPng {
 
     $enabledMax = 0.0; $activeMax = 0.0; $actionsMax = 0.0
     foreach ($r in $Weeks.Rows) {
-        $enabledMax = [math]::Max($enabledMax, [double] $r["${Prefix}Enabled"])
+        if (-not ($r["${Prefix}Enabled"] -is [DBNull])) { $enabledMax = [math]::Max($enabledMax, [double] $r["${Prefix}Enabled"]) }
         $activeMax = [math]::Max($activeMax, [double] $r["${Prefix}Active"])
-        $actionsMax = [math]::Max($actionsMax, [double] $r["${Prefix}Prompts"])
+        $actionsMax = [math]::Max($actionsMax, [double] $r["${Prefix}Actions"])
     }
     # Lines in the upper part, the area in the lower part, so their labels stay apart.
     $yMax = Get-NiceMax ([math]::Max($enabledMax, $activeMax) * 1.12)
@@ -369,14 +365,22 @@ function New-WeeklyChartPng {
     # into the X number. As an object the label becomes the point's axis label.
     foreach ($r in $Weeks.Rows) {
         $x = [object] [string] $r['WeekLabel']
-        [void] $sArea.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Prompts"]))
-        [void] $sEnabled.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Enabled"]))
+        [void] $sArea.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Actions"]))
+        # A week before the nightly AD load counted the groups has no Users Enabled: a gap, not a zero.
+        if ($r["${Prefix}Enabled"] -is [DBNull]) {
+            $i = $sEnabled.Points.AddXY($x, [object[]] @([double] 0))
+            $sEnabled.Points[$i].IsEmpty = $true
+        }
+        else { [void] $sEnabled.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Enabled"])) }
         [void] $sActive.Points.AddXY($x, [object[]] @([double] $r["${Prefix}Active"]))
     }
+    $sEnabled.EmptyPointStyle.Color = [Drawing.Color]::Transparent
+    $sEnabled.EmptyPointStyle.MarkerStyle = [System.Windows.Forms.DataVisualization.Charting.MarkerStyle]::None
+    $sEnabled.EmptyPointStyle.IsValueShownAsLabel = $false
     # Only the last week's value is bold and larger: the one the table reports.
     foreach ($s in $sArea, $sEnabled, $sActive) {
         $last = $s.Points[$s.Points.Count - 1]
-        $last.Font = & $font 12 ([Drawing.FontStyle]::Bold)
+        if (-not $last.IsEmpty) { $last.Font = & $font 12 ([Drawing.FontStyle]::Bold) }
     }
 
     [void] $chart.Series.Add($sArea)
@@ -390,20 +394,39 @@ function New-WeeklyChartPng {
 # The email (HTML)
 # ===========================================================================
 
+function Get-ReportNote {
+    <# The lines under the table: what is not counted, and who used Copilot outside the group of their column. #>
+    param($Meta)
+    $notes = New-Object System.Collections.Generic.List[string]
+    if ($Meta.GroupsCounted -is [DBNull]) {
+        $notes.Add('Users Enabled was not counted this week: the nightly AD load counts the two groups named by CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1, from the night they are set.')
+    }
+    if (-not ($Meta.M365OutsideGroup -is [DBNull]) -and [int] $Meta.M365OutsideGroup -gt 0) {
+        $notes.Add(('{0} {1} Copilot with a license this week but {2} not in the Copilot license group today, so {3} in Active Users and not in Users Enabled.' -f `
+            (Format-Count $Meta.M365OutsideGroup), $(if ([int] $Meta.M365OutsideGroup -eq 1) { 'person used' } else { 'people used' }),
+            $(if ([int] $Meta.M365OutsideGroup -eq 1) { 'is' } else { 'are' }), $(if ([int] $Meta.M365OutsideGroup -eq 1) { 'counts' } else { 'count' })))
+    }
+    if (-not ($Meta.ChatOutsideGroup -is [DBNull]) -and [int] $Meta.ChatOutsideGroup -gt 0) {
+        $notes.Add(('{0} {1} Copilot Chat without a license this week but {2} not in the Copilot Chat group today, so {3} in Active Users and not in Users Enabled.' -f `
+            (Format-Count $Meta.ChatOutsideGroup), $(if ([int] $Meta.ChatOutsideGroup -eq 1) { 'person used' } else { 'people used' }),
+            $(if ([int] $Meta.ChatOutsideGroup -eq 1) { 'is' } else { 'are' }), $(if ([int] $Meta.ChatOutsideGroup -eq 1) { 'counts' } else { 'count' })))
+    }
+    , $notes.ToArray()
+}
+
 function New-ReportHtml {
     param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings)
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)
-    $from = ([datetime] $Meta.AllTimeFrom).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
     $through = ([datetime] $Meta.DataThrough).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
     $zone = ConvertTo-Html5Text ([string] $Meta.ReportingTimeZone)
 
     $sb = New-Object System.Text.StringBuilder
     [void] $sb.Append("<!DOCTYPE html><html><head><meta charset=`"utf-8`"></head><body style=`"margin:0;padding:0;background:#ffffff;`">")
     [void] $sb.Append("<table role=`"presentation`" cellpadding=`"0`" cellspacing=`"0`" border=`"0`" width=`"920`" style=`"$f color:$($p.Text);`"><tr><td style=`"padding:16px 10px;`">")
-    [void] $sb.Append("<div style=`"$f font-size:20px;font-weight:700;color:$($p.Navy);`">Weekly vs. All Time: Copilot Chat and M365 Copilot Adoption and Security</div>")
-    [void] $sb.Append("<div style=`"$f font-size:13px;color:$($p.Muted);padding:4px 0 14px 0;`">Week of $weekLabel (Saturday to Friday, $zone). All time since $from. Data through $through.</div>")
+    [void] $sb.Append("<div style=`"$f font-size:20px;font-weight:700;color:$($p.Navy);`">Copilot Chat and M365 Copilot: Adoption and Security</div>")
+    [void] $sb.Append("<div style=`"$f font-size:13px;color:$($p.Muted);padding:4px 0 14px 0;`">Week of $weekLabel (Saturday to Friday, $zone). Data through $through.</div>")
 
     foreach ($w in $Warnings) {
         [void] $sb.Append("<div style=`"$f font-size:13px;background:#FFF4CE;border-left:4px solid #E3A400;padding:8px 12px;margin:0 0 12px 0;`">$(ConvertTo-Html5Text $w)</div>")
@@ -411,22 +434,21 @@ function New-ReportHtml {
 
     $th = "$f font-size:14px;font-weight:700;padding:9px 12px;text-align:center;border:1px solid #ffffff;"
     $td = "$f font-size:15px;padding:9px 12px;text-align:center;border:1px solid #ffffff;"
-    [void] $sb.Append("<table cellpadding=`"0`" cellspacing=`"0`" border=`"0`" style=`"border-collapse:collapse;width:900px;`">")
-    [void] $sb.Append("<tr><td rowspan=`"2`" style=`"$th background:$($p.HeadDark);width:250px;`"></td>")
-    [void] $sb.Append("<td colspan=`"2`" style=`"$th background:$($p.HeadDark);color:#ffffff;font-size:16px;`">Week of $weekLabel</td>")
-    [void] $sb.Append("<td colspan=`"2`" style=`"$th background:$($p.HeadAll);color:#ffffff;font-size:16px;`">All time since $from</td></tr>")
-    [void] $sb.Append("<tr><td style=`"$th background:$($p.SubHead);color:$($p.Text);`">M365 Copilot</td><td style=`"$th background:$($p.SubHead);color:$($p.Text);`">Copilot Chat</td>")
-    [void] $sb.Append("<td style=`"$th background:$($p.SubHeadAll);color:$($p.Text);`">M365 Copilot</td><td style=`"$th background:$($p.SubHeadAll);color:$($p.Text);`">Copilot Chat</td></tr>")
+    [void] $sb.Append("<table cellpadding=`"0`" cellspacing=`"0`" border=`"0`" style=`"border-collapse:collapse;width:640px;`">")
+    [void] $sb.Append("<tr><td rowspan=`"2`" style=`"$th background:$($p.HeadDark);width:260px;`"></td>")
+    [void] $sb.Append("<td colspan=`"2`" style=`"$th background:$($p.HeadDark);color:#ffffff;font-size:16px;`">Week of $weekLabel</td></tr>")
+    [void] $sb.Append("<tr><td style=`"$th background:$($p.SubHead);color:$($p.Text);`">M365 Copilot</td><td style=`"$th background:$($p.SubHead);color:$($p.Text);`">Copilot Chat</td></tr>")
     $i = 0
     foreach ($r in $Table.Rows) {
         $bg = if ($i % 2 -eq 0) { $p.RowA } else { $p.RowB }
-        $bgAll = if ($i % 2 -eq 0) { $p.RowAllA } else { $p.RowAllB }
         [void] $sb.Append("<tr><td style=`"$td background:$($p.Label);color:#ffffff;text-align:left;font-size:15px;`">$(ConvertTo-Html5Text ([string] $r.Metric))</td>")
-        [void] $sb.Append("<td style=`"$td background:$bg;font-weight:600;`">$(Format-Count $r.WeekM365)</td><td style=`"$td background:$bg;font-weight:600;`">$(Format-Count $r.WeekChat)</td>")
-        [void] $sb.Append("<td style=`"$td background:$bgAll;`">$(Format-Count $r.AllTimeM365)</td><td style=`"$td background:$bgAll;`">$(Format-Count $r.AllTimeChat)</td></tr>")
+        [void] $sb.Append("<td style=`"$td background:$bg;font-weight:600;`">$(Format-Count $r.WeekM365)</td><td style=`"$td background:$bg;font-weight:600;`">$(Format-Count $r.WeekChat)</td></tr>")
         $i++
     }
     [void] $sb.Append('</table>')
+
+    $n = "$f font-size:12px;color:$($p.Muted);line-height:1.5;"
+    foreach ($note in (Get-ReportNote $Meta)) { [void] $sb.Append("<div style=`"$n padding:6px 0 0 0;`">$(ConvertTo-Html5Text $note)</div>") }
 
     foreach ($key in 'Chat', 'M365') {
         if ($Images -and $Images.ContainsKey($key)) {
@@ -434,14 +456,11 @@ function New-ReportHtml {
         }
     }
 
-    $n = "$f font-size:12px;color:$($p.Muted);line-height:1.5;"
     [void] $sb.Append("<div style=`"$n padding:18px 0 0 0;`"><b>How the figures are counted.</b> ")
-    [void] $sb.Append('<b>M365 Copilot</b> is use made with a Microsoft 365 Copilot license; <b>Copilot Chat</b> is use made without one. ')
-    [void] $sb.Append('<b>Users enabled</b>: M365 Copilot, people holding a Copilot license on the week''s last day (all time: everyone who held one); ')
-    if ($Meta.ChatEnabledScope -eq 'Unlicensed') { [void] $sb.Append('Copilot Chat, people seen using Copilot without a license since the data starts. ') }
-    else { [void] $sb.Append('Copilot Chat, people seen in the Copilot audit log since the data starts. ') }
-    [void] $sb.Append('<b>Active users</b>: people who used Copilot in the week (M365 Copilot: with a license they still held at the week''s end). ')
-    [void] $sb.Append('<b>Actions taken</b>: prompts submitted. <b>Security alerts</b>: interactions with a jailbreak attempt, a prompt injection or a blocked resource.')
+    [void] $sb.Append('<b>M365 Copilot</b> is use made with a Microsoft 365 Copilot license at the time; <b>Copilot Chat</b> is use made without one. Only people whose account is enabled today are counted. ')
+    [void] $sb.Append('<b>Users Enabled</b>: the enabled members of each column''s AD group, as the nightly load counted them at the end of the week. ')
+    [void] $sb.Append('<b>Active Users</b>: people who used Copilot in the week. ')
+    [void] $sb.Append('<b>Actions taken</b>: interactions, one for each prompt and its answer. <b>Security Alerts</b>: interactions with a jailbreak attempt, a prompt injection or a blocked resource.')
     [void] $sb.Append(' An Excel workbook with these figures and the charts is attached.</div>')
     [void] $sb.Append('</td></tr></table></body></html>')
     $sb.ToString()
@@ -452,10 +471,11 @@ function New-ReportText {
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Copilot weekly report, week of $($Meta.WeekLabel)")
     $lines.Add('')
-    $lines.Add(('{0,-26}{1,14}{2,14}{3,16}{4,16}' -f '', 'M365 Copilot', 'Copilot Chat', 'M365 (all time)', 'Chat (all time)'))
+    $lines.Add(('{0,-26}{1,14}{2,14}' -f '', 'M365 Copilot', 'Copilot Chat'))
     foreach ($r in $Table.Rows) {
-        $lines.Add(('{0,-26}{1,14}{2,14}{3,16}{4,16}' -f $r.Metric, (Format-Count $r.WeekM365), (Format-Count $r.WeekChat), (Format-Count $r.AllTimeM365), (Format-Count $r.AllTimeChat)))
+        $lines.Add(('{0,-26}{1,14}{2,14}' -f $r.Metric, (Format-Count $r.WeekM365), (Format-Count $r.WeekChat)))
     }
+    foreach ($note in (Get-ReportNote $Meta)) { $lines.Add(''); $lines.Add($note) }
     $lines.Add('')
     $lines.Add('The charts and the workbook are in the HTML version of this message.')
     $lines -join "`r`n"
@@ -553,8 +573,8 @@ function New-ReportWorkbook {
         $heads = 'Week of', 'Week start', 'Week ending',
                  'M365 Copilot users enabled', 'M365 Copilot active users', 'M365 Copilot actions taken', 'M365 Copilot security alerts',
                  'Copilot Chat users enabled', 'Copilot Chat active users', 'Copilot Chat actions taken', 'Copilot Chat security alerts'
-        $cols = 'WeekLabel', 'WeekStart', 'WeekEnding', 'M365Enabled', 'M365Active', 'M365Prompts', 'M365Signals',
-                'ChatEnabled', 'ChatActive', 'ChatPrompts', 'ChatSignals'
+        $cols = 'WeekLabel', 'WeekStart', 'WeekEnding', 'M365Enabled', 'M365Active', 'M365Actions', 'M365Signals',
+                'ChatEnabled', 'ChatActive', 'ChatActions', 'ChatSignals'
         for ($c = 0; $c -lt $heads.Count; $c++) { $wd.Cells[1, ($c + 1)].Value = $heads[$c] }
         $row = 2
         foreach ($r in $Weeks.Rows) {
@@ -581,21 +601,18 @@ function New-ReportWorkbook {
         $ws.View.ShowGridLines = $false
         $ws.Column(1).Width = 2
         $ws.Column(2).Width = 30
-        for ($c = 3; $c -le 6; $c++) { $ws.Column($c).Width = 17 }
-        $from = ([datetime] $Meta.AllTimeFrom).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
+        for ($c = 3; $c -le 4; $c++) { $ws.Column($c).Width = 18 }
         $through = ([datetime] $Meta.DataThrough).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
-        $ws.Cells['B2'].Value = 'Weekly vs. All Time: Copilot Chat and M365 Copilot Adoption and Security'
+        $ws.Cells['B2'].Value = 'Copilot Chat and M365 Copilot: Adoption and Security'
         $ws.Cells['B2'].Style.Font.Size = 15
         $ws.Cells['B2'].Style.Font.Bold = $true
         $ws.Cells['B2'].Style.Font.Color.SetColor((& $color $p.Navy))
-        $ws.Cells['B3'].Value = "Week of $($Meta.WeekLabel) (Saturday to Friday, $($Meta.ReportingTimeZone)). All time since $from. Data through $through."
+        $ws.Cells['B3'].Value = "Week of $($Meta.WeekLabel) (Saturday to Friday, $($Meta.ReportingTimeZone)). Data through $through."
         $ws.Cells['B3'].Style.Font.Color.SetColor((& $color $p.Muted))
 
         $ws.Cells['C5:D5'].Merge = $true; $ws.Cells['C5'].Value = "Week of $($Meta.WeekLabel)"
-        $ws.Cells['E5:F5'].Merge = $true; $ws.Cells['E5'].Value = "All time since $from"
         $ws.Cells['B5:B6'].Merge = $true
         $ws.Cells['C6'].Value = 'M365 Copilot'; $ws.Cells['D6'].Value = 'Copilot Chat'
-        $ws.Cells['E6'].Value = 'M365 Copilot'; $ws.Cells['F6'].Value = 'Copilot Chat'
         $fill = {
             param($range, [string] $hex, [string] $fontHex, [bool] $bold)
             $range.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
@@ -605,50 +622,53 @@ function New-ReportWorkbook {
         }
         & $fill $ws.Cells['B5:D5'] $p.HeadDark '#FFFFFF' $true
         & $fill $ws.Cells['B6'] $p.HeadDark '#FFFFFF' $true
-        & $fill $ws.Cells['E5:F5'] $p.HeadAll '#FFFFFF' $true
         & $fill $ws.Cells['C6:D6'] $p.SubHead $p.Text $true
-        & $fill $ws.Cells['E6:F6'] $p.SubHeadAll $p.Text $true
-        $ws.Cells['C5:F5'].Style.Font.Size = 12
+        $ws.Cells['C5:D5'].Style.Font.Size = 12
         $row = 7; $i = 0
         foreach ($r in $Table.Rows) {
             $ws.Cells[$row, 2].Value = [string] $r.Metric
-            $ws.Cells[$row, 3].Value = [double] $r.WeekM365
-            $ws.Cells[$row, 4].Value = [double] $r.WeekChat
-            $ws.Cells[$row, 5].Value = [double] $r.AllTimeM365
-            $ws.Cells[$row, 6].Value = [double] $r.AllTimeChat
+            foreach ($pair in @(@(3, $r.WeekM365), @(4, $r.WeekChat))) {
+                $ws.Cells[$row, $pair[0]].Value = $(if ($pair[1] -is [DBNull]) { $null } else { [double] $pair[1] })
+            }
             $bg = if ($i % 2 -eq 0) { $p.RowA } else { $p.RowB }
-            $bgAll = if ($i % 2 -eq 0) { $p.RowAllA } else { $p.RowAllB }
             & $fill $ws.Cells[$row, 2] $p.Label '#FFFFFF' $false
             $ws.Cells[$row, 2].Style.Indent = 1
             & $fill $ws.Cells[$row, 3, $row, 4] $bg $p.Text $true
-            & $fill $ws.Cells[$row, 5, $row, 6] $bgAll $p.Text $false
             $row++; $i++
         }
-        $ws.Cells['C7:F10'].Style.Numberformat.Format = '#,##0'
-        $ws.Cells['C5:F10'].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
-        $ws.Cells['B5:F10'].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
-        $ws.Cells['B7:F10'].Style.Font.Size = 12
+        $ws.Cells['C7:D10'].Style.Numberformat.Format = '#,##0'
+        $ws.Cells['C5:D10'].Style.HorizontalAlignment = [OfficeOpenXml.Style.ExcelHorizontalAlignment]::Center
+        $ws.Cells['B5:D10'].Style.VerticalAlignment = [OfficeOpenXml.Style.ExcelVerticalAlignment]::Center
+        $ws.Cells['B7:D10'].Style.Font.Size = 12
         for ($rr = 5; $rr -le 10; $rr++) { $ws.Row($rr).Height = 24 }
-        $border = $ws.Cells['B5:F10'].Style.Border
+        $border = $ws.Cells['B5:D10'].Style.Border
         foreach ($b in $border.Top, $border.Bottom, $border.Left, $border.Right) {
             $b.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
             $b.Color.SetColor([Drawing.Color]::White)
         }
+        # The lines under the table, as in the email.
+        $row = 12
+        foreach ($note in (Get-ReportNote $Meta)) {
+            $ws.Cells[$row, 2].Value = $note
+            $ws.Cells[$row, 2].Style.Font.Color.SetColor((& $color $p.Muted))
+            $row++
+        }
 
         # ---- the two charts: native Excel charts over the Weekly sheet -------
         $specs = @(
-            @{ Name = 'ChatChart'; Prefix = 'Chat'; Title = 'Copilot Chat Enabled vs. Active vs. Actions Taken'; Top = 12
+            @{ Name = 'ChatChart'; Prefix = 'Chat'; Title = 'Copilot Chat Enabled vs. Active vs. Actions Taken'; Top = 16
                Enabled = "H2:H$lastRow"; Active = "I2:I$lastRow"; Actions = "J2:J$lastRow"
                EnabledName = 'Chat Users Enabled'; ActiveName = 'Chat Users Active'; ActionsName = 'Chat Actions Taken' },
-            @{ Name = 'M365Chart'; Prefix = 'M365'; Title = 'M365 Copilot Users Enabled vs. Active vs. Actions Taken'; Top = 35
+            @{ Name = 'M365Chart'; Prefix = 'M365'; Title = 'M365 Copilot Users Enabled vs. Active vs. Actions Taken'; Top = 39
                Enabled = "D2:D$lastRow"; Active = "E2:E$lastRow"; Actions = "F2:F$lastRow"
                EnabledName = 'M365 Copilot Users Enabled'; ActiveName = 'M365 Copilot Users Active'; ActionsName = 'M365 Copilot Actions Taken' }
         )
         foreach ($sp in $specs) {
             $usersPeak = 0.0; $actionsPeak = 0.0
             foreach ($r in $Weeks.Rows) {
-                $usersPeak = [math]::Max($usersPeak, [math]::Max([double] $r["$($sp.Prefix)Enabled"], [double] $r["$($sp.Prefix)Active"]))
-                $actionsPeak = [math]::Max($actionsPeak, [double] $r["$($sp.Prefix)Prompts"])
+                $usersPeak = [math]::Max($usersPeak, [double] $r["$($sp.Prefix)Active"])
+                if (-not ($r["$($sp.Prefix)Enabled"] -is [DBNull])) { $usersPeak = [math]::Max($usersPeak, [double] $r["$($sp.Prefix)Enabled"]) }
+                $actionsPeak = [math]::Max($actionsPeak, [double] $r["$($sp.Prefix)Actions"])
             }
             $ch = $ws.Drawings.AddChart($sp.Name, [OfficeOpenXml.Drawing.Chart.eChartType]::LineMarkers)
             $ch.SetPosition($sp.Top - 1, 0, 1, 0)
@@ -660,16 +680,16 @@ function New-ReportWorkbook {
         }
 
         # ---- Notes -------------------------------------------------------------
+        $groupsDay = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted on ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
         $notes = @(
             @('Week', "Saturday 00:00 to Friday 23:59:59.9999 in the reporting time zone ($($Meta.ReportingTimeZone)): the weeks the dashboard and Power BI model use."),
-            @('M365 Copilot', 'Use made with a Microsoft 365 Copilot license, at the time of use.'),
+            @('M365 Copilot', 'Use made with a Microsoft 365 Copilot license at the time of use.'),
             @('Copilot Chat', 'Use made without a Copilot license (including use the license history could not place).'),
-            @('Users enabled', 'M365 Copilot: people holding a Copilot license on the last day of the week with license data. All time: everyone who held one.'),
-            @('', $(if ($Meta.ChatEnabledScope -eq 'Unlicensed') { 'Copilot Chat: people seen using Copilot without a license, from the first day of data to the week''s end.' } else { 'Copilot Chat: people seen in the Copilot audit log, from the first day of data to the week''s end.' })),
-            @('Active users', 'M365 Copilot: people who used Copilot with a license in the week and still held one at its end. Copilot Chat: people who used it without a license in the week.'),
-            @('Actions taken', 'Prompts submitted.'),
-            @('Security alerts', 'Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource.'),
-            @('All time', "From $from (the first day of data) to the end of the week, so a report run again later gives the same figures."),
+            @('Who is counted', 'Only people whose AD account is enabled today. Accounts since disabled, people who have left and guests are left out.'),
+            @('Users Enabled', "The enabled members of each column's AD group (CopilotLicenseGroup, CopilotChatGroup in copilot-audit.settings.psd1), nested groups included, as the nightly AD load counted them on the last day it ran in the week ($groupsDay). Blank for a week before the groups were counted."),
+            @('Active Users', 'People who used Copilot in the week, with a license (M365 Copilot) or without one (Copilot Chat). Someone licensed part-way through a week can be in both.'),
+            @('Actions taken', 'Interactions: one for each Copilot audit record, a prompt and its answer. Not sessions.'),
+            @('Security Alerts', 'Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource.'),
             @('Data through', "$through. Data is complete when it reaches the Monday after the week: $([bool] $Meta.DataComplete)."),
             @('Source', 'bi.usp_WeeklyCopilotReport in the Copilot database.')
         )
@@ -884,8 +904,8 @@ try {
     }
 
     # ---- the figures -----------------------------------------------------------
-    $ds = Invoke-ReportQuery $conn 'EXEC bi.usp_WeeklyCopilotReport @WeekEnding = @w, @Weeks = @n, @ChatEnabled = @c;' @{
-        '@w' = $week; '@n' = [int] $setting.Weeks; '@c' = [string] $setting.ChatEnabled }
+    $ds = Invoke-ReportQuery $conn 'EXEC bi.usp_WeeklyCopilotReport @WeekEnding = @w, @Weeks = @n;' @{
+        '@w' = $week; '@n' = [int] $setting.Weeks }
     $meta = $ds.Tables[0].Rows[0]
     $table = $ds.Tables[1]
     $weeks = $ds.Tables[2]
@@ -893,7 +913,7 @@ try {
 
     $warnings = New-Object System.Collections.Generic.List[string]
     if ($script:UnusedMailSettings.Count) {
-        Write-ReportLog "Not read from 3.1.3, and safe to delete from the settings file: $($script:UnusedMailSettings -join ', '). The mail server and From address come from the dashboard (Admin > Email)." 'WARN'
+        Write-ReportLog "Not read from 3.1.3, and safe to delete from the settings file: $($script:UnusedMailSettings -join ', '). The mail server and From address come from the dashboard (Admin > Email), and Users Enabled from the AD groups." 'WARN'
     }
     if (-not $complete) {
         $through = ([datetime] $meta.DataThrough).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)
