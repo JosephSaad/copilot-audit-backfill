@@ -82,7 +82,7 @@ public class Release271Tests
         var page = Source.Read("Pages", "Licensing", "Licensing.cs");
         Assert.Contains("From licenses bought to licenses held", page);
         Assert.Contains("new(\"Plus: Copilot through a suite\", suiteOnly", page);
-        Assert.Contains("var rest = held - assigned - suiteOnly;", page);
+        Assert.Contains("var rest = held + notEnabled - assigned - suiteOnly;", page);   // 3.1.3: licenses on disabled accounts are held too
         Assert.Contains("if (Ctx.Root is not null)", page);   // the tenant's licenses, shown with the whole organization in view
     }
 

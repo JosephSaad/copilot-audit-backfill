@@ -29,6 +29,7 @@ public sealed class Totals
     /* The people counts below are of accounts enabled today (3.1.3); the use totals are everyone's. */
     public int LicensedNow { get; set; }       // holding a license on the last day, enabled accounts (3.1.3)
     public int LicensedNotEnabled { get; set; } // holding one on the last day with the account disabled or gone: seats to reclaim
+    public DateTime? LicensesReadUtc { get; set; } // when the license tool last read who holds a license (3.1.3): the age of LicensedNow
     public int Active { get; set; }            // used Copilot in the period
     public int ActiveLicensed { get; set; }    // used it while licensed
     public int PremiumLicensed { get; set; }   // of those, used Premium features (PremiumUse > 0); the rest used only free features
@@ -153,6 +154,7 @@ SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.A
        (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} WHERE ld.DateKey = @k1) AS LicensedNow,
        (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey", left: true)}
         WHERE ld.DateKey = @k1 AND en.UserKey IS NULL) AS LicensedNotEnabled,
+       (SELECT MAX(cl.UpdatedUtc) FROM audit.CopilotLicense AS cl) AS LicensesReadUtc,
        COUNT(CASE WHEN u.I > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
        COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
        COUNT(CASE WHEN u.L > 0 AND u.PU > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS PremiumLicensed,

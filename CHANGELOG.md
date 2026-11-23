@@ -4,19 +4,85 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.1.3] - 2026-11-21
+## [3.1.3] - 2026-11-23
 
-A run that finds the Copilot database in use now says which session holds it, and the weekly report sends through
-the mail server the dashboard uses.
+The weekly report becomes eight figures, the week only, with each one defined under the table and Users Enabled
+counted from the two AD groups. Every count of people on the dashboard is of accounts enabled today, while
+interaction totals keep everyone's use. Reports gain two-year and All data periods, each assumption behind a cost or
+value names its source, and every page's wording was reviewed. A run that finds the database in use names the
+session holding it, and the weekly report sends through the dashboard's mail server.
 
-**Install over 3.1.2:** replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
-`CopilotWeeklyReport.settings.psd1` and `logs`); the new file is `tools\RunLock.ps1`, which the others load. Nothing in
-the databases, the dashboard or the Workbench changes: no installer run and no new dashboard or worker package is
-needed. Before the next weekly report, check that the dashboard's email works (Admin › Email, *Send a test*) and that
-the job server can reach that server; then `SmtpServer`, `SmtpPort`, `SmtpUseSsl`, `SmtpUseDefaultCredentials` and
-`From` can be deleted from `CopilotWeeklyReport.settings.psd1`.
+**Install over 3.1.2:**
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`); `tools\RunLock.ps1` is new and the others load it.
+2. After step 3 and 4, name the users' AD domain and the two groups on the dashboard (Admin › Directory quality,
+   *Where users and groups are read from*), or add `CopilotLicenseGroup` and `CopilotChatGroup` to
+   `copilot-audit.settings.psd1` beside `TargetDomain`.
+3. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once: it adds `audit.ReportGroupMember`,
+   `audit.ReportGroupDay`, the setting `WeeklyReportGroupCount` and the new `bi.usp_WeeklyCopilotReport`, and grants
+   the dashboard read access to the group counts; nothing in place is removed.
+4. Deploy the dashboard package (`copilot-insights-v3.1.3.zip`). The Workbench worker does not change.
+5. Before the next weekly report, check the dashboard's email (Admin › Email, *Send a test*) and that the job server
+   reaches that server; then `SmtpServer`, `SmtpPort`, `SmtpUseSsl`, `SmtpUseDefaultCredentials`, `From` and
+   `ChatEnabled` can be deleted from `CopilotWeeklyReport.settings.psd1`.
+
+New defaults apply to new installs only (see Changed); an existing install keeps its values.
+
+### Added
+
+- **Two-year and All data periods.** Every report, the digests, extracts and the data API offer the last 730 days
+  and *All data*, from the first day with data. All data stays all the data as more arrives.
+- **Where each assumption comes from.** Leadership › How figures are calculated shows, for each price and
+  assumption, the value it is installed with, why, and a link to the public page it rests on, marked *Published
+  figure*, *Informed by a published figure* or *Estimate: no published figure*. Each figure's *How it is worked out*
+  says the same under each assumption it uses. docs\DASHBOARD.md lists them all.
+- **The users' AD domain, on the dashboard.** Admin › Directory quality › *Where users and groups are read from*
+  names the domain users and groups are read from, and the weekly report's two groups. Every read of users or groups
+  from AD goes to that domain: the nightly load of users, the groups that grant roles or mark non-human accounts,
+  the report's groups, and the dashboard's lookup of who is signed in (which before fell back to the server's own
+  domain when a sign-in name had none). For a dashboard or job server in another domain than the users. A value set
+  there wins over `TargetDomain`, `CopilotLicenseGroup` and `CopilotChatGroup` in `copilot-audit.settings.psd1`, and
+  the nightly run loads the directory when either names a domain.
+- **The weekly report's AD groups.** The nightly AD load records the members of the groups named
+  `CopilotLicenseGroup` and `CopilotChatGroup` (nested groups included) and each day's count, all members and enabled
+  accounts (`audit.ReportGroupMember`, `audit.ReportGroupDay`).
+- **Count disabled group members or not, on the dashboard.** Admin › Alerts and digests › *Weekly Copilot report*
+  chooses whether Users Enabled counts enabled accounts only (the default) or every member, and shows each group's
+  latest count. The nightly load keeps both, so the choice applies to every week already counted.
+- **Past weeks' M365 Copilot Users Enabled is estimated.** For weeks before the groups were first counted, it is the
+  people holding a Microsoft 365 Copilot license on the week's last day, marked *ESTIMATED*; the workbook says, for
+  each week, whether the figure is from the group or the licenses. Copilot Chat has no such history and stays blank.
 
 ### Changed
+
+- **The weekly report is eight figures.** Users Enabled, Active Users, Number of actions taken and Security Alerts,
+  for M365 Copilot (use with a license at the time) and Copilot Chat (use without one), for the week only. Actions
+  taken are interactions, one per Copilot audit record, not sessions. Users Enabled is the two AD groups' count; the
+  all-time columns and `ChatEnabled` are gone.
+- **Each number is defined under the table.** A *Read this first* box says which rows count disabled accounts and
+  people who have left, and a *What each number means* table defines all eight, naming the groups and the day they
+  were counted; in the email, its text version and the workbook. Active Users counts accounts enabled today; actions
+  taken and security alerts count every interaction, whoever made it, so they do not drop when someone leaves.
+- **People are counted only while their account is enabled.** Every count of people on the dashboard (people, people
+  using Copilot, license holders, adoption, ever active, returning, people per app, agent, unit and department) and
+  every ranking of people by use counts only accounts enabled today in AD or Entra. A person disabled since, or gone
+  from the directory, is left out: before, a count of people using Copilot included accounts since disabled.
+  Interactions, prompts, sessions, signals, credits and cost still count everyone's use,
+  and a breakdown's groups still add up to the total. Kept on purpose: Departures, licenses on disabled accounts and
+  the other reclaim lists; security and compliance lists of the people involved in an incident; and seat counts,
+  where a license on a disabled account is still paid for and is shown as *plus N on disabled accounts*.
+- **"Premium licenses today" says when.** It is *Premium licenses*, held on the period's last day, with when the
+  license list was last read. It was the holders on the last day with data, not today.
+- **New defaults, from Microsoft's published figures:** minutes one interaction saves 6 (was 3, Microsoft's
+  Copilot-assisted time for a search or for creating content); what an hour is worth 72 USD (was 50, the Microsoft 365
+  Copilot impact report's default); minimum group size 10 (was 5, the Copilot dashboard's default); unused after 28
+  days (was 30, the Copilot dashboard's window, and adoption's); Power Apps per app 10 USD (was 5: the 5 USD plan is no
+  longer sold). New installs only: an existing install keeps its values, and How figures are calculated shows them as
+  changed from the default.
+- **Wording, page by page.** An adversarial review of every page: terms a reader could misread (interactions,
+  prompts and sessions; active; adoption; Premium and Copilot Chat; signals; the period) are defined where they are
+  used and named the same way everywhere, internal codes are explained or gone, and labels match their notes.
 
 - **"Another run is using CopilotAudit now" names the holder.** The nightly run, the installer, the maintenance
   rebuilds, a load or CSV import run by hand and the dashboard installer's `-GrantDatabaseAccess` each stop when another
@@ -46,6 +112,16 @@ the job server can reach that server; then `SmtpServer`, `SmtpPort`, `SmtpUseSsl
   run ends stopped; the windows it left part-done are resumed by the next run, as before.
 
 ### Known limits
+
+- Tested against SQL Server 2022 with made-up data: every dashboard page with the 30-day, 730-day and All data
+  periods loads without an error; the weekly report's figures match independent queries with each group-count
+  setting, and its estimate for past weeks matches the group count where both exist. Not tested on Windows: the
+  weekly report's charts drawn for the email.
+- The source links were checked by fetching about half of them; the Microsoft Learn, Azure, GitHub Docs, Forrester and
+  OpenAI pages were confirmed only from search results, as the build environment could not open them. Microsoft
+  moves pages: check a link before quoting it.
+- The estimate of past weeks assumes the license group gives the license. Where licenses are also assigned directly,
+  it counts those holders too.
 
 - The nightly task's account usually lacks that permission, so the nightly log names the permission rather than the
   holder until a DBA grants it. A run started by an administrator shows the holder.

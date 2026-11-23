@@ -357,8 +357,8 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
         var defaultDays = await settings.IntAsync("DefaultDays", 30);
         if (!ReportContext.DayChoices.Contains(defaultDays)) defaultDays = 30;
         var days = requestedDays is int dq && ReportContext.DayChoices.Contains(dq) ? dq : defaultDays;
-        var minGroup = await settings.IntAsync("MinGroupSize", 5);
-        var inactive = await settings.IntAsync("InactiveDays", 30);
+        var minGroup = await settings.IntAsync("MinGroupSize", 10);
+        var inactive = await settings.IntAsync("InactiveDays", 28);
         /* Set by an admin, or else found in the org chart by the refresh. */
         var top = await settings.StringAsync("OrgTopUpn") ?? await settings.StringAsync("OrgTopUpnDetected");
 

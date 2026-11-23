@@ -44,8 +44,8 @@ public sealed class AiAppsModel(PageServices s) : InsightsPage(s)
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.AIAppUserDay', N'U') IS NULL THEN 0 WHEN EXISTS (SELECT 1 FROM audit.AIAppUserDay) THEN 2 ELSE 1 END;") is var state && state < 2)
         {
             Notice = state == 0
-                ? "AI app calls cannot be shown yet: install 2.6.9 (Install-CopilotAudit.ps1), then set up the activity database (docs/OPERATIONS.md, AI apps, Power BI and Power Apps)."
-                : "No AI app calls are loaded. They come from the activity database: set ActivityDatabase in the job server's settings, install it with Install-CopilotAudit.ps1 -ActivityDatabase, and load its history with Invoke-CopilotPipeline.ps1 -ActivityHistory.";
+                ? "AI app calls cannot be shown yet. An administrator installs release 2.6.9 or later (Install-CopilotAudit.ps1), then sets up the activity database (docs/OPERATIONS.md, AI apps, Power BI and Power Apps)."
+                : "No AI app calls are loaded. They come from the activity database. An administrator sets ActivityDatabase in the job server's settings, installs it with Install-CopilotAudit.ps1 -ActivityDatabase, and loads its history with Invoke-CopilotPipeline.ps1 -ActivityHistory.";
             if (state == 1 && Viewer.IsAdmin) await ResourceMapAsync([]);
             return;
         }
@@ -75,7 +75,7 @@ SELECT c.Account, SUM(c.Cost) FROM audit.FoundryCostDay AS c
 WHERE c.[Day] BETWEEN @d0 AND @d1 AND NOT EXISTS (SELECT 1 FROM audit.AIAppUserDay AS a WHERE a.[Resource] = c.Account AND a.[Day] BETWEEN @d0 AND @d1)
 GROUP BY c.Account HAVING SUM(c.Cost) > 0 ORDER BY SUM(c.Cost) DESC;", Ctx.Args()) : Task.FromResult(new List<(string Account, decimal Cost)>());
         var deptsTask = Db.QueryAsync<(string Department, int People, long Calls)>(@"
-SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT a.Caller), SUM(CAST(a.Calls AS BIGINT))
+SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN a.Caller END), SUM(CAST(a.Calls AS BIGINT))   -- people enabled today (3.1.3)
 FROM audit.AIAppUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Caller
 WHERE a.CallerKind = 'Person' AND a.[Day] BETWEEN @d0 AND @d1
 GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
@@ -86,12 +86,12 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
         int min = Ctx.MinGroupSize;
         string PeopleText(int n) => n == 0 ? "none" : n >= min ? n.ToString("#,0") : $"fewer than {min}";
 
-        Kpis.Add(new("Calls", Num(calls), "messages recorded: a prompt or a response each"));
-        Kpis.Add(new("Conversations", Num(rows.Sum(r => r.Threads)), "threads, counted on each day they ran"));
+        Kpis.Add(new("Calls", Num(calls), "messages Purview recorded, each a prompt or a response"));
+        Kpis.Add(new("Conversations", Num(rows.Sum(r => r.Threads)), "conversation threads, a thread counted once on each day it ran"));
         Kpis.Add(new("Resources", Num(rows.Count), $"{rows.Count(r => r.Environment == "Production"):#,0} in production"));
         Kpis.Add(new("Without a user identity", Pct(Ratio(unattributed, calls)), "the app called with its own key or identity: no person is recorded", Ratio(unattributed, calls) > 0.5 ? "warn" : null));
-        Kpis.Add(new("People", PeopleText(people), "whose own identity reached a model"));
-        Kpis.Add(new("Failed", Pct(Ratio(failures, calls)), "calls where a resource reached reported a failure", Ratio(failures, calls) > 0.05 ? "warn" : null));
+        Kpis.Add(new("People", PeopleText(people), "whose own identity reached a model in the period, disabled accounts included"));
+        Kpis.Add(new("Failed", Pct(Ratio(failures, calls)), "of calls the resource reported as failed", Ratio(failures, calls) > 0.05 ? "warn" : null));
 
         /* Over time: calls with a person's identity, and without. */
         var trend = await trendTask;
@@ -136,7 +136,7 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
         var shown = depts.Where(d => d.People >= min).OrderByDescending(d => d.Calls).Take(15).ToList();
         var folded = depts.Count(d => d.People < min);
         Panels.Add(new("Departments calling with their own identity", Chart.Bars(shown.Select(d => new Bar(d.Department, d.Calls, Note: $"{d.People:#,0} people")).ToList(), Fmt.Count, "Calls by department"),
-            $"Calls that carried a person's identity, by the department the directory gives them. Departments with fewer than {min} such people are left out" +
+            $"Calls that carried a person's identity, by the department the directory gives them. People here are accounts enabled today; the calls are everyone's. Departments with fewer than {min} such people are left out" +
             (folded > 0 ? $" ({Count(folded, "department")})." : "."), "half"));
 
         if (Viewer.IsAdmin) await ResourceMapAsync(rows.Select(r => r.Resource).ToList());

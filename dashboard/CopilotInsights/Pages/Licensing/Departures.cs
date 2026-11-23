@@ -92,7 +92,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var (past, coming) = (await Db.QueryAsync<(int Past, int Coming)>($"{Cte(ad, entra)} SELECT COUNT(CASE WHEN Past = 1 THEN 1 END), COUNT(CASE WHEN Past = 0 THEN 1 END) FROM x;", args)).Single();
 
         Kpis.Add(new("Past their date", Num(past), "account still enabled, license still held: reclaim now", past > 0 ? "crit" : null));
-        Kpis.Add(new($"Leaving in {ahead} days", Num(coming), "reclaim on the last day"));
+        Kpis.Add(new($"Leaving in the next {ahead} days", Num(coming), "reclaim on the last day"));
         Kpis.Add(new("Leave dates from", (ad is null ? "" : "AD") + (ad is not null && entra is not null ? " and " : "") + (entra is null ? "" : "Entra"),
             entra is null ? "Entra's leave date: run the license tool with -IncludeLeaveDates" : null));
 
@@ -115,7 +115,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
             $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Leaves: the earlier of the account expiry set in AD (read by each directory load) and the leave date in Entra (read by the license tool with -IncludeLeaveDates). " +
-            "Only accounts still enabled: disabled and deleted ones are on Licenses on disabled accounts. The files carry the people past their date only.", "full", CsvUrl()));
+            "Only accounts still enabled: disabled and deleted ones are on Licenses on disabled accounts. The two export files list only the people past their date.", "full", CsvUrl()));
     }
 
     /* Posted, with the anti-forgery token (see LicenseActions.Button). */

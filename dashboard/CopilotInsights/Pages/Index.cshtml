@@ -35,7 +35,7 @@
     }
     @if (Model.Viewer.IsAdmin && Model.OrgTop is null)
     {
-        <div class="denied"><b>Set the top of the organization.</b> Nobody sees the whole organization by level until the CEO's UPN is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
+        <div class="denied"><b>Set the top of the organization.</b> Nobody sees the whole organization by level until the CEO's sign-in (UPN) is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
     }
     var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
     var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);

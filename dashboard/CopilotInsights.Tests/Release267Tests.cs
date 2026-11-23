@@ -36,15 +36,16 @@ public class FigureLinkTests
         Assert.Contains("idle > 0 ? \"crit\" : null, Href: Open(\"/licensing/unused\"),", optimize);   // Then how it is worked out
         Assert.Contains("A(\"Unused licenses\", \"/licensing/unused\", Roles.Licensing)", optimize);
         /* The share in use counts every idle license, new or protected, and links nowhere: it is a percentage. */
-        Assert.Contains("Pct(Ratio(t.LicensedNow - idle, t.LicensedNow)), $\"used in the last {Ctx.InactiveDays} days\"));", licensing);
+        /* 3.1.3: over every seat held, disabled accounts' included, as the idle count includes them. */
+        Assert.Contains("Pct(Ratio(seats - idle, seats)), $\"of all {seats:#,0} held, disabled accounts included, whose holder used Copilot in the last {Ctx.InactiveDays} days\"));", licensing);
     }
 
     [Fact]
     public void Licenses_and_adoption_open_the_page_that_shows_them()
     {
         /* Licenses held today are on Licensing (License pool counts the add-on's seats, which is fewer). */
-        Assert.Contains("used in the period\", Href: Open(\"/licensing\")));", Page("Leadership", "BoardPack.cs"));
-        Assert.Contains("used in the last 30 days\", Href: Open(\"/licensing\")));", Page("Forecasting", "Forecasting.cs"));
+        Assert.Contains("used Copilot with it in the period\", Href: Open(\"/licensing\")));", Page("Leadership", "BoardPack.cs"));
+        Assert.Contains("more on disabled accounts\" : \"\"), Href: Open(\"/licensing\")));", Page("Forecasting", "Forecasting.cs"));
         /* Adoption is on Adoption; Usage by license counts enabled accounts only (80.6% against 80.4% in the demo). */
         Assert.DoesNotContain("Open(\"/adoption/by-license\")", Page("Leadership", "Leadership.cs"));
         Assert.Contains("Points(Adopt(t), Adopt(p)), Href: Open(\"/adoption\")));", Page("Leadership", "BoardPack.cs"));   // the Scorecard folded in

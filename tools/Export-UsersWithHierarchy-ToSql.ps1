@@ -776,9 +776,46 @@ ELSE
 # Main
 # ===========================================================================
 
+function Get-DashboardDirectorySetting {
+    <#
+        The users' AD domain and the weekly report's two groups as set on the dashboard (3.1.3, Admin > User directory):
+        DirectoryDomain, CopilotLicenseGroup and CopilotChatGroup in dash.Setting. A value set there is used instead of
+        the one in copilot-audit.settings.psd1, so the domain can be set where the dashboard runs, which may be another
+        domain than the users'. Empty values, a database without the dashboard, or a read that fails give none.
+    #>
+    param([Parameter(Mandatory)] [string] $ConnectionString)
+    $found = @{}
+    $conn = New-Object System.Data.SqlClient.SqlConnection $ConnectionString
+    try {
+        $conn.Open()
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = @'
+IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL
+    EXEC (N'SELECT Name, LTRIM(RTRIM(Value)) AS Value FROM dash.Setting
+            WHERE Name IN (N''DirectoryDomain'', N''CopilotLicenseGroup'', N''CopilotChatGroup'')
+              AND NULLIF(LTRIM(RTRIM(Value)), N'''') IS NOT NULL;');
+'@
+        $r = $cmd.ExecuteReader()
+        try { while ($r.Read()) { $found[[string] $r['Name']] = [string] $r['Value'] } }
+        finally { $r.Dispose() }
+    }
+    catch { Write-Log "The dashboard's directory settings could not be read, so copilot-audit.settings.psd1's are used: $($_.Exception.Message)" -Level WARN }
+    finally { $conn.Dispose() }
+    $found
+}
+
 function Invoke-Main {
-    if (-not $TargetDomain) { throw 'Specify -TargetDomain: the trusted domain to read users from.' }
     $connStr = New-DirectoryConnectionString
+    # 3.1.3: the dashboard's domain and groups, where set, before the settings file's. Every LDAP search below
+    # (users, role groups, report groups) goes to this domain.
+    $fromDashboard = Get-DashboardDirectorySetting -ConnectionString $connStr
+    if ($fromDashboard.DirectoryDomain) {
+        if ($TargetDomain -and $TargetDomain -ne $fromDashboard.DirectoryDomain) { Write-Log "Domain: $($fromDashboard.DirectoryDomain), as set on the dashboard (the settings file says $TargetDomain)." }
+        $script:TargetDomain = $fromDashboard.DirectoryDomain
+    }
+    if ($fromDashboard.CopilotLicenseGroup) { $script:CopilotLicenseGroup = $fromDashboard.CopilotLicenseGroup }
+    if ($fromDashboard.CopilotChatGroup) { $script:CopilotChatGroup = $fromDashboard.CopilotChatGroup }
+    if (-not $TargetDomain) { throw 'Specify -TargetDomain, or set the users'' domain on the dashboard (Admin > User directory): the trusted domain to read users from.' }
 
     Write-Log "Reading users from $TargetDomain (department from $($DepartmentAttribute -join ', then '))..."
     $script:CountryRenamed = @{}

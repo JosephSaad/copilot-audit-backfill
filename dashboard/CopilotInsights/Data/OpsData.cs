@@ -101,9 +101,13 @@ WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k;", new { k, k0, rank }
     {
         var scope = root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = u.UserKey";
         var rows = await db.QueryAsync<(string Dept, DateTime Day, long N)>($@"
-WITH dept AS (SELECT ISNULL(NULLIF(p.Department, N''), N'(no department)') AS Dept, u.UserKey
-              FROM dash.Person AS p JOIN bi.DimUser AS u ON u.UserPrincipalName = p.Upn {scope} WHERE p.AccountEnabled = 1),
-big AS (SELECT Dept FROM dept GROUP BY Dept HAVING COUNT(*) >= @minPeople)
+/* A department's use is everyone's in it, those since disabled or gone from the directory too (under the department
+   the records last gave them), so it does not drop when they leave; its size, which decides whether it is watched,
+   counts only accounts enabled today (3.1.3). */
+WITH dept AS (SELECT ISNULL(NULLIF(CASE WHEN p.Upn IS NOT NULL THEN p.Department ELSE u.Department END, N''), N'(no department)') AS Dept, u.UserKey,
+                     CASE WHEN u.AccountEnabled = 1 AND p.AccountEnabled = 1 THEN 1 ELSE 0 END AS En
+              FROM bi.DimUser AS u {scope} LEFT JOIN dash.Person AS p ON p.Upn = u.UserPrincipalName),
+big AS (SELECT Dept FROM dept GROUP BY Dept HAVING COUNT(CASE WHEN En = 1 THEN 1 END) >= @minPeople)
 SELECT d.Dept, dd.[Date], SUM(CAST(ud.Interactions AS BIGINT))
 FROM dash.UserDay AS ud JOIN dept AS d ON d.UserKey = ud.UserKey JOIN big ON big.Dept = d.Dept
 JOIN bi.DimDate AS dd ON dd.DateKey = ud.DateKey

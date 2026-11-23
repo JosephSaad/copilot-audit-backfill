@@ -22,7 +22,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
 
     protected override async Task BuildAsync()
     {
-        if (!tenants.Many) { Notice = "This dashboard reports on one tenant. With several (Insights:Tenants), this page compares them."; return; }
+        if (!tenants.Many) { Notice = "This dashboard reports on one tenant, so there is nothing to compare here. An administrator can add tenants in the dashboard's settings (Insights:Tenants)."; return; }
         var here = tenants.Current;
         var rows = new List<Row>();
         try
@@ -48,9 +48,10 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
         var shown = rows.Where(r => r.T is not null).Select(r => (r.Tenant, T: r.T!)).ToList();
         int people = shown.Sum(r => r.T.People), licensed = shown.Sum(r => r.T.LicensedNow), active = shown.Sum(r => r.T.Active), activeLic = shown.Sum(r => r.T.ActiveLicensed);
         Kpis.Add(new("Tenants included", $"{shown.Count} of {rows.Count}", "tenants whose whole organization you see"));
-        Kpis.Add(new("People using Copilot", Num(active), $"of {people:#,0} people"));
-        Kpis.Add(new("Premium licenses today", Num(licensed), "across the tenants included"));
-        Kpis.Add(new("Adoption", Pct(Ratio(activeLic, licensed)), "licensed people who used it"));
+        Kpis.Add(new("People using Copilot", Num(active), $"had an interaction in the period, of {people:#,0} people"));
+        var read = shown.Select(r => r.T.LicensesReadUtc).Where(d => d is not null).DefaultIfEmpty(null).Min();
+        Kpis.Add(new("Premium licenses", Num(licensed), $"across the tenants included; license lists read {When(read, "never")}{(shown.Count > 1 ? " (the oldest)" : "")}"));
+        Kpis.Add(new("Adoption", Pct(Ratio(activeLic, licensed)), "of Premium license holders used Copilot with the license in the period"));
         if (shown.Count > 0)
             Panels.Add(new("Adoption by tenant", Chart.Bars(shown.Select(r => new Bar(r.Tenant, Ratio(r.T.ActiveLicensed, r.T.LicensedNow),
                 $"?tenant={Uri.EscapeDataString(r.Tenant)}", $"{r.T.ActiveLicensed:#,0} of {r.T.LicensedNow:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by tenant", 1),
@@ -62,6 +63,6 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                 : [new Link(r.Tenant, $"?tenant={Uri.EscapeDataString(r.Tenant)}"), r.T.People, r.T.LicensedNow, r.T.Active, Pct(Ratio(r.T.ActiveLicensed, r.T.LicensedNow)), r.T.Interactions, r.T.ActiveLast7]);
         if (shown.Count > 1) { tb.Rows.Add(["Group", people, licensed, active, Pct(Ratio(activeLic, licensed)), shown.Sum(r => r.T.Interactions), shown.Sum(r => r.T.ActiveLast7)]); tb.KeepLast = 1; }
         CsvTable = tb;
-        Panels.Add(new("Every tenant", tb.Render(), "Each tenant's figures come from its own database, for its own last complete day.", "full", CsvUrl()));
+        Panels.Add(new("Every tenant", tb.Render(), "Each tenant's figures come from its own database, for its own last complete day. People counts are of accounts enabled today; interactions include use by people since disabled or departed. Used Copilot in the last 7 days: the 7 days to the period's end.", "full", CsvUrl()));
     }
 }

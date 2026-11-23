@@ -18,7 +18,7 @@ public sealed class SwapModel(PageServices s) : InsightsPage(s)
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override string? OwnWindow => "the last 30 days";
-    public override string Intro => "Idle Copilot licenses paired with the people who want one, in the same part of the organization: take the license from the first, give it to the second, and no new seat is bought.";
+    public override string Intro => "Copilot licenses with no Premium use in the last 30 days, each paired with someone without a license who uses Copilot Chat often, in the same part of the organization: take the license from the first, give it to the second, and no new seat is bought.";
 
     internal static readonly Dictionary<string, (string Label, string Sql)> Within = new()
     {
@@ -64,7 +64,7 @@ t AS (SELECT {Within[within].Sql} AS Unit, du.UserKey, du.DisplayName, du.UserPr
       FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
       LEFT JOIN lic ON lic.UserKey = du.UserKey
       JOIN a ON a.UserKey = du.UserKey
-      WHERE {ActionsModel.Kinds["upgrade"].Where} AND ISNULL(du.AccountEnabled, 1) = 1)";
+      WHERE {ActionsModel.Kinds["upgrade"].Where} AND du.AccountEnabled = 1)";   // 3.1.3: given only to accounts enabled today
 
     /// <summary>
     /// Both sides in one read: the pairs, and each person on either side left over (a row with one side only),
@@ -96,11 +96,11 @@ ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), 
 
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        Kpis.Add(new("Swaps possible", Num(counts.Swaps), $"{Within[within].Label.ToLowerInvariant()}"));
-        Kpis.Add(new($"Not bought a month ({cur})", Num((long)(counts.Swaps * price)), $"{counts.Swaps:#,0} seats at {price:#,0.##}",
-            Why: await WhyAsync($"Idle licenses handed to someone near who wants one ({counts.Swaps:#,0}) × the Copilot license price ({price:#,0.##} {cur}): seats that need not be bought.", "LicenseMonthlyCost", "InactiveDays")));
-        Kpis.Add(new("Idle licenses left over", Num(counts.Idle - counts.Swaps), "nobody near wants one: revoke them (Upgrade, train or revoke)"));
-        Kpis.Add(new("Still wanting a license", Num(counts.Wanting - counts.Swaps), "no idle license near them: a seat to buy, or a wider match"));
+        Kpis.Add(new("Swaps possible", Num(counts.Swaps), $"matched within: {Within[within].Label.ToLowerInvariant()}"));
+        Kpis.Add(new($"Seats not bought, a month ({cur})", Num((long)(counts.Swaps * price)), $"{counts.Swaps:#,0} seats at {price:#,0.##} {cur} a month",
+            Why: await WhyAsync($"Licenses with no Premium use handed to someone nearby who wants one ({counts.Swaps:#,0}) × the Copilot license price ({price:#,0.##} {cur}): seats that need not be bought.", "LicenseMonthlyCost", "InactiveDays")));
+        Kpis.Add(new("Licenses left with no taker", Num(counts.Idle - counts.Swaps), "no Premium use, and nobody nearby wants one: revoke them (Upgrade, train or revoke)"));
+        Kpis.Add(new("Still wanting a license", Num(counts.Wanting - counts.Swaps), "no license to take back nearby: a seat to buy, or a wider match"));
 
         var t = new Table
         {
@@ -108,7 +108,7 @@ ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), 
                        "Take from", "Sign-in", "Licensed since", "Days used, last 30 days", "Last used",
                        "Give to", "Sign-in", "Manager", "Days on free Copilot Chat, last 30 days", "Interactions"],
             Numeric = new HashSet<int> { 4, 9, 10 },
-            EmptyText = "No idle license and person wanting one share a unit: widen the match, or see Upgrade, train or revoke.",
+            EmptyText = "No license to take back and person wanting one share a unit: widen the match, or see Upgrade, train or revoke.",
         };
         foreach (var r in pairs)
             t.Rows.Add([r.Unit, r.GiveName, r.GiveUpn, r.GiveSince?.Date, r.GiveDays, r.GiveLast is null ? "Never" : r.GiveLast.Value.Date,
@@ -124,8 +124,8 @@ ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), 
             $"2. give them out, {Link("give", "bulk", "Entra bulk add members file")} · {Link("give", "script", "PowerShell script")}. " +
             "Both are recorded, so License action outcomes shows whether each change happened.</div>";
         Panels.Add(new("Pairs", new HtmlString($"<p class=\"sub\">Match: {choices}</p>" + await ProtectedNoteAsync() + exports + t.Render().Value),
-            $"Take from: a Copilot license held at least {ActionsModel.RevokeAfterDays} days whose Premium features were not used in the last 30 days (the revoke rule). " +
-            $"Give to: no license, and the free Copilot Chat used on {ActionsModel.UpgradeDays} or more of the last 30 days (the upgrade rule). " +
+            $"Take from: a Copilot license held at least {ActionsModel.RevokeAfterDays} days with no Premium use (Copilot in the apps, or over work content) in the last 30 days (the revoke rule). " +
+            $"Give to: no license, and Copilot Chat used on {ActionsModel.UpgradeDays} or more of the last 30 days (the upgrade rule). " +
             "Within each unit the least-used license goes to the keenest user; people on either side left over are in the figures above.", "full", CsvUrl()));
     }
 

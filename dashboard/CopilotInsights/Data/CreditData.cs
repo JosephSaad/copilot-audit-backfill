@@ -4,7 +4,14 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Data;
 
 /// <summary>One person's use and its estimate, a month.</summary>
-public sealed record CreditPerson(int UserKey, string? Name, string Upn, string? Department, bool Licensed, CreditUse Use, CreditEstimate Month);
+public sealed record CreditPerson(int UserKey, string? Name, string Upn, string? Department, bool Licensed, CreditUse Use, CreditEstimate Month)
+{
+    /// <summary>
+    /// The account is enabled today (3.1.3). Counts of people and rankings of named people take only these; the credits and
+    /// their cost are everyone's, so a total adds up every person here.
+    /// </summary>
+    public bool Enabled { get; init; }
+}
 
 /// <summary>One agent's billed use and its estimate, a month.</summary>
 public sealed record CreditAgent(int AgentKey, string Name, string? Source, int People, CreditUse Use, CreditEstimate Month);
@@ -73,20 +80,21 @@ SELECT 0 AS G, UserKey AS [Key], SUM(I) AS I, SUM(A) AS A, SUM(B) AS B, SUM(BW) 
        MAX(Lic) AS Lic, MAX(AnyBilled) AS People
 FROM #ua GROUP BY UserKey
 UNION ALL
-SELECT 1, AgentKey, SUM(I), SUM(A), SUM(B), SUM(BW), SUM(BA), SUM(R), SUM(M), MAX(Lic), COUNT(CASE WHEN AnyBilled = 1 THEN 1 END)
-FROM #ua GROUP BY AgentKey;", c.Args(), timeout: 300);
+SELECT 1, ua.AgentKey, SUM(ua.I), SUM(ua.A), SUM(ua.B), SUM(ua.BW), SUM(ua.BA), SUM(ua.R), SUM(ua.M), MAX(ua.Lic),
+       COUNT(CASE WHEN ua.AnyBilled = 1 AND {ReportContext.IsEnabled()} THEN 1 END)   -- billed people enabled today (3.1.3); the use is everyone's
+FROM #ua AS ua {ReportContext.EnabledJoin("ua.UserKey", left: true)} GROUP BY ua.AgentKey;", c.Args(), timeout: 300);
         var byUser = all.Where(r => r.G == 0).ToList();
         var byAgent = all.Where(r => r.G == 1 && r.A > 0).ToList();
         static CreditUse Use(Row r) => new(r.I, r.A, r.B, r.BW, r.BA, r.R, r.M / 2);   // MessageCount counts the prompt and the answer
-        var who = (await db.QueryAsync<(int UserKey, string? DisplayName, string UserPrincipalName, string? Department)>(
-                "SELECT UserKey, DisplayName, UserPrincipalName, Department FROM bi.DimUser;")).ToDictionary(u => u.UserKey);
+        var who = (await db.QueryAsync<(int UserKey, string? DisplayName, string UserPrincipalName, string? Department, bool Enabled)>(
+                "SELECT UserKey, DisplayName, UserPrincipalName, Department, CAST(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END AS BIT) FROM bi.DimUser;")).ToDictionary(u => u.UserKey);
         var agents = (await db.QueryAsync<(int AgentKey, string AgentName, string? AgentSource)>("SELECT AgentKey, AgentName, AgentSource FROM dash.Agent;"))
             .GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First());
         var people = byUser.Select(r =>
         {
-            var u = who.TryGetValue(r.Key, out var x) ? x : (r.Key, null, $"(user {r.Key})", null);
+            var u = who.TryGetValue(r.Key, out var x) ? x : (r.Key, null, $"(user {r.Key})", null, false);
             var use = Use(r);
-            return new CreditPerson(r.Key, u.DisplayName, u.UserPrincipalName, u.Department, r.Lic == 1, use, CreditRules.Monthly(CreditRules.Estimate(use, rates), days));
+            return new CreditPerson(r.Key, u.DisplayName, u.UserPrincipalName, u.Department, r.Lic == 1, use, CreditRules.Monthly(CreditRules.Estimate(use, rates), days)) { Enabled = u.Enabled };
         }).ToList();
         var byAgentList = byAgent.Where(r => agents.ContainsKey(r.Key)).Select(r =>
         {

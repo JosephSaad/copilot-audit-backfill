@@ -42,7 +42,7 @@
                 </select>
             }
             <span class="scope-pill">@(!viewer.Admitted ? (viewer.AnyAdmin ? "Admin pages only" : "No access") : viewer.OrgWide ? "Whole organization" : viewer.InDirectory ? (viewer.PeopleBelow > 0 ? $"You and {viewer.PeopleBelow:#,0} people under you" : "Your own use") : "Not in the directory")</span>
-            <button type="button" class="theme" id="theme-toggle" aria-label="Switch light or dark theme">◐</button>
+            <button type="button" class="theme" id="theme-toggle" aria-label="Switch between light and dark theme">◐</button>
             @if (viewer.SignedInWith == CopilotInsights.Infrastructure.SignIn.Entra)
             {
                 <a class="signout" href="/signout">Sign out</a>

@@ -34,13 +34,13 @@ namespace CopilotInsights.Pages.Adoption
                 t.TargetValue > 0 && t.Current is not null ? t.Current / (double)t.TargetValue : null,
                 Note: $"{t.Current:#,0.#}{Unit(t)} of {t.TargetValue:#,0.#}{Unit(t)} by {t.DueDate:d MMM yyyy}; {t.Status}",
                 Slot: t.Status switch { "Met" or "On track" => 3, "Behind" => 5, "Missed" => 6, _ => 1 })).ToList(), Fmt.Percent, "Progress to each target", 1),
-                "The share of the target reached."));
+                "How far each target has come: where it stands now, over its goal."));
             var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Goal", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
             foreach (var t in mine)
                 tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organization", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
                              t.DueDate, new HtmlString($"<span class=\"status-{(t.Status is "Met" or "On track" ? "ok" : t.Status == "Behind" ? "warn" : t.Status == "Missed" ? "bad" : "warn")}\">{E(t.Status)}</span>"), t.Note]);
             CsvTable = tb;
-            Panels.Add(new("Every target", tb.Render(), "Adoption: licensed people who used Copilot, over people licensed. Share active: people who used it, over everyone in the directory. People active: a count.", "full", CsvUrl()));
+            Panels.Add(new("Every target", tb.Render(), "Adoption: licensed people who used Copilot, over people licensed. Share of people active: people who used Copilot, over everyone in the directory. People active: the number of people who used Copilot. People are accounts enabled today. Before it started: where the measure stood when the target was set. Should be by now: where a straight line from there to the goal would be today.", "full", CsvUrl()));
         }
 
         static double? Round(double? v) => v is null ? null : Math.Round(v.Value, 1);
@@ -68,7 +68,7 @@ namespace CopilotInsights.Pages.Adoption
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, CAST(du.LicensedSinceUtc AS DATE) AS Since, du.UserKey
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= @d0 AND du.LicensedSinceUtc < DATEADD(DAY, 1, @d1) AND ISNULL(du.AccountEnabled, 1) = 1;
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= @d0 AND du.LicensedSinceUtc < DATEADD(DAY, 1, @d1) AND du.AccountEnabled = 1;   -- enabled today (3.1.3): not departed either
 SELECT c.Dept, DATEDIFF(DAY, c.Since, MIN(d.[Date])) AS Days
 FROM #c AS c
 LEFT JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), c.Since, 112))
@@ -80,7 +80,7 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, cl.Employ
 INTO #h
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = du.UserPrincipalName
-WHERE cl.EmployeeHireDate BETWEEN @d0 AND @d1 AND ISNULL(du.AccountEnabled, 1) = 1;
+WHERE cl.EmployeeHireDate BETWEEN @d0 AND @d1 AND du.AccountEnabled = 1;
 SELECT h.Dept, DATEDIFF(DAY, h.Since, MIN(d.[Date])) AS Days
 FROM #h AS h
 LEFT JOIN dash.UserDay AS ud ON ud.UserKey = h.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), h.Since, 112))
@@ -89,10 +89,10 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
 
             if (licensed.Count == 0 && hired.Count == 0) { Notice = "Nobody was licensed or hired in the period."; return; }
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
-            Kpis.Add(new("Licensed in the period", Num(licensed.Count), "people whose Copilot license began in the period"));
+            Kpis.Add(new("Licensed in the period", Num(licensed.Count), "people whose Copilot license began in the period, with the account enabled today"));
             Kpis.Add(new("Have used it", Num(started.Count), licensed.Count > 0 ? Pct(Ratio(started.Count, licensed.Count)) : null));
             Kpis.Add(new("Median days to first use", started.Count >= Ctx.MinGroupSize ? $"{started[started.Count / 2]}" : "—", "from the license"));
-            Kpis.Add(new("Not started yet", Num(licensed.Count - started.Count), null, licensed.Count - started.Count > 0 ? "warn" : null));
+            Kpis.Add(new("Not started yet", Num(licensed.Count - started.Count), "licensed in the period, no interaction since", licensed.Count - started.Count > 0 ? "warn" : null));
 
             List<Bar> Dist(List<Row> rows) => Bands.Select(b => new Bar(b.Label, rows.Count(r => r.Days is int d && d >= b.Lo && d <= b.Hi), Slot: 3))
                 .Append(new Bar("Not yet", rows.Count(r => r.Days is null), Slot: 5)).ToList();
@@ -174,7 +174,7 @@ namespace CopilotInsights.Pages.Leadership
                 Why: await WhyAsync($"Each app's interactions × the minutes one saves there ({v.DefaultMinutes:0.#} unless set for the app) ÷ 60.", "MinutesSavedDefault", "AppMinutes")));
             Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour",
                 Why: await WhyAsync($"Hours saved ({hours:#,0}) × what an hour is worth ({v.HourlyCost:#,0.##} {cur}).", "MinutesSavedDefault", "AppMinutes", "HourlyCost")));
-            Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
+            Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "hours saved in the period, per person with an account enabled today who used Copilot"));
             Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", whole ? $"license cost in the period: {licenseCost:#,0} {cur}" : "choose 30 days or more",
                 Why: await WhyAsync($"Estimated value ({value:#,0} {cur}) ÷ the license cost of the period: each calendar month the period charges, for everyone who held a license on at least one day of it, at the Copilot license price ({months:#,0} license-months × {price:#,0.##} {cur} = {licenseCost:#,0} {cur}). {(whole ? $"The period charges the calendar months whose last day falls inside it ({string.Join(", ", Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Select(m => new DateTime(m / 100, m % 100, 1).ToString("MMM yyyy")))}), each whole." : "No month ends inside a period this short, so none is charged and no return is shown: choose 30 days or more.")}", "HourlyCost", "MinutesSavedDefault", "LicenseMonthlyCost")));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
@@ -196,7 +196,7 @@ namespace CopilotInsights.Pages.Compliance
     {
         public override string Title => "Oversharing hotspots";
         public override string Persona => "Compliance";
-        public override string Intro => "The sites Copilot read from most, by how many people reached them through it, with how much of what it read carried a sensitivity label. A widely reached site with little labeled, or with confidential content, is where to check permissions first.";
+        public override string Intro => "Oversharing is content shared more widely than it should be, which Copilot then finds for anyone who has access. This page lists the SharePoint and OneDrive sites Copilot read from most, by how many people reached them through it, with how much of what it read carried a sensitivity label. A widely reached site with little labeled, or with confidential content, is where to check permissions first.";
 
         sealed class Row
         {
@@ -239,7 +239,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             if (rows.Count == 0) { Notice = "No site was read by Copilot in the period."; return; }
             var wide = rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
             Kpis.Add(new("Sites Copilot read from", Num(rows.Count), "SharePoint and OneDrive sites, the 200 reached by most people"));
-            Kpis.Add(new("Reached by many people", Num(wide.Count), $"{Ctx.MinGroupSize} or more"));
+            Kpis.Add(new("Reached by many people", Num(wide.Count), $"sites {Ctx.MinGroupSize} or more people reached through Copilot"));
             Kpis.Add(new("Of those, mostly unlabeled", Num(wide.Count(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1)), "under 10% of what was read carried a label",
                 wide.Any(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1) ? "warn" : null));
             Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0)), "sites where Copilot was blocked from some of what it tried to read"));
@@ -254,7 +254,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);
             CsvTable = tb;
             Panels.Add(new("Every site (the 200 most reached)", tb.Render(),
-                $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin › Reference data." +
+                $"People are shown only where {Ctx.MinGroupSize} or more reached the site, and include accounts since disabled. Times read: resources Copilot read from the site. Name labels and set their order in Admin › Reference data." +
                 (PrivacyMode ? " Privacy mode is on, so a personal OneDrive is not shown by its address, which names its owner." : ""), "full", CsvUrl()));
         }
 
@@ -332,9 +332,9 @@ namespace CopilotInsights.Pages.Agents
             };
             if (await BuildListAsync(title, note)) return;
             var rows = await Db.QueryAsync<Row>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
+SELECT f.AgentKey, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People   -- people enabled today (3.1.3); interactions everyone's
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
 SELECT a.AgentKey, a.AgentName, a.AgentSource, a.Owner, CAST(CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Named, a.FirstSeenUtc,
@@ -389,11 +389,11 @@ namespace CopilotInsights.Pages.Enablement
         protected override async Task BuildAsync()
         {
             var rows = await Db.QueryAsync<Row>($@"
-/* Attendees and the sessions' dates, in the viewer's scope. */
+/* Attendees and the sessions' dates, in the viewer's scope: accounts enabled today, as the colleagues are (3.1.3). */
 SELECT t.Session, t.AttendedOn, u.UserKey, ISNULL(NULLIF(u.Department, N''), N'(no department)') AS Dept
 INTO #a
 FROM dash.TrainingAttendance AS t
-JOIN bi.DimUser AS u ON u.UserPrincipalName = t.Upn {Ctx.Scope("u.UserKey")}
+JOIN bi.DimUser AS u ON u.UserPrincipalName = t.Upn AND u.AccountEnabled = 1 {Ctx.Scope("u.UserKey")}
 WHERE t.AttendedOn <= DATEADD(DAY, -28, @d1);
 /* Colleagues who did not attend that session: the same departments. */
 SELECT DISTINCT s.Session, s.AttendedOn, u.UserKey
@@ -430,19 +430,19 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
             }
             var effect = shown.Select(r => (r.DaysAfter - r.DaysBefore) - (r.OthersAfter - r.OthersBefore)).ToList();
             Kpis.Add(new("Sessions measured", Num(shown.Count), "with 28 days after them and enough attendees you may see"));
-            Kpis.Add(new("People trained", Num(shown.Sum(r => r.Attendees)), "attendees of the sessions measured"));
+            Kpis.Add(new("People trained", Num(shown.Sum(r => r.Attendees)), "attendees of the sessions measured, with the account enabled today"));
             Kpis.Add(new("Average effect", $"{effect.Average():+0.0;-0.0} days", "active days in 28, against colleagues who did not attend", effect.Average() < 0 ? "warn" : null));
             Panels.Add(new("Effect by session", Chart.Bars(shown.Zip(effect).Select(x => new Bar($"{x.First.Session} ({x.First.AttendedOn:d MMM})", x.Second, Slot: x.Second >= 0 ? 3 : 5)).ToList(),
                 Fmt.Decimal1, "Change in active days against colleagues"), "Active days in the 28 days after, less the 28 before, less the same change for colleagues in the same departments.", "half"));
             var tb = new Table
             {
-                Headers = ["Session", "Date", "Attendees", "Attendees before", "Attendees after", "Colleagues before", "Colleagues after", "Colleagues compared", "Effect (days)"],
+                Headers = ["Session", "Date", "Attendees", "Attendees' active days before", "Attendees' active days after", "Colleagues' active days before", "Colleagues' active days after", "Colleagues compared", "Effect (days)"],
                 Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
             };
             foreach (var (r, e) in shown.Zip(effect))
                 tb.Rows.Add([r.Session, r.AttendedOn, r.Attendees, Math.Round(r.DaysBefore, 1), Math.Round(r.DaysAfter, 1), Math.Round(r.OthersBefore, 1), Math.Round(r.OthersAfter, 1), r.Others, Math.Round(e, 1)]);
             CsvTable = tb;
-            Panels.Add(new("Every session", tb.Render(), $"Before and after: active days per person in the 28 days before the session and the 28 days after it, for the attendees and for colleagues in the same departments who did not attend. Colleagues compared: how many colleagues that is. Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out.", "full", CsvUrl()));
+            Panels.Add(new("Every session", tb.Render(), $"Active days before and after: the average active days per person in the 28 days before the session and the 28 days after it, for the attendees and for colleagues in the same departments who did not attend. Colleagues compared: how many colleagues that is. Effect: the attendees' change less the colleagues' change. People are accounts enabled today. Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out.", "full", CsvUrl()));
         }
     }
 
@@ -493,10 +493,10 @@ SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { pe
             if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();
             Kpis.Add(new("Departments with candidates", Num(rows.Select(r => r.Dept).Distinct().Count()), "with at least one person who used Copilot in the period"));
             Kpis.Add(new("Champion candidates", Num(rows.Count), $"up to {per} per department (Admin › Targets and assumptions)"));
-            var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
+            var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Share of sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);
             CsvTable = tb;
-            Panels.Add(new("Candidates by department", tb.Render(), "Ranked within each department by days active, then by apps used, then by the share of their sessions with a follow-up.", "full", CsvUrl()));
+            Panels.Add(new("Candidates by department", tb.Render(), "Ranked within each department by days active, then by apps used, then by the share of their sessions with a follow-up (a second prompt in the same conversation). Only accounts enabled today are suggested.", "full", CsvUrl()));
         }
     }
 }

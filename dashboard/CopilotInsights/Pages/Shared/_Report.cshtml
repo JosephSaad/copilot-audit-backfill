@@ -178,7 +178,7 @@
                             <ul>
                                 @foreach (var i in why.Inputs)
                                 {
-                                    <li>@i.Label: <b>@i.Value</b>@if (i.Href is not null) {<text> · </text><a href="@i.Href">Change it</a>}</li>
+                                    <li>@i.Label: <b>@i.Value</b>@if (i.Href is not null) {<text> · </text><a href="@i.Href">Change it</a>}@Html.Raw(CopilotInsights.Pages.InsightsPage.BasisHtml(i))</li>
                                 }
                             </ul>
                         }

@@ -17,7 +17,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
     public override string Title => "Budget and renewal";
     public override string Persona => "Forecasting";
     public override bool UsesFilters => false;
-    public override string Intro => "The Copilot contracts (entered by an administrator below), what they cost a month and a year, when each renews, and how many seats to renew: License optimization's right size, less the people a suite covers.";
+    public override string Intro => "The Copilot contracts (entered by an administrator below), what they cost a month and a year, when each renews, and how many seats to renew: License optimization's right size (the licenses that cover forecast use, a spare share and heavy demand), less the people a suite covers.";
 
     sealed class Contract
     {
@@ -58,7 +58,8 @@ SELECT COUNT(DISTINCT du.UserKey)
 FROM dash.CopilotSuiteOnly AS cso
 JOIN bi.DimUser AS du ON du.UserPrincipalName = cso.Upn
 JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
-WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k30 AND @k1 AND ud.Interactions > 0);",
+WHERE du.AccountEnabled = 1   -- as the right size counts its users (3.1.3)
+  AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k30 AND @k1 AND ud.Interactions > 0);",
             whole.Args(new { k30 = ReportContext.Key(whole.End.AddDays(-29)) })) : 0;
 
         int seats = contracts.Sum(c => c.Seats), assigned = pool.Sum(x => x.Consumed), bought = pool.Sum(x => x.Bought);
@@ -70,7 +71,7 @@ WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND
         var spareSeats = (int)Math.Ceiling(basis * (1 + size.SparePercent / 100m)) - basis;
 
         Kpis.Add(new("Seats under contract", Num(seats), contracts.Count == 0 ? "no contracts entered yet" : $"{Count(contracts.Count, "contract")}; the tenant shows {bought:#,0} bought"));
-        Kpis.Add(new("License cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} a year",
+        Kpis.Add(new("License cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} {cur} a year",
             Why: await WhyAsync($"The sum, for each contract below, of its seats × its price a month: {seats:#,0} seats, {monthly:#,0} {cur}. The contracts' own prices, not Admin's license price; How figures are calculated says where they differ.", "LicenseCurrency")));
         Kpis.Add(new("Next renewal", next is null ? "—" : next.RenewalDate.ToString("d MMM yyyy"),
             next is null ? null : $"{next.Name}, in {(next.RenewalDate - DateTime.Today).Days} days", next is not null && (next.RenewalDate - DateTime.Today).Days <= 90 ? "warn" : null));
@@ -86,7 +87,7 @@ WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND
             new("Less: covered by a suite", -suiteActive, Slot: 8),
             new("Seats to renew", keep, Slot: 7),
         ], Fmt.Count, "Seats at renewal"),
-            $"The same figure as License optimization's right size, for the whole tenant, less the suite holders. Today: {(pool.Count > 0 ? assigned : totals.LicensedNow):#,0} add-on seats assigned; " +
+            $"The same figure as License optimization's right size, for the whole tenant, less the suite holders. Today: {(pool.Count > 0 ? assigned : totals.LicensedNow + totals.LicensedNotEnabled):#,0} add-on seats assigned; " +
             $"{counts.GetValueOrDefault("revoke"):#,0} to revoke and {leavers:#,0} on disabled accounts free seats for the {counts.GetValueOrDefault("upgrade"):#,0} ready to upgrade (Upgrade, train or revoke).", "half"));
 
         var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"Cost a month ({cur})", $"Cost a year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
@@ -131,7 +132,7 @@ public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override string Title => "Rollout waves";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "Everyone without a Premium license, in the order to license them: first those who use the free Copilot Chat most (they already rely on it), then those in departments where licensed people use Copilot most. Split into waves of a set size, each with a file to apply it.";
+    public override string Intro => "Everyone without a Premium license, in the order to license them: first those who used Copilot Chat on the most days in the last 30 (they already rely on it), then those in departments where license holders use Copilot most. Split into waves of a set size, each with a file to apply it.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -200,11 +201,11 @@ SELECT {select} FROM c {tail}";
             "GROUP BY (c.[Rank] - 1) / @size + 1 ORDER BY 1;"), Ctx.Args(new { k30, size, dept }));
         var all = waves.Sum(w => w.People);
         /* For every department, the same people Demand for licenses counts, with who uses Copilot Chat and where. */
-        Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them used the free Copilot Chat in the last 30 days",
+        Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them used Copilot Chat in the last 30 days",
             Href: dept is null ? Open("/licensing/demand") : null));
-        Kpis.Add(new("Rollout waves", Num(waves.Count), $"of {size:#,0} people"));
-        Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month", Why: await WhyAsync($"People in a wave ({size:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
-        Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more", Why: await WhyAsync($"People without a license ({all:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
+        Kpis.Add(new("Rollout waves", Num(waves.Count), $"of up to {size:#,0} people each"));
+        Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month in new licenses", Why: await WhyAsync($"People in a wave ({size:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
+        Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more, to license everyone listed", Why: await WhyAsync($"People without a license ({all:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
 
         var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
@@ -314,14 +315,14 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;", Ctx.Args());
         Kpis.Add(new("Changes applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
         Kpis.Add(new("Licenses reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved",
             Why: await WhyAsync($"Licenses taken back after a revoke, leaver or non-human export ({reclaimed:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
-        Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
+        Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of the people licensed through an upgrade or wave export, the share who used Copilot since"));
 
         var t = new Table { Headers = ["Exported", "Action", "Exported by", "People", "Applied", "Share applied", "Used Copilot since", $"Cost change a month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
             t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", "nonhuman" => "Remove from non-human accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
                 b.Kind is "upgrade" or "wave" ? Done(b) * price : -Done(b) * price]);
-        Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a license today; for a revocation, they no longer do. A month: the cost added (positive) or saved (negative) by what has been applied."));
+        Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a license today; for a revocation or reclaim, they no longer do. Cost change a month: the cost added (positive) or saved (negative) by what has been applied."));
 
         var pg = new Paging(Request, PendingSorts, "new");
         var pending = await Db.QueryAsync<(DateTime Day, string Kind, string Upn, string? DisplayName, string? Department, int Total)>(Base + $@"

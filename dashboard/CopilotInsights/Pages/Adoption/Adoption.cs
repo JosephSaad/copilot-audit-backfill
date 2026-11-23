@@ -9,40 +9,40 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Funnel and trend";
     public override string Persona => "Adoption";
-    public override string Intro => "From license to habit: how many licensed people have started, are active now, and go beyond one-off questions.";
+    public override string Intro => "From license to habit: how many Premium license holders (the paid Microsoft 365 Copilot license) have started, used Copilot in the period, and go beyond one-off questions.";
 
     protected override async Task BuildAsync()
     {
         var t = await m.TotalsAsync(Ctx);
         var tr = await m.TrendAsync(Ctx);
         var started = await Db.ScalarAsync<int>($@"
-SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
+SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")}
 WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0);", Ctx.Args());
         var notStarted = await Db.ScalarAsync<int>($"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};", Ctx.Args());
 
         /* The same names as Leadership › Overview: the license is the Premium one, and its use in the period is Adoption. */
-        Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), "people holding a Microsoft 365 Copilot license"));
+        Kpis.Add(new("Premium licenses", Num(t.LicensedNow), "people holding a Microsoft 365 Copilot license; " + LicensesAsOf(t)));
         Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
         /* The list's own count leads to it; the share above is its complement, so it did not appear there. */
         Kpis.Add(new("Licensed, not started", Num(notStarted), "licensed at least 14 days ago, never used Copilot", notStarted > 0 ? "warn" : null, Href: Open("/adoption/not-started")));
-        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used it in the period"));
-        Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people had a session of more than one prompt (prompts less than an hour apart on one day, in any app)"));
+        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used Copilot with it in the period"));
+        Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of people using Copilot in the period had a session of more than one prompt (prompts less than an hour apart on one day, in any app)"));
 
         var stages = new List<Bar>
         {
             new("People", t.People, Note: "enabled accounts in the directory"),
-            new("Premium license holders today", t.LicensedNow, Slot: 1),
+            new("Premium license holders at the period's end", t.LicensedNow, Slot: 1),
             new("License holders who ever used Copilot", started, Slot: 1),
             new("License holders who used it in the period", t.ActiveLicensed, Slot: 1),
-            new("Anyone using Copilot in the last 7 days", t.ActiveLast7, Slot: 1),
-            new("Anyone with a session of several prompts", t.MultiTurnUsers, Slot: 1),
+            new("Anyone using Copilot in the period's last 7 days", t.ActiveLast7, Slot: 1),
+            new("Anyone with a session of several prompts in the period", t.MultiTurnUsers, Slot: 1),
         };
         Panels.Add(new("Adoption funnel", Chart.Bars(stages, Fmt.Count, "Adoption funnel"),
-            "Each bar is a count of people. The first four narrow from everyone to the license holders who used Copilot in the period. The last two count anyone who used Copilot, with a license or on the free Copilot Chat."));
+            "Each bar is a count of people with an enabled account. The first four narrow from everyone to the license holders who used Copilot in the period. The last two count anyone who used Copilot, with a license or on the free Copilot Chat."));
 
         var firsts = await Db.QueryAsync<(DateTime Bucket, int N)>($@"
 WITH f AS (SELECT ud.UserKey, MIN(ud.DateKey) AS FirstKey FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.Interactions > 0 GROUP BY ud.UserKey)
-SELECT {Ctx.BucketSql("d")}, COUNT(*) FROM f JOIN bi.DimDate AS d ON d.DateKey = f.FirstKey
+SELECT {Ctx.BucketSql("d")}, COUNT(*) FROM f {ReportContext.EnabledJoin("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.FirstKey
 WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         Panels.Add(new("People using Copilot for the first time",
@@ -74,7 +74,7 @@ SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
        DATEFROMPARTS(YEAR(du.LicensedSinceUtc), MONTH(du.LicensedSinceUtc), 1) AS Cohort
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1);
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.AccountEnabled = 1 AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1);
 SELECT DISTINCT c.UserKey, DATEDIFF(DAY, c.Since, d.[Date]) / 7 AS K
 INTO #a
 FROM #c AS c JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0
@@ -99,13 +99,13 @@ GROUP BY c.Cohort, k.K;", Ctx.Args());
         Panels.Add(new("Share of each month's new license holders active, week by week",
             Chart.Heatmap(cohortsShown.Select(c => $"{c:MMM yyyy} ({rows.First(r => r.Cohort == c).Size:#,0})").ToList(),
                 Enumerable.Range(1, weeks).Select(k => $"Wk {k}").ToList(), grid, Fmt.Percent, "Cohort retention", 1, unit: "used Copilot that week", column: w => "week " + w[3..] + " after the license"),
-            $"People licensed today, by the month their current license began, over the last 12 months. Each row is one month's new license holders; each column a week after their license began. Empty cells are weeks that have not happened yet for enough of them. Months with fewer than {Ctx.MinGroupSize} people are left out."));
+            $"People licensed today with an enabled account, by the month their current license began, over the last 12 months. Each row is one month's new license holders; each column a week after their license began. Empty cells are weeks that have not happened yet for enough of them. Months with fewer than {Ctx.MinGroupSize} people are left out."));
 
         var ttf = await Db.QueryAsync<(string Bucket, int N)>($@"
 WITH f AS (SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
                   (SELECT MIN(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0) AS FirstKey
            FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-           WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc IS NOT NULL),
+           WHERE du.CopilotLicenseToday = N'Licensed' AND du.AccountEnabled = 1 AND du.LicensedSinceUtc IS NOT NULL),
 g AS (SELECT CASE WHEN FirstKey IS NULL THEN 7
                   ELSE CASE WHEN DATEDIFF(DAY, Since, DATEFROMPARTS(FirstKey / 10000, FirstKey / 100 % 100, FirstKey % 100)) <= 0 THEN 1
                             WHEN DATEDIFF(DAY, Since, DATEFROMPARTS(FirstKey / 10000, FirstKey / 100 % 100, FirstKey % 100)) <= 7 THEN 2
@@ -117,7 +117,7 @@ SELECT CHOOSE(B, N'Same day', N'1-7 days', N'8-14 days', N'15-30 days', N'31-60 
 FROM g GROUP BY B ORDER BY B;", Ctx.Args());
         Panels.Add(new("Time from license to first use",
             Chart.Bars(ttf.Select(t => new Bar(t.Bucket, t.N, Slot: t.Bucket == "Not yet" ? 2 : 1)).ToList(), Fmt.Count, "Time to first use"),
-            "People licensed today, by how long after their license they first used Copilot."));
+            "People licensed today with an enabled account, by how long after their license they first used Copilot."));
     }
 }
 
@@ -125,7 +125,7 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
 {
     public override string Title => "Departments";
     public override string Persona => "Adoption";
-    public override string Intro => "Adoption by department, from Active Directory, and every department, division, country or office ranked against the period before, with the most improved. Groups smaller than the minimum group size are combined, or left out of the ranking.";
+    public override string Intro => "Adoption by department, from Active Directory: the share of Premium license holders who used Copilot with the license in the period. Also every department, division, country or office ranked against the period before, with the most improved. Groups smaller than the minimum group size are combined, or left out of the ranking.";
 
     static readonly string[] RankBy = ["Department", "Division", "Country", "Office"];
 
@@ -153,7 +153,7 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
         }
         var t = new Table
         {
-            Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of everyone using Copilot", "Interactions per active person", "Days active per person"],
+            Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of its people using Copilot", "Interactions per active person", "Days active per person"],
             Numeric = new HashSet<int> { 0, 2, 3, 4, 5, 6, 7, 8 },
         };
         var changes = new List<(string Name, double Points)>();
@@ -182,7 +182,7 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
             return (by, changed, after);
         }
         after.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p>" + t.Render().Value),
-            "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed. Ranked only where the group has at least the minimum group size of people and of licenses.", "full"));
+            "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed. Interactions per active person counts all use, including by people since disabled. Ranked only where the group has at least the minimum group size of people and of licenses.", "full"));
         return (by, changed, after);
     }
 
@@ -226,8 +226,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         string Only(Row r) => Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(r.Department));
         if (ranked.Count > 1)
         {
-            Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot", Href: Only(ranked[0])));
-            Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Only(ranked[^1])));
+            Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot in the period", Href: Only(ranked[0])));
+            Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot in the period", Href: Only(ranked[^1])));
         }
 
         /* One department, or every one (the default). The departments offered are those shown, smaller ones combined. */

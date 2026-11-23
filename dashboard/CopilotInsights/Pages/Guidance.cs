@@ -60,7 +60,7 @@ public static class Guidance
         ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
 
         // Security
-        ["/security"] = new("Watch jailbreak attempts, prompt injection and blocked content.", "Look into a rise, and adjust policy where it clusters."),
+        ["/security"] = new("Watch jailbreak attempts, prompt injection and blocked resources.", "Look into a rise, and adjust policy where it clusters."),
         ["/security/guests"] = new("Watch how guest accounts use Copilot.", "Check the home organizations with signals, and review their access."),
         ["/security/flags"] = new("Triage each flagged interaction.", "Mark each one investigating, closed or a false positive."),
 

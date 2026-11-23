@@ -57,14 +57,18 @@
          records Purview delivers late are in), GroupsCounted (the day the
          groups' count was taken, or NULL), GroupCount ('Enabled' or 'All',
          the count used), M365Group and ChatGroup (the groups' names that
-         day, or NULL), ReportingTimeZone, and the
+         day, or NULL), M365Estimated (1: the week is before the groups were
+         first counted, and M365 Copilot's Users Enabled is the license
+         holders on its last day), GroupsFirstCounted, ReportingTimeZone,
+         and the
          footnote's two counts: M365OutsideGroup (people who used Copilot with
          a license in the week but are not in the license group now) and
          ChatOutsideGroup (people who used it without one and are not in the
          Chat group now); NULL when that group's members were not recorded.
       2. The table: Metric, WeekM365, WeekChat.
       3. The weeks: one row per week, oldest first, ending with this one;
-         WeekLabel is the Saturday it starts (M/d), WeekRange both ends.
+         WeekLabel is the Saturday it starts (M/d), WeekRange both ends;
+         M365Estimated as above, for each week.
 
     Requires SQL Server 2016+ (AT TIME ZONE).
 */
@@ -178,7 +182,8 @@ BEGIN
         ChatActive      INT     NULL,
         ChatActions     BIGINT  NULL,
         ChatSignals     BIGINT  NULL,
-        GroupsCounted   DATE    NULL
+        GroupsCounted   DATE    NULL,
+        M365Estimated   BIT     NOT NULL DEFAULT (0)
     );
 
     INSERT INTO #wk (WeekEnding, WeekStart)
@@ -217,6 +222,26 @@ BEGIN
         EXEC sys.sp_executesql @groupSql;
     END;
 
+    /* Before the nightly load first counted the groups there is no count to show, and AD keeps no history of a
+       group's members. M365 Copilot's is estimated for those weeks (3.1.3) from the people holding a Microsoft 365
+       Copilot license on the week's last day (bi.FactLicensedDay), which the license group gives: enabled accounts
+       only, or every holder, as @GroupCount says. Marked M365Estimated. Copilot Chat has no such history: it stays
+       NULL. A week after the first count that has none (a night the load did not run) is not estimated. */
+    DECLARE @firstCounted DATE;
+    IF @hasGroups = 1
+        EXEC sys.sp_executesql N'SELECT @f = MIN(SnapshotDate) FROM audit.ReportGroupDay WHERE Role = ''CopilotLicense'';',
+            N'@f DATE OUTPUT', @f = @firstCounted OUTPUT;
+    UPDATE w SET
+        M365Enabled   = (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld
+                         JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey
+                         WHERE ld.DateKey = CONVERT(INT, CONVERT(CHAR(8), w.WeekEnding, 112))
+                           AND (@GroupCount = 'All' OR u.AccountEnabled = 1)),
+        M365Estimated = 1
+    FROM #wk AS w
+    WHERE w.GroupsCounted IS NULL
+      AND (@firstCounted IS NULL OR w.WeekEnding < @firstCounted)
+      AND EXISTS (SELECT 1 FROM bi.FactLicensedDay AS x WHERE x.DateKey = CONVERT(INT, CONVERT(CHAR(8), w.WeekEnding, 112)));
+
     /* ---- the footnote: who used Copilot outside the group of their column ---- */
 
     /* The groups' names on the day they were counted, for the definitions under the table. */
@@ -253,6 +278,8 @@ BEGIN
            (SELECT GroupsCounted FROM #wk WHERE WeekEnding = @WeekEnding)    AS GroupsCounted,
            @GroupCount                                                       AS GroupCount,
            @m365Group                                                        AS M365Group,
+           (SELECT M365Estimated FROM #wk WHERE WeekEnding = @WeekEnding)    AS M365Estimated,
+           @firstCounted                                                     AS GroupsFirstCounted,
            @chatGroup                                                        AS ChatGroup,
            @zone                                                             AS ReportingTimeZone,
            @m365Outside                                                      AS M365OutsideGroup,
@@ -277,7 +304,8 @@ BEGIN
            FORMAT(w.WeekStart, 'M/d')                                          AS WeekLabel,   -- the axis label: the Saturday the week starts
            CONCAT(FORMAT(w.WeekStart, 'M/d'), NCHAR(8211), FORMAT(w.WeekEnding, 'M/d')) AS WeekRange,
            w.M365Enabled, w.M365Active, w.M365Actions, w.M365Signals,
-           w.ChatEnabled, w.ChatActive, w.ChatActions, w.ChatSignals
+           w.ChatEnabled, w.ChatActive, w.ChatActions, w.ChatSignals,
+           w.M365Estimated
     FROM #wk AS w
     ORDER BY w.WeekEnding;
 END;

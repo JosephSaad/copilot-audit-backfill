@@ -17,7 +17,7 @@ public sealed class LicenseForCreditsModel(PageServices s, CreditData creditData
     public override string Title => "Better with a license";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "People without a Copilot license whose agent use is paid for in Copilot Credits. Where their credits cost more a month than a license, the license is the cheaper way to pay for the same use, and it adds Copilot in the apps.";
+    public override string Intro => "People without a Microsoft 365 Copilot license whose agent use is billed in Copilot Credits (pay-as-you-go). Where their credits cost more a month than a license, the license is the cheaper way to pay for the same use, and it adds Copilot in the Microsoft 365 apps.";
 
     /* The keys the list sorts by; it is sorted in memory, as the estimate is worked out per person after the read. */
     static readonly Dictionary<string, string> Sorts = new()
@@ -51,7 +51,7 @@ public sealed class LicenseForCreditsModel(PageServices s, CreditData creditData
 SELECT du.UserKey, du.ManagerName, (SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0) AS Days
 FROM bi.DimUser AS du
 WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
-  AND ISNULL(du.AccountEnabled, 1) = 1
+  AND du.AccountEnabled = 1   -- 3.1.3: enabled today; a departed person (no AccountEnabled) is not listed
   AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = @k1);",
             Ctx.Args(new { keys = string.Join(",", billed.Select(p => p.UserKey)) }), timeout: 300)).ToDictionary(w => w.UserKey);
         return (billed.Where(p => who.ContainsKey(p.UserKey)).Select(p => new Row(p, who[p.UserKey].ManagerName, who[p.UserKey].Days)).ToList(), price, v.Currency);
@@ -65,13 +65,13 @@ WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
         var pg = new Paging(Request, Sorts, "credits");
         var cost = rows.Sum(r => r.P.Month.Cost);
         Kpis.Add(new(AllShown ? "Paying in credits" : "Cheaper with a license", Num(rows.Count),
-            AllShown ? "without a license, with billed agent use" : $"credits a month at or over the license's {price:#,0.##} {cur}"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)cost), $"{Num((long)Math.Round(rows.Sum(r => r.P.Month.Credits)))} credits, estimated as Credit use estimates them",
+            AllShown ? "people without a license whose agent use billed credits" : $"people whose credits cost {price:#,0.##} {cur} a month or more, a license's price"));
+        Kpis.Add(new($"Cost of their credits a month ({cur})", Num((long)cost), $"{Num((long)Math.Round(rows.Sum(r => r.P.Month.Credits)))} credits a month, the same estimate as Credit use",
             Href: Open("/licensing/credit-use"),
-            Why: await WhyAsync("Each person's billed agent interactions over the last 30 days × the credits each costs (an answer, plus grounding in work data, plus actions), × the pay-as-you-go credit's price.",
+            Why: await WhyAsync("Each person's billed agent interactions in the period, brought to 30 days, × the credits each costs (an answer, plus grounding in work data, plus actions), × the pay-as-you-go credit's price.",
                 "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
         if (!AllShown)
-            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, cost - rows.Count * price)), $"licensing them instead, at {price:#,0.##} each",
+            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, cost - rows.Count * price)), $"if they were licensed instead, at {price:#,0.##} {cur} a license a month",
                 Why: await WhyAsync($"Their credits a month ({cost:#,0} {cur}) less a license each ({rows.Count:#,0} × {price:#,0.##} {cur}).", "LicenseMonthlyCost", "CreditsPerAnswer", "CreditsPerGrounding", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
 
         IEnumerable<Row> shown = rows;
@@ -112,9 +112,9 @@ WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
             $"<div class=\"sub\">License them: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk add members file")} · " +
             $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {show}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Billed: answers from an agent to people with no Copilot license at the time, or in a Copilot Studio channel; Copilot Chat without an agent is free, so it is not counted. " +
-            "Credits a month: the estimate of Licensing › Credit use, at the rates in Admin › Targets and assumptions, scaled to 30 days; it errs high. " +
-            "Listed: no license today, and an enabled account. Against the license: the cost less the license's; above zero, the license is cheaper.", "full", CsvUrl()));
+            "Billed: answers from an agent to people with no Microsoft 365 Copilot license at the time, or in a Copilot Studio channel; Copilot Chat without an agent costs no credits, so it is not counted. " +
+            "Interactions, billed answers and days used are for the period. Credits a month: the estimate of Licensing › Credit use, at the rates in Admin › Targets and assumptions, brought to 30 days; it errs high. " +
+            "Listed: no license today, and an enabled account. Against the license: the cost a month less a license's price; above zero, the license is cheaper.", "full", CsvUrl()));
     }
     /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);

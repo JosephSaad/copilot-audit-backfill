@@ -9,21 +9,47 @@ An email every Tuesday morning with one table and two charts, and an Excel workb
 | | M365 Copilot | Copilot Chat |
 |---|---|---|
 | **Who** | Use made with a Microsoft 365 Copilot license at the time | Use made without one (and use the license history could not place) |
-| **Number of Users Enabled** | The enabled members of the license group (`CopilotLicenseGroup`) | The enabled members of the Chat group (`CopilotChatGroup`) |
-| **Active Users** | People who used Copilot with a license in the week | People who used Copilot without one in the week |
-| **Number of actions taken** | Interactions: one for each Copilot audit record, a prompt and its answer. Not sessions | The same, without a license |
-| **Security Alerts** | Interactions with a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource (the dashboard's *Security signals*) | The same, without a license |
+| **Number of Users Enabled** | The members of the license group (`CopilotLicenseGroup`): enabled accounts only, or every member, as set on the dashboard | The members of the Chat group (`CopilotChatGroup`), the same way |
+| **Active Users** | People with an account enabled today who used Copilot with a license in the week | The same, without a license |
+| **Number of actions taken** | Interactions made with a license: one for each Copilot audit record, a prompt and its answer, whoever made it. Not sessions, not people | The same, without a license |
+| **Security Alerts** | Interactions made with a license that had a jailbreak attempt, a prompt injection in content Copilot read, or a blocked resource (the dashboard's *Security signals*), whoever made them | The same, without a license |
 
-**Only enabled accounts are counted.** Every figure leaves out people whose AD account is not enabled today: accounts since disabled, people who have left, and guests.
+**Disabled accounts and people who have left are counted differently in each row** (3.1.3), and the report says so in a box under the table, in the email, its text version and the workbook:
 
-**Users Enabled comes from two AD groups**, named in `copilot-audit.settings.psd1` (never in code):
+| Row | Disabled accounts and leavers |
+|---|---|
+| Number of Users Enabled | Not counted, unless the dashboard is set to count every member |
+| Active Users | Not counted: it counts people, and only accounts enabled today |
+| Number of actions taken | Counted: every interaction of the week stays, so it does not drop when someone leaves |
+| Security Alerts | Counted, the same way |
+
+So actions taken can include use by people who are not in Active Users.
+
+**What each number means** is under the box: a table of the 8 values, each with its definition for each column and whether disabled accounts count, naming the two groups and the day they were counted. The workbook's *Summary* sheet has the same, above the charts.
+
+**Counting disabled group members** is a dashboard setting: Admin › Alerts and digests › *Weekly Copilot report*, *Number of Users Enabled counts*: *Enabled accounts only* (the default) or *Every member, disabled accounts included*. The panel also shows each group's latest count: all members, enabled and disabled. The nightly load keeps both counts, so the setting changes every week of the next report, the trend's included. `bi.usp_WeeklyCopilotReport @GroupCount = 'Enabled'` or `'All'` overrides it for one run; the setting is `WeeklyReportGroupCount` in `dash.Setting`.
+
+**Users Enabled comes from two AD groups**, named on the dashboard (Admin › Directory quality › *Where users and groups are read from*, with the users' AD domain), or in `copilot-audit.settings.psd1` (never in code); the dashboard's wins where both are set:
 
 ```powershell
     CopilotLicenseGroup = 'CORP\Copilot-M365-License'
     CopilotChatGroup    = 'CORP\Copilot-Chat'
 ```
 
-Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both groups' members, nested groups included, and records each group's count and how many of those accounts are enabled (`audit.ReportGroupDay`). A week takes the count from the last night the load ran in it; the load early on a Saturday closes the week that ended on the Friday. Weeks before the groups were first counted have no Users Enabled: the table says so, and the charts leave a gap.
+**To check a count against AD**, from any machine with the ActiveDirectory module, name the users' domain with `-Server` on every command: the job server or the dashboard can be in another domain, and without it the commands ask that one. The enabled members of the license group, nested groups included:
+
+```powershell
+$chkDomain = 'users.contoso.com'
+$chkGroup  = 'Copilot-M365-License'
+$chkDn     = (Get-ADGroup -Identity $chkGroup -Server $chkDomain).DistinguishedName
+$chkFilter = "(memberOf:1.2.840.113556.1.4.1941:=$chkDn)"
+$chkUsers  = Get-ADUser -LDAPFilter $chkFilter -Server $chkDomain -ResultSetSize $null
+($chkUsers | Where-Object Enabled).Count
+```
+
+Every member, disabled included, is `$chkUsers.Count`. The filter finds members through nested groups, as the nightly load does; `Get-ADGroupMember -Recursive` stops at 5,000 members by default, which a Copilot Chat group passes. The report's count for a day is the same, taken by the nightly load, which reads AD over LDAP from the same domain.
+
+Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both groups' members, nested groups included, and records each group's count and how many of those accounts are enabled (`audit.ReportGroupDay`). A week takes the count from the last night the load ran in it; the load early on a Saturday closes the week that ended on the Friday. **Weeks before the groups were first counted** (3.1.3): AD keeps no history of a group's members, so M365 Copilot's Users Enabled is estimated for those weeks from the people holding a Microsoft 365 Copilot license on the week's last day, which the license group gives (enabled accounts only, or every holder, as the setting says). The report marks it *ESTIMATED* in the definitions, says how many of the weeks shown are estimated, and the workbook's *Weekly* sheet says for each week whether the figure is from the AD group or estimated from licenses. Copilot Chat has no such history, so its Users Enabled stays blank for those weeks and the chart leaves a gap. A week after the first count with no count (a night the load did not run) is not estimated: it shows blank.
 
 **The note under the table** names anyone counted in Active Users but not in Users Enabled: people who used Copilot with a license but are not in the license group today, or without a license and not in the Chat group. With licenses assigned through the group, it is the few whose license and group membership are out of step.
 
@@ -31,7 +57,7 @@ Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both 
 
 **Two charts**, one point per week for the 13 weeks ending with the reported one (about 90 days, `Weeks` in the settings): *Copilot Chat Enabled vs. Active vs. Actions Taken* and *M365 Copilot Users Enabled vs. Active vs. Actions Taken*. Users enabled and active users are lines on the left axis; actions taken is the shaded area on the right axis. Each week is labeled by the Saturday it starts.
 
-**The workbook** (`Copilot weekly report <week ending>.xlsx`): *Summary* has the table, the note under it and both charts as native Excel charts that can be edited; *Weekly* has every week's figures, both columns and security alerts included; *Notes* says how each figure is counted.
+**The workbook** (`Copilot weekly report <week ending>.xlsx`): *Summary* has the table, the box on disabled accounts, what each number means, the notes and both charts as native Excel charts that can be edited; *Weekly* has every week's figures, both columns and security alerts included, and where each week's M365 Copilot users enabled comes from; *Notes* says how each figure is counted.
 
 **Days are in the reporting time zone** (`audit.ReportingTimeZone()`, the dashboard's), the same days `bi.Calendar` and every report use.
 

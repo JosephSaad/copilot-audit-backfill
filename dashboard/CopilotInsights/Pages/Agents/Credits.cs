@@ -39,9 +39,10 @@ public sealed class CreditsModel(PageServices s, CreditData creditData) : Insigh
         var cur = v.Currency;
         /* Each agent's owner and everyone who used it, billed or not: the estimate counts only the people billed. */
         var more = (await Db.QueryAsync<Row>($@"
-SELECT ag.AgentKey, ag.Owner, COUNT(DISTINCT f.UserKey) AS People
+SELECT ag.AgentKey, ag.Owner, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People   -- enabled accounts (3.1.3)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
+{ReportContext.EnabledJoin("f.UserKey", left: true)}
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.AgentKey).ToDictionary(g => g.Key, g => g.First());
 

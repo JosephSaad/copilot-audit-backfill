@@ -177,8 +177,8 @@ WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash
     /// <summary>Hours saved and their value: interactions by app times the minutes each saves (dash.TimeSaving, else the default).</summary>
     public async Task<(List<ValueRow> ByApp, List<ValueRow> ByDepartment, decimal HourlyCost, decimal DefaultMinutes)> ValueAsync(ReportContext c)
     {
-        var hourly = decimal.TryParse(await settings.StringAsync("HourlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var h) ? h : 50m;
-        var dflt = decimal.TryParse(await settings.StringAsync("MinutesSavedDefault"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var m) ? m : 3m;
+        var hourly = decimal.TryParse(await settings.StringAsync("HourlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var h) ? h : 72m;
+        var dflt = decimal.TryParse(await settings.StringAsync("MinutesSavedDefault"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var m) ? m : 6m;
         var rows = await db.QueryAsync<(string App, string Dept, long N, decimal Minutes)>($@"
 SELECT a.App, ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT_BIG(*), ISNULL(ts.Minutes, @dflt)
 FROM bi.FactInteraction AS f {c.Scope("f.UserKey")}
@@ -192,9 +192,10 @@ GROUP BY a.App, ISNULL(NULLIF(u.Department, N''), N'(no department)'), ts.Minute
             var hours = g.Sum(x => x.N * (double)x.Minutes) / 60;
             return new(g.Key, g.Sum(x => x.N), hours, (decimal)hours * hourly);
         }
-        /* People per department, so a group too small to hide one person can be folded. */
+        /* People per department, so a group too small to hide one person can be folded: accounts enabled today (3.1.3).
+           The hours and their value above are everyone's. */
         var people = (await db.QueryAsync<(string Dept, int People)>($@"
-SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT f.UserKey)
+SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN f.UserKey END)
 FROM bi.FactInteraction AS f {c.Scope("f.UserKey")} JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToDictionary(x => x.Dept, x => x.People);
@@ -240,7 +241,7 @@ WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT COUNT(*) FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey
-WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndKey, d1 = c.End, root = c.Root });
+WHERE {def.Where} AND {Pages.Forecasting.ActionsModel.Enabled(kind)};", new { k30, k1 = c.EndKey, d1 = c.End, root = c.Root });
         return result;
     }
 

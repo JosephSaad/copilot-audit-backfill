@@ -33,16 +33,19 @@ WITH d AS (SELECT f.AppKey, f.UserKey, f.DateKey, COUNT_BIG(*) AS N, SUM(CAST(f.
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey, f.DateKey),
 u AS (SELECT AppKey, UserKey, SUM(N) AS N, SUM(P) AS P, SUM(R) AS R, COUNT(*) AS Days FROM d GROUP BY AppKey, UserKey)
-SELECT a.AppKey, COALESCE(vn.Name, a.App) AS App, a.AppCategory, COUNT(*) AS People, COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning,
+/* People are accounts enabled today (3.1.3); interactions, prompts and resources are everyone's. */
+SELECT a.AppKey, COALESCE(vn.Name, a.App) AS App, a.AppCategory, COUNT(CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN 1 END) AS People,
+       COUNT(CASE WHEN u.Days > 1 AND {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN 1 END) AS Returning,
        SUM(u.N) AS N, SUM(u.P) AS Prompts, SUM(u.R) AS Resources
 FROM u JOIN bi.DimApp AS a ON a.AppKey = u.AppKey
+{CopilotInsights.Infrastructure.ReportContext.EnabledJoin("u.UserKey", left: true)}
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.AppKey, a.App, vn.Name, a.AppCategory;", Ctx.Args());
         var trendTask = Db.QueryAsync<(int AppKey, DateTime Bucket, int People)>($@"
 SELECT f.AppKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", Ctx.Args());
-        var peopleTask = Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
+        var peopleTask = Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
         var activityTask = Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.ActivityUserDay) THEN 1 ELSE 0 END;");
         await Task.WhenAll(rowsTask, trendTask, peopleTask, activityTask);
         var rows = await rowsTask;
@@ -52,16 +55,16 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
         var axis = Labels();
         Kpis.Add(new("Apps in use", Num(rows.Count), "Microsoft 365 apps people used Copilot in"));
         var widest = rows.OrderByDescending(r => r.People).FirstOrDefault();
-        if (widest is not null) Kpis.Add(new("Widest reach", widest.App, $"{Pct(Ratio(widest.People, people))} of active people"));
+        if (widest is not null) Kpis.Add(new("Widest reach", widest.App, $"used by {Pct(Ratio(widest.People, people))} of people using Copilot in the period"));
         var stickiest = rows.Where(r => r.People >= Ctx.MinGroupSize).OrderByDescending(r => r.Returning / (double)r.People).FirstOrDefault();
         if (stickiest is not null) Kpis.Add(new("Most return visits", stickiest.App, $"{Pct(Ratio(stickiest.Returning, stickiest.People))} of its people came back"));
 
-        Panels.Add(new("Reach: share of active people using each app",
+        Panels.Add(new("Reach: share of people using Copilot who used it in each app",
             Chart.Bars(rows.OrderByDescending(r => r.People).Select(r => new Bar(r.App, Ratio(r.People, people), Ctx.Url("/apps/detail", extra: $"app={r.AppKey}"), $"{r.People:#,0} people")).ToList(), Fmt.Percent, "Reach by app", 1),
-            "Select an app for its detail.", "half"));
+            "People who used Copilot in the period, by the apps they used it in. Select an app for its detail.", "half"));
         Panels.Add(new("Depth: prompts per person",
             Chart.Bars(rows.Where(r => r.People >= Ctx.MinGroupSize).OrderByDescending(r => r.Prompts / (double)r.People).Select(r => new Bar(r.App, r.Prompts / (double)r.People, Note: $"{r.Prompts:#,0} prompts")).ToList(), Fmt.Decimal1, "Prompts per person by app"),
-            "Apps with fewer people than the minimum group size are left out.", "half"));
+            $"Prompts sent in each app, per person who used Copilot in it in the period. Apps with fewer than {Ctx.MinGroupSize} people are left out.", "half"));
         var t = new Table
         {
             Headers = ["App", "Category", "People", "Came back", "Interactions", "Prompts per person", "Resources read per interaction", "Trend (people)"],
@@ -72,20 +75,20 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
                         Math.Round(r.Prompts / (double)Math.Max(1, r.People), 1), Math.Round(r.Resources / (double)Math.Max(1, r.N), 2),
                         Chart.Sparkline(axis, buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
         CsvTable = t;
-        Panels.Add(new("Every app", WithTrendNote(t.Render()), "Came back: people who used Copilot in the app on more than one day.", "full", CsvUrl()));
+        Panels.Add(new("Every app", WithTrendNote(t.Render()), "People: used Copilot in the app in the period. Came back: of them, the share who used it there on more than one day. Interactions and prompts count all use, including by people since disabled.", "full", CsvUrl()));
 
         /* Beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
            and Power Apps, by the people who used each, in the same period and part of the organization. */
         if (await activityTask == 1)
         {
             var otherTask = Db.QueryAsync<(DateTime Bucket, string Product, int People, long Events)>($@"
-SELECT {Ctx.BucketSql("d")}, a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
+SELECT {Ctx.BucketSql("d")}, a.Product, COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN a.Upn END), SUM(CAST(a.Events AS BIGINT))
 FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
 JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
 WHERE a.[Day] BETWEEN @d0 AND @d1
 GROUP BY {Ctx.BucketSql("d")}, a.Product;", Ctx.Args());
             var totalsTask = Db.QueryAsync<(string Product, int People, long Events)>($@"
-SELECT a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
+SELECT a.Product, COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN a.Upn END), SUM(CAST(a.Events AS BIGINT))
 FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
 WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY a.Product;", Ctx.Args());
             await Task.WhenAll(otherTask, totalsTask);
@@ -123,14 +126,15 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var args = Ctx.Args(new { app = key });
 
         var tr = await Db.QueryAsync<(DateTime Bucket, int People, long N, long Web)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey), COUNT_BIG(*), SUM(CAST(f.UsedWebSearch AS INT))
+SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN f.UserKey END), COUNT_BIG(*), SUM(CAST(f.UsedWebSearch AS INT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+{CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey", left: true)}
 WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", args);
         var buckets = Buckets();
         long n = tr.Sum(x => x.N);
-        var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args);
+        var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args);
         Kpis.Add(new("People who used it", Num(people), "used Copilot in this app in the period"));
-        Kpis.Add(new("Interactions", Num(n), people > 0 ? $"{n / (double)people:0.0} per person" : null));
+        Kpis.Add(new("Interactions", Num(n), people > 0 ? $"{n / (double)people:0.0} per person who used it; includes use by accounts since disabled" : null));
         Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(x => x.Web), n)), "of this app's interactions"));
         Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
 
@@ -139,12 +143,12 @@ SELECT COALESCE(vn.Name, t.ResourceType), COUNT_BIG(*) FROM bi.FactAccessedResou
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
 WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY t.ResourceType, vn.Name;", args);
-        Panels.Add(new("What Copilot read in it", Chart.Bars(types.OrderByDescending(t => t.N).Take(10).Select(t => new Bar(t.Type, t.N)).ToList(), Fmt.Count, "Resources by type"), null, "half"));
+        Panels.Add(new("What Copilot read in it", Chart.Bars(types.OrderByDescending(t => t.N).Take(10).Select(t => new Bar(t.Type, t.N)).ToList(), Fmt.Count, "Resources by type"), "The resources Copilot read to answer in this app in the period, by type: the ten most read.", "half"));
 
         var depts = await Db.QueryAsync<(string Dept, int People)>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimUser AS du ON du.UserKey = f.UserKey
-WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", args);
+WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 AND du.AccountEnabled = 1 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", args);
         var shown = FoldSmall(depts, d => d.People, small => ("Smaller departments", small.Sum(x => x.People)), out _);
         Panels.Add(new("By department", Chart.Bars(shown.OrderByDescending(d => d.People).Take(15).Select(d => new Bar(d.Dept, d.People)).ToList(), Fmt.Count, "People by department"),
             $"Departments with fewer than {Ctx.MinGroupSize} people using it are combined.", "half"));
@@ -152,6 +156,6 @@ WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY ISNULL(NULLIF(d
 SELECT ag.AgentName, COUNT_BIG(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)' GROUP BY ag.AgentName;", args);
         Panels.Add(new("Agents used in it", Chart.Bars(agents.OrderByDescending(a => a.N).Take(10).Select(a => new Bar(a.Agent, a.N)).ToList(), Fmt.Count, "Agents in the app"),
-            agents.Count == 0 ? "No agents ran in this app in the period." : null, "half"));
+            agents.Count == 0 ? "No agents ran in this app in the period." : "Interactions with each agent in this app in the period: the ten busiest.", "half"));
     }
 }

@@ -203,6 +203,7 @@ details.notice.access[open] .more { display: none; }
 .kwhy p { margin: 6px 0 4px; overflow-wrap: anywhere; }
 .kwhy ul { margin: 0; padding-left: 16px; }
 .kwhy li { margin: 2px 0; overflow-wrap: anywhere; }
+.kwhy .kbasis { display: block; margin: 1px 0 4px; }
 .kwhy a { white-space: nowrap; }
 .focus-mark { outline: 3px solid var(--warn); outline-offset: 3px; border-radius: 4px; transition: outline-color 1s; }
 .conflict { border-left: 3px solid var(--warn); padding: 6px 10px; margin: 6px 0; }

@@ -551,7 +551,20 @@ function Invoke-TenantRun {
     Write-PipelineCertificate $T -Log $Log
     $n = 0
     $refused = [System.Collections.Generic.List[string]]::new()
-    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
+    # 3.1.3: the users' AD domain may be set on the dashboard (Admin > User directory) instead of in the settings file;
+    # the AD step runs when either names one, and the step itself takes the dashboard's when both do.
+    $plan = $T
+    if (-not ($T.Contains('TargetDomain') -and $T.TargetDomain)) {
+        $dashDomain = $null
+        try { $dashDomain = Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = N''DirectoryDomain'';');" }
+        catch { $dashDomain = $null }
+        if ($dashDomain -and -not ($dashDomain -is [DBNull])) {
+            $plan = [ordered] @{}
+            foreach ($k in $T.Keys) { $plan[$k] = $T[$k] }
+            $plan.TargetDomain = [string] $dashDomain
+        }
+    }
+    foreach ($step in (Get-PipelineStep -Setting $plan -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }

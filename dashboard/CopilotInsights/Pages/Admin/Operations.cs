@@ -239,7 +239,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         string V(string k) => set.GetValueOrDefault(k) ?? "";
         Panels.Add(new("Who hears about what", new HtmlString(Form("recipients",
             string.Concat(Recipients.Select(r => Input(r.Key, r.Label, V(r.Key), 50))) + Button("Save"))),
-            "Addresses separated by semicolons; a distribution list keeps it short. Email is set up in Admin › Email.", "half"));
+            "Addresses separated by semicolons; a distribution list keeps it short. Empty by default: nobody gets that alert by email. Email is set up in Admin › Email.", "half"));
 
         Panels.Add(new("When to alert", new HtmlString(Form("thresholds",
             string.Concat(Numbers.Select(n => Input(n.Key, n.Label, V(n.Key), 6, "number"))) +
@@ -247,7 +247,8 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             $"<label><input type=\"checkbox\" name=\"NewAgentAlert\" value=\"1\"{(V("NewAgentAlert") != "0" ? " checked" : "")}/> Alert on agents used for the first time</label>" +
             $"<label><input type=\"checkbox\" name=\"EventLogAlerts\" value=\"1\"{(V("EventLogAlerts") != "0" ? " checked" : "")}/> Also write alerts to the Windows Application log (source Copilot Insights)</label>" +
             Button("Save"))),
-            "A security signal alerts when a day reaches its threshold, or when it is the given number of times its 28-day average. Label order is set in Admin › Reference data.", "half"));
+            "A security signal (jailbreak attempts, prompt injections, blocked resources, sensitive labeled content) alerts when a day's count reaches its threshold, or when the day is the spike factor times its 28-day daily average. Drops and spikes in use are those on Adoption › Drops and spikes. Label order is set in Admin › Reference data. " +
+            "Defaults: stale after 36 hours; 1 jailbreak attempt, 1 prompt injection and 25 blocked-resource interactions a day; 1 sensitive labeled interaction a day, with no label order set (off); spike factor 3; a drop at 50% below usual, a spike at 200% above; the pool at 95% assigned; the certificate 30 days before it expires; both boxes ticked.", "half"));
 
         var subs = await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription ORDER BY Name;");
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
@@ -282,7 +283,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Input("ManagerDigestMinPeople", "Managers with at least this many people under them", V("ManagerDigestMinPeople"), 5, "number") +
             Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
             Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") + Button("Save"))),
-            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. " +
+            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. Defaults: off; managers with 10 or more people; Monday; 7:00. " +
             "When the dashboard is limited to levels (Admin › Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
 
         /* The weekly Copilot report (3.1.3): which of the AD groups' two counts is its Number of Users Enabled. The nightly
@@ -292,7 +293,7 @@ IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NOT NULL AND HAS_PERMS_BY_NAME(N'
     EXEC (N'SELECT g.SnapshotDate, g.Role, g.GroupName, g.Members, g.EnabledMembers, g.LoadedUtc FROM audit.ReportGroupDay AS g
             WHERE g.SnapshotDate = (SELECT MAX(x.SnapshotDate) FROM audit.ReportGroupDay AS x WHERE x.Role = g.Role) ORDER BY g.Role;');");
         var gt = new Table { Zone = Zone, Headers = ["Column", "AD group", "All members", "Enabled", "Disabled", "Counted (UTC)"],
-            EmptyText = "Not counted yet: set CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1; the next nightly run counts them." };
+            EmptyText = "Not counted yet: name the two groups and the users' domain on Admin › Directory quality (or in copilot-audit.settings.psd1); the next nightly load counts them." };
         foreach (var g in groups)
             gt.Rows.Add([g.Role == "CopilotLicense" ? "M365 Copilot" : "Copilot Chat", g.GroupName, g.Members, g.EnabledMembers, g.Members - g.EnabledMembers, g.LoadedUtc]);
         Panels.Add(new("Weekly Copilot report", new HtmlString(Form("weekly",
@@ -810,20 +811,20 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         Kpis.Add(new("Privacy mode", on ? "On" : "Off", on ? "nobody is named but the viewer themselves" : null));
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
             Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
-            "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
+            "Pseudonymize: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
             "Units, named after their managers, go by their department, and no report is narrowed to a manager's part of the organization. Aggregates keep the minimum group size (Admin › Access). " +
-            "If the setting cannot be read, privacy mode counts as on until it can."));
+            "If the setting cannot be read, privacy mode counts as on until it can. Default: Off."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
             Input("AuditLogRetentionDays", $"Keep the dashboard's audit log (days; 0 keeps it; at least {MinAuditLogDays})", V("AuditLogRetentionDays"), 6, "number") +
             Input("NotificationRetentionDays", "Keep the notification log (days; 0 keeps it)", V("NotificationRetentionDays"), 6, "number") +
             Input("JsonRetentionDays", "Clear the stored JSON of records older than (days; 0 keeps it; at least 200)", V("JsonRetentionDays"), 6, "number") +
             Button("Save")) + Form("apply", Button("Apply retention now", "Delete what is past retention now?", quiet: true))),
-            "Applied each night after a successful run. Clearing the JSON keeps every report working (the flattened table has the fields); it cannot be fetched again once Purview's own 180 days have passed, hence the 200-day floor."));
+            "Applied each night after a successful run. Clearing the JSON keeps every report working (the flattened table has the fields); it cannot be fetched again once Purview's own 180 days have passed, hence the 200-day floor. Defaults: audit log 730 days, notification log 365 days, JSON kept (0)."));
 
         Panels.Add(new("Data API", new HtmlString(Form("api",
             $"<label><input type=\"checkbox\" name=\"ApiEnabled\" value=\"1\"{(V("ApiEnabled") != "0" ? " checked" : "")}/> Answer the read-only data API at /api/v1</label>" + Button("Save"))),
-            "The same sign-in, scope and roles as the pages; every call is in the audit log. /api/v1 lists the endpoints.", "half"));
+            "The same sign-in, scope and roles as the pages; every call is in the audit log. /api/v1 lists the endpoints. On by default.", "half"));
     }
 
     public Task<IActionResult> OnPostPrivacyAsync(string? mode) => AdminChangeAsync(async () =>

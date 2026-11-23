@@ -152,7 +152,7 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
         Card("People placed in the org chart", $"{d.Levelled:#,0} of {d.People:#,0} directory people sit under the top. The rest see only themselves and the people under them.",
             d.People > 0 && d.Levelled >= d.People * 0.95 ? "status-ok" : "status-warn");
         var seen = d.Found + d.NotFound + d.NotLooked;
-        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} {(d.NotFound == 1 ? "has" : "have")} left; {d.NotLooked:#,0} {(d.NotLooked == 1 ? "was" : "were")} never looked up. Unmatched people count only in whole-organization views.",
+        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} {(d.NotFound == 1 ? "was" : "were")} not found in AD (usually people who have left); {d.NotLooked:#,0} {(d.NotLooked == 1 ? "was" : "were")} never looked up. Unmatched people count only in whole-organization views.",
             seen > 0 && d.Found >= seen * 0.95 ? "status-ok" : "status-warn");
         Card("Latest day with data", d.LastKey is null ? "No data yet." : $"{d.LastKey / 10000}-{d.LastKey / 100 % 100:00}-{d.LastKey % 100:00}", d.LastKey is null ? "status-bad" : "status-ok");
         Panels.Add(new("Directory and security model", new HtmlString(sb.Append("</div>").ToString())));
@@ -395,12 +395,12 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Button("Save settings")) +
             /* What each setting does, one line a setting (it was one paragraph for all of them). */
             "<ul class=\"tips sub\">" +
-            $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
-            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to.</li>" +
-            "<li><b>Default period.</b> The period every report opens with.</li>" +
-            "<li><b>Unused after.</b> The days without any use after which a license counts as unused.</li>" +
-            "<li><b>License cost a month, and currency.</b> Used wherever a cost or a saving is shown.</li>" +
-            "<li><b>Pay-as-you-go cost an interaction.</b> What one agent or work-grounded chat interaction costs in Copilot Credits without a license, for Licensing &gt; Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, and tenant data, 10) at 0.01 each.</li>" +
+            $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports (levels 1 and 2) see the whole organization in the sections granted to them. Empty by default: the dashboard then uses the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
+            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to. Default 5.</li>" +
+            "<li><b>Default period.</b> The period every report opens with, until the viewer chooses another at the top of the page. Default 30 days.</li>" +
+            "<li><b>Unused after.</b> The days without any Copilot use after which a Copilot license counts as unused, wherever a report counts unused licenses. 7 to 180; default 30.</li>" +
+            "<li><b>License cost a month, and currency.</b> The price of one Microsoft 365 Copilot license a month, after any discount, used wherever a cost or a saving is shown. Default 30 USD.</li>" +
+            "<li><b>Pay-as-you-go cost an interaction.</b> What one agent or work-grounded chat interaction costs in Copilot Credits without a license, for Licensing &gt; Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, and tenant data, 10) at 0.01 each. Default 0.12.</li>" +
             $"<li><b>Time zone.</b> Every time the dashboard shows, and the hour digests, alerts and extracts go out, is in it. It is {E(Zones.Label(Zone))} now ({E(Zones.Source(set.GetValueOrDefault(Zones.Setting), reportingZone))}). " +
             "Left on Default, it is the zone the data's days are cut in, which a new install takes from its server. " +
             (reportingZone is null ? "" : $"The days in the reports are cut in {E(reportingZone)}, set when the data was installed; choosing a zone here does not move them.") + "</li>" +
@@ -425,7 +425,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             $"Level 1 is the top of the organization, level 2 reports to them, and so on. Levels open no section: within them, a person sees only the sections granted to them (Grant access, below), and nothing until one is. Whatever their level, anyone granted a section or a role other than Admin is let in too: " +
             $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages (one limited to some pages, those), so a wrong choice can be put right here. " +
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
-            (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
+            (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.") + " Default: everyone."));
 
         /* Levels never on a revoke, reclaim or training list, with each choice's head count. */
         var keep = await CopilotInsights.Data.ProtectedLevels.LevelsAsync(S.Settings);
@@ -439,7 +439,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "People at these levels of the organization are never on Upgrade, train or revoke (train and revoke), Swap list, Unused licenses, Better on pay-as-you-go, " +
             "Fading use, Not started, Enablement's one-off and not-started people, or License optimization's counts, nor in their files, digests and the data API. " +
             "Lists of accounts nobody can use keep everyone: disabled and departed accounts, departures ahead and non-human accounts." +
-            $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}."));
+            $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}. Default: levels 1 to 5."));
 
         /* Admin can be limited to some of the Admin pages. Only a full administrator gives, limits or removes
            Admin, so someone limited to this page cannot make themselves, or anyone, more than they are. */
@@ -626,15 +626,15 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
                     by.Count == 0 ? "No grant opens it" : string.Join("; ", by.Distinct())]);
             }
             body.Append("<h3>Sections they see</h3>" + st.Render().Value +
-                (gives.Sections.Count == 0 && !roles.Any(Roles.IsWorkbench) ? "<p><b>No section is gives to them</b>: their start page says they have no access yet, whatever their level.</p>" : ""));
+                (gives.Sections.Count == 0 && !roles.Any(Roles.IsWorkbench) ? "<p><b>No section is granted to them</b>: their start page says they have no access yet, whatever their level.</p>" : ""));
 
             var direct = held.Where(x => x.Via == "" && x.Grant.ProfileId is null).Select(x => RoleText(x.Grant)).Distinct().ToList();
-            body.Append($"<p>Roles gives to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct)))}.</p>");
+            body.Append($"<p>Roles granted to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct)))}.</p>");
             var viaProfiles = held.Where(x => x.Grant.ProfileId is not null).GroupBy(x => (x.Grant.ProfileId!.Value, x.Via!)).ToList();
             if (viaProfiles.Count > 0)
                 body.Append("<p>Through access profiles:</p><ul>" + string.Concat(viaProfiles.Select(g =>
                     $"<li><b>{E(profileNames.GetValueOrDefault(g.Key.Item1, $"profile {g.Key.Item1}"))}</b>: {E(string.Join(", ", g.Select(x => RoleText(x.Grant))))}" +
-                    (g.Key.Item2 == "" ? ", gives to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
+                    (g.Key.Item2 == "" ? ", granted to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
             var viaGroups = held.Where(x => x.Via != "" && x.Grant.ProfileId is null).GroupBy(x => x.Via!, StringComparer.OrdinalIgnoreCase).ToList();
             body.Append("<p>Roles from groups" + (membersLoaded && loadedUtc is { } at ? $" (AD groups as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
                 (viaGroups.Count == 0 ? "none. " : "</p><ul>" + string.Concat(viaGroups.Select(g =>
@@ -643,7 +643,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
             if (!membersLoaded && all.Any(g => g.Principal.Contains('\\')))
                 body.Append("<p>AD groups: not known here. Group members are recorded by the nightly directory load (tools\\Export-UsersWithHierarchy-ToSql.ps1), which has not run against this database; Windows still applies group grants when they sign in.</p>");
             if (unexpanded.Count > 0)
-                body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: gives since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
+                body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: granted since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
             if (entraIds.Count > 0 && !graph.Available)
                 body.Append("<p>Entra groups: not checked. The app registration in Insights:Entra is not set up to call Microsoft Graph (docs/ENTRA-SIGN-IN.md).</p>");
             else if (entraIds.Count > 0 && personOid is null)

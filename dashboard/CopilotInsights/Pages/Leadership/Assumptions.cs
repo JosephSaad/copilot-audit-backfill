@@ -15,7 +15,7 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
     public override string Title => "How figures are calculated";
     public override string Persona => "Leadership";
     public override bool UsesFilters => false;
-    public override string Intro => "Every price and assumption a cost, saving or value on this dashboard rests on: its value now, the figures that use it, who last changed it, and where an administrator changes it. Then how each kind of figure is worked out.";
+    public override string Intro => "Every price and assumption a cost, saving or value on this dashboard rests on: its value now, the value it is installed with and why, with a link to the published figure behind it, the figures that use it, who last changed it, and where an administrator changes it. Then how each kind of figure is worked out.";
 
     /// <summary>How each kind of figure is worked out, in words, the same as each figure's own "How it is worked out".</summary>
     public static readonly IReadOnlyList<(string Figure, string How, string Where)> Formulas =
@@ -35,6 +35,14 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
         ("Reservation obligation", "Billable licenses (each organization's reserved, plus its allocation over them) × the rate in force; remaining: × the months left in the year.", "Copilot reservations"),
     ];
 
+    /// <summary>
+    /// Why a default is what it is (3.1.3): the reasoning, whether a published figure is behind it, and a link to the
+    /// public page it rests on, so whoever quotes a figure can check the assumption and replace it with their own.
+    /// </summary>
+    static HtmlString Reference(AssumptionReference? r) => r is null ? new HtmlString("") : new HtmlString(
+        $"<b>{E(AssumptionReferences.BasisLabel(r.Basis))}.</b> {E(r.Why)}" +
+        (r.SourceUrl is { } u ? $" <a href=\"{E(u)}\" target=\"_blank\" rel=\"noopener noreferrer\">{E(r.SourceTitle ?? u)}</a>" : ""));
+
     object Link(string text, string path) => Open(path) is { } u ? new Pages.Link(text, u) : text;
 
     protected override async Task BuildAsync()
@@ -52,13 +60,13 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
 
         foreach (var g in all.GroupBy(a => a.Def.Group))
         {
-            var t = new Table { Headers = ["Assumption", "Value now", "Used by", "Last changed", ""], Sortable = false };
+            var t = new Table { Headers = ["Assumption", "Value now", "Default", "Why this default, and its source", "Used by", "Last changed", ""], Sortable = false };
             foreach (var a in g)
             {
                 /* Who changed it, for administrators only: the page is open to everyone. */
                 var changed = a.IsDefault || a.ChangedBy is null ? "As installed" : Viewer.AnyAdmin && !Warming ? $"{When(a.ChangedUtc)} by {a.ChangedBy}" : When(a.ChangedUtc);
                 object edit = Viewer.CanAdmin(a.Def.Page) && !Warming ? new Link("Change it", Assumptions.EditHref(a.Def)) : "";
-                t.Rows.Add([a.Def.Label, a.Shown, a.Def.UsedBy, changed, edit]);
+                t.Rows.Add([a.Def.Label, a.Shown, a.Def.Default is { } d ? (a.Def.Unit is { } u ? $"{d} {u}" : d) : "None", Reference(AssumptionReferences.For(a.Def)), a.Def.UsedBy, changed, edit]);
             }
             Panels.Add(new(g.Key, t.Render(), g.Key switch
             {

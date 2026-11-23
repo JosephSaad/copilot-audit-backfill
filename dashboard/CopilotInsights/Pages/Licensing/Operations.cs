@@ -58,7 +58,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
     public override bool UsesTeam => false;
     /// <summary>No filter bar: the seats are the tenant's as they stand, which no period or part of the organization changes.</summary>
     public override bool UsesFilters => false;
-    public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions, read from Microsoft 365 each night. Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
+    public override string Intro => "Microsoft 365 Copilot add-on seats (one seat is one license bought) from the tenant's subscriptions, read from Microsoft 365 each night: how many are bought, assigned and used. A seat bought but not assigned is paid for and used by nobody; a seat assigned but not used is on Unused licenses.";
 
     protected override async Task BuildAsync()
     {
@@ -82,7 +82,8 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         /* Those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
         var inSuite = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
-WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
+WHERE ld.DateKey = @k1 AND du.AccountEnabled = 1   -- as Totals.ActiveLicensed counts them (3.1.3)
+  AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
   AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.LicensedUse > 0);", tc.Args());
         t.ActiveLicensed = Math.Max(0, t.ActiveLicensed - inSuite);
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
@@ -94,14 +95,14 @@ WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.U
         var beyond = Math.Max(0, bought - assigned - spare);
         Kpis.Add(new("Bought, not assigned", Num(bought - assigned), beyond > 0 ? $"{beyond * price:#,0} {cur} a month beyond the {spare:#,0} kept spare" : $"within the {spare:#,0} kept spare ({sparePct:0.##}%)",
             Why: await WhyAsync($"Seats bought less seats assigned ({bought:#,0} − {assigned:#,0}); of them, {spare:#,0} ({sparePct:0.##}% of those bought) are kept spare on purpose. Beyond that, each at the Copilot license price ({price:#,0.##} {cur} a month).", "LicenseMonthlyCost", "SpareSeatPercent")));
-        Kpis.Add(new("Used in the last 30 days", Num(t.ActiveLicensed), assigned > 0 ? $"{Pct(Ratio(t.ActiveLicensed, assigned))} of those assigned" : null));
+        Kpis.Add(new("Used in the last 30 days", Num(t.ActiveLicensed), assigned > 0 ? $"{Pct(Ratio(t.ActiveLicensed, assigned))} of those assigned; enabled accounts only" : "enabled accounts only"));
 
         Panels.Add(new("Where the seats are", Chart.Bars(
         [
             new("Assigned and used (30 days)", t.ActiveLicensed, Slot: 3),
             new("Assigned, not used", Math.Max(0, assigned - t.ActiveLicensed), Href: Viewer.Has(Roles.Licensing) ? "/licensing/unused" : null, Slot: 5),
             new("Bought, not assigned", Math.Max(0, bought - assigned), Slot: 1),
-        ], Fmt.Count, "Copilot seats by state"), "Used: held a license at the end of the 30 days and used Copilot while licensed.", "half"));
+        ], Fmt.Count, "Copilot seats by state"), "Used: the holder's account is enabled today, they held a license on the last of the 30 days, and they used Copilot while licensed. A seat on a disabled account counts as not used. People who have Copilot only through a suite take no add-on seat and are left out.", "half"));
 
         var days = await Db.QueryAsync<(DateTime Day, int Bought, int Assigned)>(@"
 SELECT SnapshotDate, SUM(Enabled + Warning), SUM(Consumed) FROM audit.LicenseSkuDay
@@ -117,7 +118,7 @@ GROUP BY SnapshotDate ORDER BY SnapshotDate;".Replace("@suites", pool.Any(p => p
         var tb = new Table { Zone = Zone, Headers = ["License", "Part number", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var p in pool) tb.Rows.Add([names.Name(p.SkuPartNumber), p.SkuPartNumber, p.IsCopilot ? "Yes" : p.IsSuite ? "Inside the suite" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
-        Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot SKU ids, for the license export script: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));
+        Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot products' part numbers and ids, which the license export script uses: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));
     }
 }
 
@@ -126,7 +127,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
 {
     public override string Title => "Chargeback";
     public override string Persona => "Licensing";
-    public override string Intro => "The monthly cost of the Copilot licenses each group holds, what share of it is used, and the cost per person using Copilot: for allocating the license cost to budgets.";
+    public override string Intro => "The monthly cost of the Copilot licenses each group holds, how much of it is on licenses used in the period, and the cost per person using Copilot: for allocating the license cost to budgets.";
 
     static readonly string[] By = ["Department", "Division", "Company", "Country", "Office", "EmployeeType"];
     /* The attribute's name in words, not the directory's column name. */
@@ -150,11 +151,11 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         Kpis.Add(new("Licenses used in the period", Num(used), licensed > 0 ? $"{Pct(Ratio(used, licensed))} of those charged to groups" : null));
         Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null,
             Why: await WhyAsync($"(Licenses charged to groups − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
-        Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month",
+        Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month: the licenses' cost over the holders who used Copilot in the period",
             Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
         if (unallocated > 0)
             Kpis.Add(new("Charged to no group", Num(unallocated), $"{unallocated * price:#,0} {cur} a month, on disabled or missing accounts", "warn", Href: Open("/licensing/leavers"),
-                Why: await WhyAsync($"Copilot licenses held today ({unallocated + licensed:#,0}) less those held by enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}). Reclaim them: Licensing › Leavers lists them.", "LicenseMonthlyCost")));
+                Why: await WhyAsync($"Copilot licenses held today ({unallocated + licensed:#,0}) less those held by enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}). Reclaim them: Licensing › Licenses on disabled accounts lists them.", "LicenseMonthlyCost")));
 
         var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{Said(x)}</a>"));
         var t = new Table
@@ -168,9 +169,9 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         CsvTable = t;
         Panels.Add(new("Unused spend by group", Chart.Bars(rows.Where(r => r.Licensed > r.ActiveLicensed).OrderByDescending(r => r.Licensed - r.ActiveLicensed).Take(15)
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
-            $"A month, in {cur}, at {price:#,0.##} a license (Admin › Access).", "half"));
+            $"The monthly cost, in {cur}, of licenses whose holder did not use Copilot in the period, at {price:#,0.##} a license (set in Admin › Access).", "half"));
         Panels.Add(new("By " + Said(by).ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
-            (folded > 0 ? FoldNote(folded, "group") + " " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
+            (folded > 0 ? FoldNote(folded, "group") + " " : "") + "People: accounts enabled today. Used: holds a license at the end of the period and used Copilot while licensed. Unused: holds a license and did not.",
             "full", CsvUrl()));
     }
 }
@@ -210,10 +211,10 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         /* The files are for the part of the organization shown: built from the bare address, they carried no org=,
            so a division's five accounts on the page became the whole organization's twenty-seven in the file and the record. */
         var exports = pg.Total == 0 ? "" :
-            $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk-remove file")} · " +
+            $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk remove members file")} · " +
             $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")} (run by a license administrator; the dashboard changes nothing).</div>";
         Panels.Add(new("People", new HtmlString(exports + pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department", ["since"] = "Licensed longest" }).Value + t.Render().Value),
-            "AD's account state comes from the nightly directory load, Entra's from the license tool.", "full", CsvUrl()));
+            "Why: disabled in AD, in Entra or in both, or gone from the directory. AD's account state comes from the nightly directory load, Entra's from the license tool. Last used: the last day with a Copilot interaction.", "full", CsvUrl()));
     }
 
     /* Posted, with the anti-forgery token (see LicenseActions.Button). */

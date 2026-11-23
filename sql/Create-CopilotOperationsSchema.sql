@@ -76,8 +76,8 @@ USING (VALUES
     ('AnomalySpikePercent',     N'200',   N'A unit''s day this far above its usual level is a spike.'),
     ('PoolWarnPercent',         N'95',    N'Alert when this share of the Copilot seats bought is assigned.'),
     ('NewAgentAlert',           N'1',     N'1 sends an alert when an agent is used for the first time.'),
-    ('MinutesSavedDefault',     N'3',     N'Minutes one interaction saves, for apps without their own figure (Admin > Targets and assumptions).'),
-    ('HourlyCost',              N'50',    N'What an hour of an employee''s time is worth, in LicenseCurrency, for the value report.'),
+    ('MinutesSavedDefault',     N'6',     N'Minutes one interaction saves, for apps without their own figure (Admin > Targets and assumptions).'),
+    ('HourlyCost',              N'72',    N'What an hour of an employee''s time is worth, in LicenseCurrency, for the value report.'),
     ('ChampionsPerDepartment',  N'3',     N'How many champions to suggest per department.'),
     ('LicenseGroupId',          NULL,     N'Object id of the Entra group that assigns Copilot licenses, if licenses are group-based: the license export adds and removes its members.'),
     ('AuditLogRetentionDays',   N'730',   N'Dashboard audit-log rows older than this are deleted each night; 0 keeps them.'),
@@ -772,6 +772,9 @@ USING (VALUES
     ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.'),
     ('ReservationGatePercent', N'95',    N'2.6.8: no more Copilot licenses are bought until this share of the purchase-gate baseline is assigned (Leadership > Copilot reservations).'),
     ('ReservationGateBaseline', NULL,    N'2.6.8: the unassigned Copilot add-on licenses the purchase gate counts from (1,136 in the policy example); empty: no gate.'),
+    ('DirectoryDomain',        NULL,      N'3.1.3: the users'' AD domain (users.contoso.com). Every read of users or groups from AD uses it: the nightly load and the dashboard''s lookup of who is signed in. Empty: TargetDomain in copilot-audit.settings.psd1 (Admin > Directory quality).'),
+    ('CopilotLicenseGroup',    NULL,      N'3.1.3: the AD group (DOMAIN\group) of Microsoft 365 Copilot license holders the weekly report counts as Users Enabled. Empty: the settings file''s.'),
+    ('CopilotChatGroup',       NULL,      N'3.1.3: the AD group (DOMAIN\group) of Copilot Chat users the weekly report counts as Users Enabled. Empty: the settings file''s.'),
     ('WeeklyReportGroupCount', N'Enabled', N'3.1.3: the weekly Copilot report''s Number of Users Enabled: Enabled counts the AD groups'' enabled accounts, All every member, disabled accounts included (Admin > Alerts and digests).'),
     ('SeatModel',              N'Leader', N'The Copilot seat record: Leader (the reservation register on Leadership > Copilot reservations) or Governance (the Workbench''s lines of business). The dashboard sets it when it starts; with Governance the nightly run keeps no reservation snapshot.')
 ) AS src (Name, Value, Description)
@@ -1056,7 +1059,7 @@ SELECT Day, YEAR(Day) * 10000 + MONTH(Day) * 100 + DAY(Day) AS DateKey, Label, K
    a row is hidden (figures blank) when fewer people than the minimum were
    active that week, none included. */
 EXEC (N'CREATE OR ALTER VIEW bi.DepartmentWeek AS
-WITH m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 5) AS MinGroup),
+WITH m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 10) AS MinGroup),
 dept AS
 (
     SELECT ISNULL(NULLIF(Department, N''''), N''(no department)'') AS Department, SUM(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END) AS Headcount

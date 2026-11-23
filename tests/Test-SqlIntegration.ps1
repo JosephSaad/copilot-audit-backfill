@@ -3542,7 +3542,7 @@ Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a 
 # departments with fewer enabled people than the minimum are combined. Before, a hidden row of a one-person department
 # existed only in the weeks that person used Copilot.
 $dw = (Invoke-SqlText -As Table -Sql @"
-DECLARE @min INT = ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = 'MinGroupSize') AS INT), 5);
+DECLARE @min INT = ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = 'MinGroupSize') AS INT), 10);
 SELECT (SELECT COUNT(*) FROM bi.DepartmentWeek) AS Rows_,
        (SELECT COUNT(DISTINCT WeekEnding) FROM bi.DepartmentWeek) AS Weeks,
        (SELECT COUNT(DISTINCT Department) FROM bi.DepartmentWeek) AS Departments,

@@ -12,7 +12,7 @@ namespace CopilotInsights.Pages.Security
     {
         public override string Title => "Guests and external users";
         public override string Persona => "Security";
-        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the license tool): how much, from which home organizations, and with which signals. Home organizations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
+        public override string Intro => "Copilot use by guests: accounts from other organizations, known by an #EXT# sign-in or a user type of Guest in Entra. How much they use it, from which home organizations, and with which security signals (jailbreak attempts, prompt injections, blocked resources). Home organizations with fewer guests than the minimum group size are combined, and the list of named guests is shown, only to the Security role.";
 
         sealed class Row
         {
@@ -45,24 +45,26 @@ namespace CopilotInsights.Pages.Security
             var exceptions = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
             var ok = exceptions ? "CASE WHEN EXISTS (SELECT 1 FROM dash.NonHumanException AS ex WHERE ex.Upn = du.UserPrincipalName) THEN 1 ELSE 0 END" : "0";
             var rows = await Db.QueryAsync<Row>($@"
-WITH g AS (SELECT du.UserKey, {Domain} AS Domain, {ok} AS Ok FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
+WITH g AS (SELECT du.UserKey, {Domain} AS Domain, {ok} AS Ok, CASE WHEN du.AccountEnabled = 1 THEN 1 ELSE 0 END AS En
+           FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
 a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabeledContent) AS L
       FROM dash.UserDay AS ud JOIN g ON g.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
-SELECT g.Domain, COUNT(*) AS People, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
+/* Guests are counted only with the account enabled today (3.1.3); their interactions and signals are everyone's. */
+SELECT g.Domain, COUNT(CASE WHEN g.En = 1 THEN 1 END) AS People, COUNT(CASE WHEN a.I > 0 AND g.En = 1 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND g.Ok = 1 THEN 1 END) AS Confirmed
 FROM g LEFT JOIN a ON a.UserKey = g.UserKey
-LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1
+LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1 AND g.En = 1   -- licensed guests: enabled ones, as Copilot on non-human accounts counts them
 GROUP BY g.Domain;", Ctx.Args());
-            Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People)), "guest and external accounts that used Copilot"));
-            Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
+            Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People)), "guest accounts in Copilot's records, enabled today"));
+            Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"enabled guests with an interaction; {rows.Sum(r => r.Interactions):#,0} interactions by all guests"));
             var licensed = rows.Sum(r => r.Licensed);
             var confirmed = rows.Sum(r => r.Confirmed);
             Kpis.Add(new("Holding a Copilot license", Num(licensed),
-                confirmed == 0 ? "licenses in this tenant assigned to guests" : $"licenses in this tenant assigned to guests; {confirmed:#,0} confirmed as a person by an administrator",
+                confirmed == 0 ? "licenses in this tenant assigned to enabled guest accounts" : $"licenses in this tenant assigned to enabled guest accounts; {confirmed:#,0} confirmed as a person by an administrator",
                 licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open(Nav.NonHuman, "why=guest") : null));
-            Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
-            if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
+            Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak attempts, prompt injections and blocked resources, by all guests", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
+            if (rows.Count == 0) { Notice = $"No guest accounts are in Copilot's records for {Here}."; return; }
 
             var named = Viewer.Has(Roles.Security) && !PrivacyMode;
             var shown = named ? rows : SmallGroups.Fold(rows, r => r.People,
@@ -70,7 +72,7 @@ GROUP BY g.Domain;", Ctx.Args());
                 Ctx.MinGroupSize, out _);
             var t = new Table { Headers = ["Home organization", "Guests", "Used Copilot", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
             foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
-            Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
+            Panels.Add(new("By home organization", t.Render(), "Home organization: from the guest's sign-in name. Guests, Used Copilot and Licensed here count accounts enabled today; Interactions, Security signals and Labeled content include every guest's use, disabled or removed ones too. Labeled content: interactions that read content with a sensitivity label."));
 
             if (!named) return;
             var pg = new Paging(Request, new Dictionary<string, string>
@@ -95,7 +97,7 @@ WHERE {guest} AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName 
             foreach (var r in people) pt.Rows.Add([r.Name, r.Upn, r.Domain, r.I, r.F, r.Last]);
             CsvTable = pt;
             Panels.Add(new("Guests using Copilot", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most use", ["name"] = "Name" }).Value + pt.Render().Value),
-                "Shown to the Security role.", "full", CsvUrl()));
+                "Every guest with an interaction in the period, accounts since disabled or removed included. Shown to the Security role only.", "full", CsvUrl()));
         }
     }
 }
@@ -157,7 +159,7 @@ namespace CopilotInsights.Pages.Compliance
             var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Choice}\"/>" +
                        PersonBox("upn", "Person", upn, 36, "Type three letters of the person's first or last name and choose them from the names offered, or type their sign-in (name@domain). Only people with Copilot records, in the part of the organization you may see, are offered.") +
                        "<button class=\"btn\" type=\"submit\">Look up</button></form>";
-            Panels.Add(new("Whose record", new HtmlString(form), "Names are offered from three letters on, by first or last name. The period above sets how far back the interactions go; choose 365 days for everything the dashboard holds.", "half"));
+            Panels.Add(new("Whose record", new HtmlString(form), "Names are offered from three letters on, by first or last name. The period at the top of the page sets how far back the interactions go; choose All data for everything the dashboard holds.", "half"));
             if (string.IsNullOrEmpty(upn)) return;
 
             var who = (await Db.QueryAsync<Who>($@"
@@ -189,7 +191,7 @@ GROUP BY {Ctx.BucketSql("dd")};", Ctx.Args(new { key = who.UserKey }));
                 $"<a href=\"{E(Ctx.Url(Request.Path, days: n, extra: "upn=" + Uri.EscapeDataString(who.UserPrincipalName)))}\"{(n == Ctx.Choice ? " class=\"on\"" : "")}>{E(ReportContext.ChoiceLabel(n))}</a>"));
             var activeDays = trend.Sum(x => x.Days);
             Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days:#,0} in the period"));
-            Kpis.Add(new("Interactions a day active", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
+            Kpis.Add(new("Interactions per active day", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
             Panels.Add(new("Use over time",
                 new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Sized(Chart.Columns(Labels(), [
                     new Series("Interactions", buckets.Select(b => (double?)At(b.Key, x => x.Interactions)).ToList(), 1),
@@ -216,7 +218,7 @@ JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
 {pg.OrderAndPage()};", Ctx.Args(new { key = who.UserKey }), timeout: 300);
             pg.Total = recs.FirstOrDefault()?.TotalRows ?? 0;
-            Kpis.Add(new("Interactions in the period", Num(pg.Total), "this person's prompts to Copilot and its answers"));
+            Kpis.Add(new("Interactions in the period", Num(pg.Total), "each one a prompt from this person and Copilot's answer"));
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
@@ -253,12 +255,14 @@ namespace CopilotInsights.Pages.Workforce
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
                     SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey),
-fam AS (SELECT du.UserKey, ISNULL(r.Family, N'(no family)') AS Family
+/* Everyone with use is in a family, so the families' use adds up to the total (3.1.3); only accounts enabled today
+   count among the people, as in Metrics.ByAttributeAsync. */
+fam AS (SELECT du.UserKey, ISNULL(r.Family, N'(no family)') AS Family, CASE WHEN du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 THEN 1 ELSE 0 END AS En
         FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
         OUTER APPLY (SELECT TOP (1) jr.Family FROM dash.JobFamilyRule AS jr WHERE du.JobTitle LIKE jr.Pattern ORDER BY jr.Priority, jr.RuleId) AS r
-        WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1)
-SELECT fam.Family AS Name, COUNT(*) AS People, COUNT(ld.UserKey) AS Licensed,
-       COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
+        WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR EXISTS (SELECT 1 FROM act AS x WHERE x.UserKey = du.UserKey))
+SELECT fam.Family AS Name, COUNT(CASE WHEN fam.En = 1 THEN 1 END) AS People, COUNT(CASE WHEN ld.UserKey IS NOT NULL AND fam.En = 1 THEN 1 END) AS Licensed,
+       COUNT(CASE WHEN a.I > 0 AND fam.En = 1 THEN 1 END) AS Active, COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL AND fam.En = 1 THEN 1 END) AS ActiveLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn
 FROM fam LEFT JOIN act AS a ON a.UserKey = fam.UserKey
@@ -272,7 +276,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))
                 Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin › Classifications and events, with the titles that need one listed there.";
-            Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
+            Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Adoption: licensed people who used Copilot in the period, over people licensed. People are accounts enabled today.", "half"));
             var t = Groups.Table(kept, "Job family", Ctx.MinGroupSize);
             CsvTable = t;
             Panels.Add(new("Job families", t.Render(), folded > 0 ? FoldNote(folded, "job family", "job families") : null, "full", CsvUrl()));

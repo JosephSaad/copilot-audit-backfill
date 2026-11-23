@@ -39,6 +39,25 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
             "p.AccountEnabled = 1 AND p.DirectReports > 40"),
     ];
 
+    /// <summary>A DNS domain name: letters, digits and hyphens, in labels joined by dots.</summary>
+    static bool IsDomainName(string d) =>
+        d.Length <= 253 && d.Split('.').All(l => l.Length is > 0 and <= 63 && l.All(ch => char.IsAsciiLetterOrDigit(ch) || ch == '-') && l[0] != '-' && l[^1] != '-');
+
+    /// <summary>A group as DOMAIN\name, as the nightly load and the grants name groups.</summary>
+    static bool IsGroupName(string g) => g.Length <= 256 && g.IndexOf('\\') is > 0 and var i && i < g.Length - 1 && g.IndexOf('\\', i + 1) < 0;
+
+    public Task<IActionResult> OnPostAdAsync(string? DirectoryDomain, string? CopilotLicenseGroup, string? CopilotChatGroup) => AdminChangeAsync(async () =>
+    {
+        var domain = DirectoryDomain?.Trim();
+        if (!string.IsNullOrEmpty(domain) && !IsDomainName(domain)) throw new ArgumentException("the domain is a DNS name such as users.contoso.com.");
+        foreach (var (g, what) in new[] { (CopilotLicenseGroup?.Trim(), "the license group"), (CopilotChatGroup?.Trim(), "the Copilot Chat group") })
+            if (!string.IsNullOrEmpty(g) && !IsGroupName(g)) throw new ArgumentException($"{what} is DOMAIN\\group.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
+        {
+            ["DirectoryDomain"] = domain, ["CopilotLicenseGroup"] = CopilotLicenseGroup?.Trim(), ["CopilotChatGroup"] = CopilotChatGroup?.Trim(),
+        }, showValues: true));
+    });
+
     sealed class Row
     {
         public string Upn { get; set; } = "";
@@ -64,6 +83,21 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
         var worst = Checks.Take(4).Sum(c => counts[c.Key]);
         Kpis.Add(new("Outside the org chart", Num(worst), "no manager, a missing or departed manager, or not under the top", worst > 0 ? "warn" : null));
         Kpis.Add(new("Copilot users not in the directory", Num(notInDir), "in the audit records but not found in AD", notInDir > 0 ? "warn" : null));
+
+        /* 3.1.3: where users and groups are read from. The dashboard can run in another domain than the users, so the
+           users' domain is named here and every directory read uses it: the nightly AD load (users, role groups and the
+           weekly report's groups) and the dashboard's own lookup of a viewer. */
+        ShowDone();
+        var set = await S.Settings.AllAsync();
+        string V(string k) => set.GetValueOrDefault(k) ?? "";
+        Panels.Add(new("Where users and groups are read from", new HtmlString(Form("ad",
+            Input("DirectoryDomain", "Users' AD domain (for example users.contoso.com)", V("DirectoryDomain"), 30) +
+            Input("CopilotLicenseGroup", "Microsoft 365 Copilot license group (DOMAIN\\group)", V("CopilotLicenseGroup"), 34) +
+            Input("CopilotChatGroup", "Copilot Chat group (DOMAIN\\group)", V("CopilotChatGroup"), 34) + Button("Save"))),
+            "Every read of users or groups from Active Directory goes to this domain: the nightly load of users, the groups that grant roles or mark " +
+            "non-human accounts, the two groups the weekly Copilot report counts as Users Enabled, and the dashboard's lookup of who is signed in. " +
+            "Set it when the dashboard or the job server is in another domain than the users. Empty: TargetDomain, CopilotLicenseGroup and " +
+            "CopilotChatGroup in copilot-audit.settings.psd1 on the job server. A value here wins over the file. It applies from the next nightly load.", "half"));
 
         var check = Checks.FirstOrDefault(c => c.Key == Request.Query["check"]);
         var t = new Table { Headers = ["Check", "People", "Share", "Why it matters", ""], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
@@ -113,7 +147,7 @@ public sealed class ClassificationsModel(PageServices s) : AdminPage(s)
         var ft = new Table { Headers = ["Priority", "Job title pattern", "Family", "Set by", ""], Numeric = new HashSet<int> { 0 }, EmptyText = "No rules: everyone is \"(no family)\".", Sortable = false };
         foreach (var f in families)
             ft.Rows.Add([f.Priority, f.Pattern, f.Family, f.UpdatedBy, new HtmlString(Form("delfamily", Hidden("id", f.RuleId) + Button("Remove", quiet: true)))]);
-        var min = await S.Settings.IntAsync("MinGroupSize", 5);
+        var min = await S.Settings.IntAsync("MinGroupSize", 10);
         var titles = await Db.QueryAsync<(string Title, int People)>(@"
 SELECT TOP (25) du.JobTitle, COUNT(*) FROM bi.DimUser AS du
 WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' AND NULLIF(du.JobTitle, N'') IS NOT NULL

@@ -100,7 +100,7 @@ lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT du.UserPrincipalName, du.DisplayName, du.Department, ISNULL(a.D, 0), ISNULL(a.I, 0)
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey
-WHERE {Pages.Forecasting.ActionsModel.Kinds[kind].Where} AND ISNULL(du.AccountEnabled, 1) = 1
+WHERE {Pages.Forecasting.ActionsModel.Kinds[kind].Where} AND {Pages.Forecasting.ActionsModel.Enabled(kind)}
 ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
             return new { kind, asOf = c.End, people = rows.Select(r => new { upn = r.Upn, name = r.Name, department = r.Department, daysUsed30 = r.Days, interactions30 = r.Interactions }) };
         }, section: Sections.Forecasting));

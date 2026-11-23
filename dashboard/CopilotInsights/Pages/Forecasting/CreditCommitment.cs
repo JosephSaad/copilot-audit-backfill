@@ -19,7 +19,7 @@ public sealed class CreditCommitmentModel(PageServices s, CreditChargeData data)
     public override string Persona => "Forecasting";
     public override string? OwnWindow => "the commitment's term";
     public override bool UsesFilters => false;
-    public override string Intro => "A prepaid Copilot Credit commitment, such as the Pre-Purchase Plan (P3), against the credits drawn from it: what is left, when it runs out at today's rate, and who draws most.";
+    public override string Intro => "A prepaid Copilot Credit commitment, such as the Pre-Purchase Plan (P3), against the credits drawn from it: what is left, when it runs out at the last 30 days' rate, and who draws most.";
 
     protected override async Task BuildAsync()
     {
@@ -72,7 +72,7 @@ public sealed class CreditCommitmentModel(PageServices s, CreditChargeData data)
         Kpis.Add(new($"Remaining ({c.Currency})", M(st.Remaining), $"{Count(daysLeft, "day")} of the term left", st.Remaining <= 0 ? "crit" : null,
             Why: await WhyAsync($"The commitment less what is drawn: {M(c.Amount)} − {M(st.Drawn)}. Drawn beyond the commitment is pay-as-you-go.")));
         var past = st.RunsOut is { } rp && rp <= st.AsOf;
-        Kpis.Add(new(past ? "Ran out" : "Runs out", st.RunsOut is { } r ? r.ToString("d MMM yyyy") : "Not at today's rate",
+        Kpis.Add(new(past ? "Ran out" : "Runs out", st.RunsOut is { } r ? r.ToString("d MMM yyyy") : "Not at the current rate",
             st.RunsOut is { } r2 && r2 < c.EndDate ? $"{(c.EndDate - r2).Days:#,0} days before the term ends" : $"{M(st.UnusedAtEnd)} unused at the end",
             warning is null ? null : "warn",
             Why: await WhyAsync(past ? $"The day the draw, added up from {c.StartDate:d MMM yyyy}, reached {M(c.Amount)}."
@@ -128,7 +128,7 @@ GROUP BY d.EnvironmentName, r.Path, r.OrgId ORDER BY 5 DESC;", new { s = c.Start
             Input("name", "Name", "Copilot Credit P3", 24) + Input("amount", "Amount", null, 10) + Input("currency", "Currency", null, 5) +
             Input("draw", "One credit draws", "0.01", 8) + Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") +
             Input("end", "To", DateTime.Today.AddYears(1).AddDays(-1).ToString("yyyy-MM-dd"), 10, "date") + Input("scope", "Azure scope", null, 20) + Input("note", "Note", null, 20) + Button("Add"));
-        var warn = "<h3>Warning</h3>" + Form("alertdays", Input("alertDays", "Warn when this many days off", alert.ToString(CultureInfo.InvariantCulture), 4, "number") + Button("Save"));
+        var warn = "<h3>Warning</h3>" + Form("alertdays", Input("alertDays", "Warn when this many days off the plan", alert.ToString(CultureInfo.InvariantCulture), 4, "number") + Button("Save"));
         Panels.Add(new("Commitments", new HtmlString(t.Render().Value + add + warn),
             "From the purchase: its amount in its currency, the term, and what one Copilot Credit draws from it (0.01 at list price). Terms may not overlap: a top-up is the same commitment with a new amount. Every change is in the audit log.", "full"));
     }

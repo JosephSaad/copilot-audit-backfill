@@ -436,9 +436,14 @@ function Get-ValueDefinition {
     $day = if ($Meta.GroupsCounted -is [DBNull]) { 'not counted this week' } else { 'counted ' + ([datetime] $Meta.GroupsCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) }
     $who = if (Test-GroupCountAll $Meta) { 'All members' } else { 'Members with an enabled account' }
     $disabled1 = if (Test-GroupCountAll $Meta) { 'Counted (dashboard setting)' } else { 'Not counted' }
+    $m365Users = "$who of $m365Group, nested groups included ($day)."
+    if (Test-M365Estimated $Meta) {
+        $holders = if (Test-GroupCountAll $Meta) { 'People' } else { 'People with an enabled account' }
+        $m365Users = "ESTIMATED: $holders holding a Microsoft 365 Copilot license on $(([datetime] $Meta.WeekEnding).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture)). The AD group was not counted yet that week."
+    }
     @(
         [pscustomobject] @{ Metric = 'Number of Users Enabled'; Kind = 'people, from AD'
-            M365 = "$who of $m365Group, nested groups included ($day)."
+            M365 = $m365Users
             Chat = "$who of $chatGroup, nested groups included ($day)."
             Disabled = $disabled1 },
         [pscustomobject] @{ Metric = 'Active Users'; Kind = 'people, from use'
@@ -456,14 +461,28 @@ function Get-ValueDefinition {
     )
 }
 
+function Test-M365Estimated {
+    <# True when the reported week is before the groups were first counted, so M365 Copilot's Users Enabled is the license holders (3.1.3). #>
+    param($Meta)
+    $Meta.Table.Columns.Contains('M365Estimated') -and -not ($Meta.M365Estimated -is [DBNull]) -and [bool] $Meta.M365Estimated
+}
+
 function Get-ReportNote {
     <# The lines under the table: what is not counted, and who used Copilot outside the group of their column. #>
-    param($Meta)
+    param($Meta, [System.Data.DataTable] $Weeks)
     $notes = New-Object System.Collections.Generic.List[string]
+    if ($Weeks -and $Weeks.Columns.Contains('M365Estimated')) {
+        $est = @($Weeks.Rows | Where-Object { -not ($_.M365Estimated -is [DBNull]) -and [bool] $_.M365Estimated })
+        if ($est.Count -gt 0) {
+            $first = Get-MetaText $Meta 'GroupsFirstCounted'
+            $since = if ($first) { ' (the AD groups were first counted on ' + ([datetime] $Meta.GroupsFirstCounted).ToString('M/d/yyyy', [Globalization.CultureInfo]::InvariantCulture) + ')' } else { '' }
+            $notes.Add("M365 Copilot Users Enabled is estimated for $($est.Count) of the weeks shown$since, from the people holding a Microsoft 365 Copilot license on each week's last day. Copilot Chat Users Enabled has no such history and is blank for those weeks.")
+        }
+    }
     if (Test-GroupCountAll $Meta) {
         $notes.Add('Users Enabled counts every member of the two AD groups, disabled accounts included, as set on the dashboard (Admin > Alerts and digests).')
     }
-    if ($Meta.GroupsCounted -is [DBNull]) {
+    if ($Meta.GroupsCounted -is [DBNull] -and -not (Test-M365Estimated $Meta)) {
         $notes.Add('Users Enabled was not counted this week: the nightly AD load counts the two groups named by CopilotLicenseGroup and CopilotChatGroup in copilot-audit.settings.psd1, from the night they are set.')
     }
     if (-not ($Meta.M365OutsideGroup -is [DBNull]) -and [int] $Meta.M365OutsideGroup -gt 0) {
@@ -480,7 +499,7 @@ function Get-ReportNote {
 }
 
 function New-ReportHtml {
-    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings)
+    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks)
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)
@@ -534,7 +553,7 @@ function New-ReportHtml {
         $i++
     }
     [void] $sb.Append('</table>')
-    foreach ($note in (Get-ReportNote $Meta)) { [void] $sb.Append("<div style=`"$n padding:6px 0 0 0;`">$(ConvertTo-Html5Text $note)</div>") }
+    foreach ($note in (Get-ReportNote $Meta $Weeks)) { [void] $sb.Append("<div style=`"$n padding:6px 0 0 0;`">$(ConvertTo-Html5Text $note)</div>") }
 
     foreach ($key in 'Chat', 'M365') {
         if ($Images -and $Images.ContainsKey($key)) {
@@ -548,7 +567,7 @@ function New-ReportHtml {
 }
 
 function New-ReportText {
-    param($Meta, [System.Data.DataTable] $Table)
+    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks)
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Copilot weekly report, week of $($Meta.WeekLabel)")
     $lines.Add('')
@@ -568,7 +587,7 @@ function New-ReportText {
         $lines.Add("  M365 Copilot: $($d.M365)")
         $lines.Add("  Copilot Chat: $($d.Chat)")
     }
-    foreach ($note in (Get-ReportNote $Meta)) { $lines.Add(''); $lines.Add($note) }
+    foreach ($note in (Get-ReportNote $Meta $Weeks)) { $lines.Add(''); $lines.Add($note) }
     $lines.Add('')
     $lines.Add('The charts and the workbook are in the HTML version of this message.')
     $lines -join "`r`n"
@@ -665,13 +684,22 @@ function New-ReportWorkbook {
         # ---- Weekly: one row per week ------------------------------------------
         $heads = 'Week of', 'Week start', 'Week ending',
                  'M365 Copilot users enabled', 'M365 Copilot active users', 'M365 Copilot actions taken', 'M365 Copilot security alerts',
-                 'Copilot Chat users enabled', 'Copilot Chat active users', 'Copilot Chat actions taken', 'Copilot Chat security alerts'
+                 'Copilot Chat users enabled', 'Copilot Chat active users', 'Copilot Chat actions taken', 'Copilot Chat security alerts',
+                 'M365 Copilot users enabled from'
         $cols = 'WeekLabel', 'WeekStart', 'WeekEnding', 'M365Enabled', 'M365Active', 'M365Actions', 'M365Signals',
-                'ChatEnabled', 'ChatActive', 'ChatActions', 'ChatSignals'
+                'ChatEnabled', 'ChatActive', 'ChatActions', 'ChatSignals', 'M365Source'
         for ($c = 0; $c -lt $heads.Count; $c++) { $wd.Cells[1, ($c + 1)].Value = $heads[$c] }
         $row = 2
         foreach ($r in $Weeks.Rows) {
             for ($c = 0; $c -lt $cols.Count; $c++) {
+                if ($cols[$c] -eq 'M365Source') {
+                    # Where the week's M365 Copilot users enabled comes from (3.1.3): the AD group, or the license holders before it was counted.
+                    $v = if ($r['M365Enabled'] -is [DBNull]) { $null }
+                         elseif ($Weeks.Columns.Contains('M365Estimated') -and -not ($r['M365Estimated'] -is [DBNull]) -and [bool] $r['M365Estimated']) { 'Estimated from licenses' }
+                         else { 'AD group' }
+                    $wd.Cells[$row, ($c + 1)].Value = $v
+                    continue
+                }
                 $v = $r[$cols[$c]]
                 if ($v -is [DBNull]) { $v = $null }
                 elseif ($c -ge 3) { $v = [double] $v }
@@ -682,12 +710,13 @@ function New-ReportWorkbook {
         $lastRow = $row - 1
         $wd.Cells["B2:C$lastRow"].Style.Numberformat.Format = 'm/d/yyyy'
         $wd.Cells["D2:K$lastRow"].Style.Numberformat.Format = '#,##0'
-        $tbl = $wd.Tables.Add($wd.Cells["A1:K$lastRow"], 'WeeklyFigures')
+        $tbl = $wd.Tables.Add($wd.Cells["A1:L$lastRow"], 'WeeklyFigures')
         $tbl.TableStyle = [OfficeOpenXml.Table.TableStyles]::Medium2
         $wd.Column(1).Width = 14; $wd.Column(2).Width = 12; $wd.Column(3).Width = 12
         for ($c = 4; $c -le 11; $c++) { $wd.Column($c).Width = 17 }
+        $wd.Column(12).Width = 22
         $wd.Row(1).Height = 32
-        $wd.Cells['A1:K1'].Style.WrapText = $true
+        $wd.Cells['A1:L1'].Style.WrapText = $true
         $wd.View.FreezePanes(2, 2)
 
         # ---- Summary: the table, as in the email -----------------------------
@@ -782,7 +811,7 @@ function New-ReportWorkbook {
             $row++; $i++
         }
         $row++
-        foreach ($note in (Get-ReportNote $Meta)) {
+        foreach ($note in (Get-ReportNote $Meta $Weeks)) {
             $ws.Cells[$row, 2, $row, 5].Merge = $true
             $ws.Cells[$row, 2].Value = $note
             $ws.Cells[$row, 2].Style.WrapText = $true
@@ -1097,13 +1126,13 @@ try {
     }
 
     $subject = "$($setting.SubjectPrefix): week of $($meta.WeekLabel)"
-    $text = New-ReportText -Meta $meta -Table $table
+    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks
 
     if ($Preview) {
         $fileRefs = @{}
         foreach ($k in $images.Keys) { $fileRefs[$k] = [IO.Path]::GetFileName($images[$k]) }
         $htmlPath = Join-Path $outDir "Copilot weekly report $stamp.html"
-        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings
+        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks
         [IO.File]::WriteAllText($htmlPath, $html, (New-Object Text.UTF8Encoding($false)))
         Write-ReportLog "Preview of the week ending ${stamp}: $htmlPath"
         if ($workbook) { Write-ReportLog "Workbook: $workbook" }
@@ -1115,7 +1144,7 @@ try {
 
     $cids = @{}; $cidFiles = @{}
     foreach ($k in $images.Keys) { $cids[$k] = "cid:chart$k"; $cidFiles["chart$k"] = $images[$k] }
-    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings
+    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks
     if ($setting.KeepCopies) {
         [IO.File]::WriteAllText((Join-Path $outDir "Copilot weekly report $stamp.html"), $html, (New-Object Text.UTF8Encoding($false)))
     }

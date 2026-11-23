@@ -103,7 +103,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
             Kpis.Add(new("Policy breaches", Num(c.Any), "Copilot licenses on accounts that are not a person", c.Any > 0 ? "crit" : null));
             Kpis.Add(new("Guest accounts", Num(c.Guest), "guests holding a Copilot license"));
             Kpis.Add(new("Name reads like an account", Num(c.Name), "service, shared, test, room"));   // As the filter and the Why column say it
-            Kpis.Add(new("Outside the org chart", Num(c.Chart), "no manager, not under the top"));
+            Kpis.Add(new("Outside the org chart", Num(c.Chart), "no manager, and not under the top of the organization"));
             if (rules.EmployeeTypes.Count > 0 || rules.Groups.Count > 0) Kpis.Add(new("By employee type or group", Num(c.Type + c.Group), "the employee types and AD groups marked as not a person"));
             Kpis.Add(new("Confirmed as people", Num(c.Confirmed), "by an administrator, with a reason"));
 
