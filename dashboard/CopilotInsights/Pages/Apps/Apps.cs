@@ -123,9 +123,22 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var args = Ctx.Args(new { app = key });
 
         /* The five reads are independent: run side by side. The app's people over the period and by department come from
-           each person's use of each app the refresh keeps. */
+           each person's use of each app the refresh keeps; so does its trend where the refresh keeps each person's use
+           cases (kind U: the app times 4, plus 2 for web search, plus 1 for an agent), which give its web searches. A use
+           case below 4 was never set: then, as before the totals, the trend is read from the fact. */
+        var en = CopilotInsights.Infrastructure.ReportContext.IsEnabled();
+        var useCases = Ctx.Rollups && Ctx.ItemKinds.Contains('U');
         var (tr, people, types, depts, agents) = await Queries(Db.QueryAsync<(DateTime Bucket, int People, long N, long Web)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN f.UserKey END), COUNT_BIG(*), SUM(CAST(f.UsedWebSearch AS INT))
+{(useCases ? $@"IF NOT EXISTS (SELECT 1 FROM {Ctx.PerItem('U')} AS uc WHERE uc.Item < 4)
+SELECT a.Bucket, a.People, a.N, ISNULL(w.Web, 0)
+FROM (SELECT u.Bucket, COUNT(CASE WHEN {en} THEN 1 END) AS People, SUM(CAST(u.Interactions AS BIGINT)) AS N
+      FROM {Ctx.PerItemPoint('A')} AS u {Ctx.Scope("u.UserKey")} {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("u.UserKey", left: true)}
+      WHERE u.Item = @app GROUP BY u.Bucket) AS a
+LEFT JOIN (SELECT u.Bucket, SUM(CAST(u.Interactions AS BIGINT)) AS Web
+           FROM {Ctx.PerItemPoint('U')} AS u {Ctx.Scope("u.UserKey")}
+           WHERE u.Item IN (@app * 4 + 2, @app * 4 + 3) GROUP BY u.Bucket) AS w ON w.Bucket = a.Bucket;
+ELSE
+" : "")}SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN f.UserKey END), COUNT_BIG(*), SUM(CAST(f.UsedWebSearch AS INT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey", left: true)}
 WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", args),
