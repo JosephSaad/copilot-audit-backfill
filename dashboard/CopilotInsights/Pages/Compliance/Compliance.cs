@@ -26,13 +26,13 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         /* The reads are independent: started together, awaited where used. */
         var trTask = m.TrendAsync(Ctx);
         /* Counted as Access to labeled content lists them (labeled content, or blocked from content), so the figure
-           and the list it opens agree; the daily totals' count of labeled content alone left out those only blocked. */
+           and the list it opens agree; the daily totals' count of labeled content alone left out those only blocked.
+           Anyone with a row of either kind that counts an interaction: the same people as keeping those whose sum of
+           either kind is above zero, as a count is never below zero, without summing. */
         var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM (
-    SELECT rd.UserKey FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-    WHERE rd.Kind IN ('Label', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
-    GROUP BY rd.UserKey
-    HAVING SUM(CASE WHEN rd.Kind = 'Label' THEN rd.Interactions ELSE 0 END) > 0 OR SUM(CASE WHEN rd.Kind = 'Blocked' THEN rd.Interactions ELSE 0 END) > 0) AS x
+    SELECT DISTINCT rd.UserKey FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+    WHERE rd.Kind IN ('Label', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1 AND rd.Interactions > 0) AS x
 JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
         /* Counted per label id first, then named: grouping the daily rows on the name worked it out for each. */
         var labelsTask = Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
@@ -45,7 +45,22 @@ SELECT rd.Bucket, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.N)
 FROM g AS rd
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
 GROUP BY rd.Bucket, {Sites.LabelName};", Ctx.Args());
-        var sitesTask = Db.QueryAsync<(string Kind, string Item, int N, int People)>($@"
+        /* The people at each site from the refresh's list of who reached which site and when (dash.SitePerson), one
+           comparison a person; the interactions still summed from the days. A distinct count of each site's people over
+           every day of the period took 40 seconds of processor for two years and asked for gigabytes of memory, which a
+           busy server makes it wait for; this way 6 seconds. */
+        var sitesTask = Db.QueryAsync<(string Kind, string Item, int N, int People)>(Ctx.SitePeople ? $@"
+WITH n AS (SELECT rd.Kind, rd.Item, SUM(rd.Interactions) AS N
+           FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+           WHERE rd.Kind IN ('Site', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
+           GROUP BY rd.Kind, rd.Item),
+p AS (SELECT CASE sp.Kind WHEN 'S' THEN 'Site' ELSE 'Blocked' END AS Kind, CAST(LEFT(s.Site, 400) AS NVARCHAR(400)) AS Item, COUNT(*) AS People
+      FROM dash.SitePerson AS sp {Ctx.Scope("sp.UserKey")}
+      JOIN bi.DimSite AS s ON s.SiteKey = sp.SiteKey
+      WHERE sp.Kind IN ('S', 'B') AND {ReportContext.Reached("sp")}
+      GROUP BY sp.Kind, s.Site)
+SELECT n.Kind, n.Item, n.N, ISNULL(p.People, 0)
+FROM n LEFT JOIN p ON p.Kind = n.Kind AND p.Item = n.Item;" : $@"
 SELECT rd.Kind, rd.Item, SUM(rd.Interactions), COUNT(DISTINCT rd.UserKey)
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
 WHERE rd.Kind IN ('Site', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
@@ -161,30 +176,52 @@ public sealed class AccessModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var labels = await Db.QueryAsync<(string Id, string Name)>($@"
-SELECT DISTINCT rd.Item, {Sites.LabelName} FROM dash.ResourceDay AS rd LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
-        var label = Request.Query["label"].FirstOrDefault() is { } l && labels.Any(x => x.Id == l) ? l : null;
+        /* The labels offered and the list are read side by side, the list for the label asked for. A label the period
+           does not hold (an old link) is not one to filter by: the list is read again for all labels, as it was when the
+           labels were read first. */
+        var asked = Request.Query["label"].FirstOrDefault();
         var pg = new Paging(Request, Sorts, "most");
-        var rows = await Db.QueryAsync<Row>($@"
-/* Each measure into a temporary table of its own, then the page, then the most sensitive
-   label only for the rows shown. With the two distinct counts in one statement the optimizer
-   asked for gigabytes of memory and still spilled; with the label looked up person by person
-   (dash.ResourceDay is keyed by day, not person) it read the whole period per row. Either way
-   30 to 45 seconds for 180 days at 70,000 people; this way a few seconds. */
+        /* The label ids first, then named: named on every day's row, each row was matched on its id text (7 seconds of
+           processor for two years, against under half a second). */
+        var labelsTask = Db.QueryAsync<(string Id, string Name)>($@"
+WITH rd AS (SELECT DISTINCT rd.Item FROM dash.ResourceDay AS rd WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1)
+SELECT rd.Item, {Sites.LabelName} FROM rd LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item;", Ctx.Args());
+        /* The ranks Admin › Reference data gives labels, a few rows: each person's most sensitive label is then a CASE
+           on the label id, with the ids and ranks as parameters. Joined to the ranks, every day's label row was matched
+           on its id text: 10.5 seconds of processor for two years, against 8 this way. */
+        var ranks = await Db.QueryAsync<(string LabelId, int Rank)>("SELECT LabelId, CAST(Rank AS INT) FROM dash.SensitivityLabel WHERE Rank IS NOT NULL;");
+        var rankArgs = new Dapper.DynamicParameters();
+        for (var i = 0; i < ranks.Count; i++) { rankArgs.Add($"rl{i}", ranks[i].LabelId); rankArgs.Add($"rr{i}", ranks[i].Rank); }
+        var rank = ranks.Count == 0 ? "0" : "CASE rd.Item " + string.Concat(ranks.Select((_, i) => $"WHEN @rl{i} THEN @rr{i} ")) + "ELSE 0 END";
+        var rowsTask = ListAsync(pg, asked);
+        var (labels, rows) = await Queries(labelsTask, rowsTask);
+        var label = asked is { } l && labels.Any(x => x.Id == l) ? l : null;
+        if (asked is not null && label is null) rows = await ListAsync(pg, null);
+
+        /* Each measure into a temporary table of its own, then the page, then the most sensitive label only for the rows
+           shown. With the two distinct counts in one statement the optimizer asked for gigabytes of memory and still
+           spilled; with the label looked up person by person (dash.ResourceDay is keyed by day, not person) it read the
+           whole period per row. Either way 30 to 45 seconds for 180 days at 70,000 people; this way a few seconds. The
+           sites each person reached are the refresh's list of who reached which site and when (dash.SitePerson), one
+           comparison a row: a distinct count of the sites over every day of the period took 24 seconds of processor for two
+           years, against under 2. */
+        Task<List<Row>> ListAsync(Paging pg, string? label) => Db.QueryAsync<Row>($@"
 SELECT rd.UserKey,
-       SUM(CASE WHEN @label IS NULL OR rd.Item = @label THEN rd.Interactions ELSE 0 END) AS N,
-       COUNT(DISTINCT rd.DateKey) AS Days, MAX(ISNULL(sl.Rank, 0)) AS TopRank
+       SUM({(label is null ? "rd.Interactions" : "CASE WHEN rd.Item = @label THEN rd.Interactions ELSE 0 END")}) AS N,
+       COUNT(DISTINCT rd.DateKey) AS Days, MAX({rank}) AS TopRank
 INTO #lab
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
 WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
 GROUP BY rd.UserKey;
-SELECT rd.UserKey, COUNT(DISTINCT rd.Item) AS Sites
+{(Ctx.SitePeople ? $@"SELECT sp.UserKey, COUNT(*) AS Sites
+INTO #site
+FROM dash.SitePerson AS sp {Ctx.Scope("sp.UserKey")}
+WHERE sp.Kind = 'S' AND {ReportContext.Reached("sp")}
+GROUP BY sp.UserKey;" : $@"SELECT rd.UserKey, COUNT(DISTINCT rd.Item) AS Sites
 INTO #site
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
 WHERE rd.Kind = 'Site' AND rd.DateKey BETWEEN @k0 AND @k1
-GROUP BY rd.UserKey;
+GROUP BY rd.UserKey;")}
 SELECT rd.UserKey, SUM(rd.Interactions) AS Blocked
 INTO #blk
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
@@ -215,7 +252,8 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, x.N, x.Days, toplabe
        x.Sites, x.Blocked, x.TotalRows
 FROM #pick AS x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
 LEFT JOIN toplabel ON toplabel.UserKey = x.UserKey AND toplabel.n = 1
-ORDER BY {pg.OrderBy};", Ctx.Args(new { q = pg.Like, label }));
+ORDER BY {pg.OrderBy};", WithRanks(Ctx.Args(new { q = pg.Like, label })));
+        Dapper.DynamicParameters WithRanks(Dapper.DynamicParameters d) { d.AddDynamicParams(rankArgs); return d; }
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {

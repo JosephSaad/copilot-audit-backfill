@@ -251,6 +251,8 @@ namespace CopilotInsights.Pages.Workforce
         {
             if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job families are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
             var rules = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.JobFamilyRule;");
+            /* Each person's use over the period is the refresh's sum of it (dash.UserPeriod), where every person's days
+               were summed and the part of the organization taken after. */
             var rows = await Db.QueryAsync<GroupRow>($@"
 WITH act AS (SELECT pp.UserKey, pp.Interactions AS I, pp.LicensedUse AS L, pp.ActiveDays AS D, pp.Sessions AS S, pp.MultiTurnSessions AS MT
              FROM {Ctx.PerPerson()} AS pp),   -- each person's sums over the period, from the totals the refresh keeps

@@ -11,11 +11,14 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var types = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "EmployeeType"), Ctx.MinGroupSize, out _);
+        /* The four breakdowns are independent: read side by side, where one after another the page took their sum. */
+        var (byType, byRole, byLevel, byTitle) = await Queries(m.ByAttributeAsync(Ctx, "EmployeeType"), m.ByAttributeAsync(Ctx, "Role"),
+            m.ByAttributeAsync(Ctx, "Level"), m.ByAttributeAsync(Ctx, "JobTitle"));
+        var types = Groups.Fold(this, byType, Ctx.MinGroupSize, out _);
         /* Folded like the rest: a manager looking at their own part was "1 licensed managers", themselves. */
-        var roles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Role"), Ctx.MinGroupSize, out _);
-        var levels = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Level"), Ctx.MinGroupSize, out _);
-        var titles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "JobTitle"), Ctx.MinGroupSize, out var ft);
+        var roles = Groups.Fold(this, byRole, Ctx.MinGroupSize, out _);
+        var levels = Groups.Fold(this, byLevel, Ctx.MinGroupSize, out _);
+        var titles = Groups.Fold(this, byTitle, Ctx.MinGroupSize, out var ft);
         GroupRow? Find(IEnumerable<GroupRow> r, string n) => r.FirstOrDefault(x => x.Name == n);
         var mgr = Find(roles, "Managers"); var ic = Find(roles, "Individual contributors");
         /* Adoption only where the license holders reach the minimum group size, as the charts below rank it. */
@@ -66,9 +69,10 @@ public sealed class ManagersModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* Each manager's direct reports: licensed, and licensed and active in the period. */
+        /* Each manager's direct reports: licensed, and licensed and active in the period. Each person's use over the
+           period is the refresh's sum of it. */
         var teams = await Db.QueryAsync<TeamRow>($@"
-WITH act AS (SELECT ud.UserKey, SUM(ud.LicensedUse) AS L, SUM(ud.Interactions) AS I FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey),
+WITH act AS (SELECT p.UserKey, p.LicensedUse AS L, p.Interactions AS I FROM {Ctx.PerPerson()} AS p),
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT m.Upn AS Manager, m.DisplayName AS Name,
        CAST(CASE WHEN MAX(ma.I) > 0 THEN 1 ELSE 0 END AS BIT) AS ManagerActive,

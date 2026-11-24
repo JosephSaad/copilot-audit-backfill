@@ -14,20 +14,26 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
+        /* The refresh's own list of the flagged interactions holds every interaction with a signal, with its hour and
+           app: the hours and the apps are read from it, a few rows in every thousand interactions, where the fact was read
+           for the whole period to find them. Before the first refresh that writes it, the fact is read as before. */
+        var flagged = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM dash.FlaggedInteraction) THEN 1 ELSE 0 END;") == 1;
+        var (signals, hour) = flagged ? ("dash.FlaggedInteraction", "DATEPART(HOUR, f.ActivityHour)") : ("bi.FactInteraction", "f.HourOfDay");
         /* Six independent reads, each on its own connection: started together, awaited where they are used. */
         var trTask = m.TrendAsync(Ctx);
+        /* Each person's signals over the period, summed once by the refresh. */
         var peopleTask = Db.ScalarAsync<int>($@"
-SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection > 0);", Ctx.Args());
+SELECT COUNT(*) FROM {Ctx.PerPerson()} AS p {Ctx.Scope("p.UserKey")}
+WHERE p.Jailbreak > 0 OR p.PromptInjection > 0;", Ctx.Args());
         var hoursTask = Db.QueryAsync<(int Dow, int Hour, int N)>($@"
-SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+SELECT d.DayOfWeekNumber, {hour}, COUNT(*)
+FROM {signals} AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1)
-GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
+GROUP BY d.DayOfWeekNumber, {hour};", Ctx.Args());
         var appsTask = Db.QueryAsync<(string App, int Jb, int Inj, int Blk)>($@"
 SELECT a.App, SUM(CAST(f.JailbreakDetected AS INT)), SUM(CAST(f.PromptInjectionDetected AS INT)), SUM(CAST(f.HasBlockedResource AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM {signals} AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1)
 GROUP BY a.App;", Ctx.Args());

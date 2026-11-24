@@ -11,8 +11,18 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var countries = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Country"), Ctx.MinGroupSize, out var fc);
-        var offices = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Office"), Ctx.MinGroupSize, out var fo);
+        /* The three reads are independent: side by side. The people active at each point are each person's sums at that
+           point (a day, or a week the refresh summed), one row a person, where each point's people were a distinct count
+           over its days. */
+        var (byCountry, byOffice, trend) = await Queries(m.ByAttributeAsync(Ctx, "Country"), m.ByAttributeAsync(Ctx, "Office"),
+            Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
+SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), p.Bucket, COUNT(*)
+FROM {Ctx.PerPoint()} AS p {Ctx.Scope("p.UserKey")}
+JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
+WHERE p.ActiveDays > 0 AND du.AccountEnabled = 1
+GROUP BY ISNULL(NULLIF(du.Country, N''), N'(no country)'), p.Bucket;", Ctx.Args()));
+        var countries = Groups.Fold(this, byCountry, Ctx.MinGroupSize, out var fc);
+        var offices = Groups.Fold(this, byOffice, Ctx.MinGroupSize, out var fo);
         /* Both ends among the countries large enough to rank, as Departments and Organization rank theirs (the highest
            could be a country of one license holder, or the combined smaller ones). */
         var ranked = countries.Where(c => c.Name != "Smaller groups" && c.Licensed >= Ctx.MinGroupSize).OrderByDescending(c => c.ActiveLicensed / (double)c.Licensed).ToList();
@@ -28,13 +38,6 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
             "The fifteen offices with the highest adoption." + (fo > 0 ? " " + FoldNote(fo, "office") : ""), "half"));
 
-        var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
-SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, COUNT(DISTINCT ud.UserKey)
-FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
-JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0 AND du.AccountEnabled = 1
-GROUP BY ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         var shown = countries.Where(c => c.Name != "Smaller groups").OrderByDescending(c => c.People).Take(5).ToList();
         Panels.Add(new("People using Copilot, by country",
@@ -55,12 +58,28 @@ public sealed class PatternsModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var grid = await Db.QueryAsync<(int Dow, int Hour, long N)>($@"
+        /* The three reads are independent: side by side, where one after another the page took their sum. Counted
+           once per day, hour and app into a table for all three, the one read asked for hundreds of megabytes of memory
+           at two years and waited for it on a busy server, slower than the three. */
+        var (grid, trend, apps) = await Queries(Db.QueryAsync<(int Dow, int Hour, long N)>($@"
 SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
+GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args()),
+            Db.QueryAsync<(DateTime Bucket, long All, long After)>($@"
+SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CASE WHEN d.DayOfWeekNumber >= 6 OR f.HourOfDay < 8 OR f.HourOfDay >= 18 THEN 1 ELSE 0 END)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+WHERE f.DateKey BETWEEN @k0 AND @k1
+GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()),
+            Db.QueryAsync<(string App, int Hour, long N)>($@"
+WITH g AS (SELECT f.AppKey, f.HourOfDay, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.HourOfDay)   -- counted per key, then named
+SELECT COALESCE(vn.Name, a.App), g.HourOfDay, SUM(g.N)
+FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- the app's name
+GROUP BY COALESCE(vn.Name, a.App), g.HourOfDay;", Ctx.Args()));
         long all = grid.Sum(g => g.N);
         long after = grid.Where(g => g.Dow >= 6 || g.Hour < 8 || g.Hour >= 18).Sum(g => g.N);
         long weekend = grid.Where(g => g.Dow >= 6).Sum(g => g.N);
@@ -76,24 +95,11 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
             unit: "interactions", unitOne: "interaction", column: h => $"{h}:00 to {h}:59"),
             $"Darker is busier. Hours are in {DataZone} for everyone, so offices in other time zones appear shifted."));
 
-        var trend = await Db.QueryAsync<(DateTime Bucket, long All, long After)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CASE WHEN d.DayOfWeekNumber >= 6 OR f.HourOfDay < 8 OR f.HourOfDay >= 18 THEN 1 ELSE 0 END)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         Panels.Add(new("Share outside working hours",
             Chart.Line(Labels(), [new Series("Outside hours", buckets.Select(b => { var r = trend.FirstOrDefault(t => t.Bucket == b.Key); return Ratio(r.After, r.All); }).ToList(), 2)], Fmt.Percent, "After-hours share"),
             $"Interactions before 08:00, from 18:00, or at weekends. {TrendNote}", "half"));
 
-        var apps = await Db.QueryAsync<(string App, int Hour, long N)>($@"
-WITH g AS (SELECT f.AppKey, f.HourOfDay, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.HourOfDay)   -- 2.7.4: counted per key, then named
-SELECT COALESCE(vn.Name, a.App), g.HourOfDay, SUM(g.N)
-FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
-LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name
-GROUP BY COALESCE(vn.Name, a.App), g.HourOfDay;", Ctx.Args());
         var topApps = apps.GroupBy(a => a.App).OrderByDescending(g => g.Sum(x => x.N)).Take(4).Select(g => g.Key).ToList();
         var hours = Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList();
         Panels.Add(new("The day's shape, by app",
