@@ -62,12 +62,12 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
             Notice = "Free and Premium use are not told apart here yet, so those columns are empty. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
         var pg = new Paging(Request, new Dictionary<string, string>(Sorts) { ["rank"] = By[by].Order.Replace("r.", "x.") }, "rank");
         /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them.
-           Only accounts enabled today are ranked (3.1.3): a disabled or departed person is not listed. */
-        var rows = await Db.QueryAsync<Row>($@"
-WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
-                  COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays
-           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-           WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey HAVING SUM(ud.Interactions) > 0),
+           Only accounts enabled today are ranked: a disabled or departed person is not listed. Each person's sums over the
+           period are read from the totals the refresh keeps (ReportContext.PerPerson), scoped before they are ranked. */
+        var rowsTask = Db.QueryAsync<Row>($@"
+WITH u AS (SELECT p.UserKey, CAST(p.Interactions AS BIGINT) AS I, CAST(p.PremiumUse AS BIGINT) AS P, p.ActiveDays AS Days, p.PremiumDays
+           FROM {Ctx.PerPerson()} AS p {Ctx.Scope("p.UserKey")}
+           WHERE p.Interactions > 0),
 r AS (SELECT u.*, u.I - u.P AS F FROM u),
 x AS (SELECT r.*, du.DisplayName, du.UserPrincipalName, du.Department,
              CAST(CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Licensed,
@@ -78,14 +78,15 @@ SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
   AND (@license = 'all' OR (@license = 'licensed' AND x.Licensed = 1) OR (@license = 'unlicensed' AND x.Licensed = 0))
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, license }), timeout: 300);
-        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
-        /* The people are enabled accounts (3.1.3); the interactions are everyone's. */
-        var totals = (await Db.QueryAsync<(long I, long P, int People)>($@"
-SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(ud.PremiumUse AS BIGINT)), 0),
-       COUNT(DISTINCT CASE WHEN ud.Interactions > 0 AND {ReportContext.IsEnabled()} THEN ud.UserKey END)
-FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {ReportContext.EnabledJoin("ud.UserKey", left: true)}
-WHERE ud.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+        /* The people are enabled accounts; the interactions are everyone's. A person used Copilot in the period when
+           their interactions in it are more than none, which is having a day with one. */
+        var (rows, totalRows) = await Queries(rowsTask, Db.QueryAsync<(long I, long P, int People)>($@"
+SELECT ISNULL(SUM(CAST(p.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(p.PremiumUse AS BIGINT)), 0),
+       COUNT(CASE WHEN p.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END)
+FROM {Ctx.PerPerson()} AS p {Ctx.Scope("p.UserKey")} {ReportContext.EnabledJoin("p.UserKey", left: true)};", Ctx.Args()));
+        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
+        var totals = totalRows.Single();
         Kpis.Add(new("People using Copilot", Num(totals.People), "enabled accounts you can see that used it in the period"));
         Kpis.Add(new("Premium use", Pct(Ratio(totals.P, totals.I)), $"{totals.P:#,0} of {totals.I:#,0} interactions needed the license"));
         Kpis.Add(new("Free use", Pct(Ratio(totals.I - totals.P, totals.I)), "of interactions: Copilot Chat on the web, agents, and all use without a license"));
