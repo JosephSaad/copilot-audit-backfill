@@ -1,4 +1,4 @@
-# release 3.1.4
+# release 3.1.5
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1395,6 +1395,22 @@ C	copilot	dash.QueryCacheShared	U	4	Bytes	int	0
 C	copilot	dash.QueryCacheShared	U	5	CreatedUtc	datetime2(0)	0	D
 C	copilot	dash.QueryCacheShared	U	6	ExpiresUtc	datetime2(0)	0	
 C	copilot	dash.QueryCacheShared	U	7	Server	nvarchar(128)	1	
+C	copilot	dash.ReadMix	U	1	MixKey	int	0	
+C	copilot	dash.ReadMix	U	2	ResourceTypeKey	int	0	
+C	copilot	dash.ReadMix	U	3	SensitivityLabelKey	int	0	
+C	copilot	dash.ReadMix	U	4	FileTypeKey	int	0	
+C	copilot	dash.ReadMix	U	5	IsBlocked	bit	0	
+C	copilot	dash.ReadMixPeriod	U	1	EndKey	int	0	
+C	copilot	dash.ReadMixPeriod	U	10	Reads730	int	0	
+C	copilot	dash.ReadMixPeriod	U	11	ReadsAll	int	0	
+C	copilot	dash.ReadMixPeriod	U	2	UserKey	int	0	
+C	copilot	dash.ReadMixPeriod	U	3	MixKey	int	0	
+C	copilot	dash.ReadMixPeriod	U	4	Reads7	int	0	
+C	copilot	dash.ReadMixPeriod	U	5	Reads14	int	0	
+C	copilot	dash.ReadMixPeriod	U	6	Reads30	int	0	
+C	copilot	dash.ReadMixPeriod	U	7	Reads90	int	0	
+C	copilot	dash.ReadMixPeriod	U	8	Reads180	int	0	
+C	copilot	dash.ReadMixPeriod	U	9	Reads365	int	0	
 C	copilot	dash.RefreshRun	U	1	RunId	int	0	I
 C	copilot	dash.RefreshRun	U	2	StartedUtc	datetime2(0)	0	
 C	copilot	dash.RefreshRun	U	3	EndedUtc	datetime2(0)	0	
@@ -1436,6 +1452,29 @@ C	copilot	dash.ResourceDay	U	2	UserKey	int	0
 C	copilot	dash.ResourceDay	U	3	Kind	varchar(8)	0	
 C	copilot	dash.ResourceDay	U	4	Item	nvarchar(400)	0	
 C	copilot	dash.ResourceDay	U	5	Interactions	int	0	
+C	copilot	dash.ResourceItem	U	1	ItemKey	int	0	I
+C	copilot	dash.ResourceItem	U	2	Kind	varchar(8)	0	
+C	copilot	dash.ResourceItem	U	3	Item	nvarchar(400)	0	
+C	copilot	dash.ResourcePeriod	U	1	EndKey	int	0	
+C	copilot	dash.ResourcePeriod	U	10	N365	int	0	
+C	copilot	dash.ResourcePeriod	U	11	N730	int	0	
+C	copilot	dash.ResourcePeriod	U	12	NAll	int	0	
+C	copilot	dash.ResourcePeriod	U	13	D7	smallint	0	
+C	copilot	dash.ResourcePeriod	U	14	D14	smallint	0	
+C	copilot	dash.ResourcePeriod	U	15	D30	smallint	0	
+C	copilot	dash.ResourcePeriod	U	16	D90	smallint	0	
+C	copilot	dash.ResourcePeriod	U	17	D180	smallint	0	
+C	copilot	dash.ResourcePeriod	U	18	D365	smallint	0	
+C	copilot	dash.ResourcePeriod	U	19	D730	smallint	0	
+C	copilot	dash.ResourcePeriod	U	2	Kind	char(1)	0	
+C	copilot	dash.ResourcePeriod	U	20	DAll	smallint	0	
+C	copilot	dash.ResourcePeriod	U	3	ItemKey	int	0	
+C	copilot	dash.ResourcePeriod	U	4	UserKey	int	0	
+C	copilot	dash.ResourcePeriod	U	5	N7	int	0	
+C	copilot	dash.ResourcePeriod	U	6	N14	int	0	
+C	copilot	dash.ResourcePeriod	U	7	N30	int	0	
+C	copilot	dash.ResourcePeriod	U	8	N90	int	0	
+C	copilot	dash.ResourcePeriod	U	9	N180	int	0	
 C	copilot	dash.RoleGrant	U	1	GrantId	int	0	I
 C	copilot	dash.RoleGrant	U	10	PrincipalName	nvarchar(256)	1	
 C	copilot	dash.RoleGrant	U	11	OrgWide	bit	0	D
@@ -1464,6 +1503,40 @@ C	copilot	dash.SensitivityLabel	U	2	Name	nvarchar(200)	0
 C	copilot	dash.SensitivityLabel	U	3	Rank	tinyint	1	
 C	copilot	dash.SensitivityLabel	U	4	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.SensitivityLabel	U	5	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SessionPeriod	U	1	EndKey	int	0	
+C	copilot	dash.SessionPeriod	U	10	Minutes730	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	11	MinutesAll	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	12	Spanned7	int	0	
+C	copilot	dash.SessionPeriod	U	13	Spanned14	int	0	
+C	copilot	dash.SessionPeriod	U	14	Spanned30	int	0	
+C	copilot	dash.SessionPeriod	U	15	Spanned90	int	0	
+C	copilot	dash.SessionPeriod	U	16	Spanned180	int	0	
+C	copilot	dash.SessionPeriod	U	17	Spanned365	int	0	
+C	copilot	dash.SessionPeriod	U	18	Spanned730	int	0	
+C	copilot	dash.SessionPeriod	U	19	SpannedAll	int	0	
+C	copilot	dash.SessionPeriod	U	2	UserKey	int	0	
+C	copilot	dash.SessionPeriod	U	20	Sessions7	int	0	
+C	copilot	dash.SessionPeriod	U	21	Sessions14	int	0	
+C	copilot	dash.SessionPeriod	U	22	Sessions30	int	0	
+C	copilot	dash.SessionPeriod	U	23	Sessions90	int	0	
+C	copilot	dash.SessionPeriod	U	24	Sessions180	int	0	
+C	copilot	dash.SessionPeriod	U	25	Sessions365	int	0	
+C	copilot	dash.SessionPeriod	U	26	Sessions730	int	0	
+C	copilot	dash.SessionPeriod	U	27	SessionsAll	int	0	
+C	copilot	dash.SessionPeriod	U	3	AppKey	int	0	
+C	copilot	dash.SessionPeriod	U	4	Minutes7	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	5	Minutes14	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	6	Minutes30	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	7	Minutes90	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	8	Minutes180	decimal(14,2)	0	
+C	copilot	dash.SessionPeriod	U	9	Minutes365	decimal(14,2)	0	
+C	copilot	dash.SessionSpan	U	1	SessionKey	bigint	0	
+C	copilot	dash.SessionSpan	U	2	DateKey	int	0	
+C	copilot	dash.SessionSpan	U	3	UserKey	int	0	
+C	copilot	dash.SessionSpan	U	4	AppKey	int	0	
+C	copilot	dash.SessionSpan	U	5	SessionStart	datetime2(0)	0	
+C	copilot	dash.SessionSpan	U	6	SpanMinutes	decimal(12,2)	0	
+C	copilot	dash.SessionSpan	U	7	PromptCount	int	0	
 C	copilot	dash.Setting	U	1	Name	varchar(64)	0	
 C	copilot	dash.Setting	U	2	Value	nvarchar(400)	1	
 C	copilot	dash.Setting	U	3	Description	nvarchar(400)	1	
@@ -1475,6 +1548,10 @@ C	copilot	dash.SitePerson	U	3	UserKey	int	0
 C	copilot	dash.SitePerson	U	4	LastKey	int	0	
 C	copilot	dash.SitePerson	U	5	PrevKey	int	1	
 C	copilot	dash.SitePerson	U	6	AsOfKey	int	0	
+C	copilot	dash.SiteReader	U	1	SiteKey	int	0	
+C	copilot	dash.SiteReader	U	2	UserKey	int	0	
+C	copilot	dash.SiteReader	U	3	LastKey	int	0	
+C	copilot	dash.SiteReader	U	4	PrevKey	int	1	
 C	copilot	dash.SkuName	U	1	SkuPartNumber	nvarchar(100)	0	
 C	copilot	dash.SkuName	U	2	ProductName	nvarchar(200)	0	
 C	copilot	dash.SkuName	U	3	UpdatedBy	nvarchar(256)	1	
@@ -2175,17 +2252,24 @@ O	copilot	dash.OrgClosure	U
 O	copilot	dash.Person	U
 O	copilot	dash.ProfileGrant	U
 O	copilot	dash.QueryCacheShared	U
+O	copilot	dash.ReadMix	U
+O	copilot	dash.ReadMixPeriod	U
 O	copilot	dash.RefreshRun	U
 O	copilot	dash.Reservation	U
 O	copilot	dash.ReservationRate	U
 O	copilot	dash.ReservationSnapshot	U
 O	copilot	dash.ResourceDay	U
+O	copilot	dash.ResourceItem	U
+O	copilot	dash.ResourcePeriod	U
 O	copilot	dash.RoleGrant	U
 O	copilot	dash.SavedView	U
 O	copilot	dash.Secret	U
 O	copilot	dash.SensitivityLabel	U
+O	copilot	dash.SessionPeriod	U
+O	copilot	dash.SessionSpan	U
 O	copilot	dash.Setting	U
 O	copilot	dash.SitePerson	U
+O	copilot	dash.SiteReader	U
 O	copilot	dash.SkuName	U
 O	copilot	dash.Subscription	U
 O	copilot	dash.Target	U
@@ -2207,6 +2291,7 @@ O	copilot	dash.fnValueName	FN
 O	copilot	dash.usp_ApplyRetention	P
 O	copilot	dash.usp_GetSecret	P
 O	copilot	dash.usp_RefreshDashboard	P
+O	copilot	dash.usp_RefreshResourceTotals	P
 O	copilot	dash.usp_SetPrivacyMode	P
 O	copilot	dash.usp_SetSecret	P
 O	copilot	dash.usp_TakeCreditChargeSnapshot	P
@@ -2281,6 +2366,10 @@ P	copilot	dash.fnValueName	FN	2	@Value	nvarchar(400)	0	0
 P	copilot	dash.usp_GetSecret	P	1	@Name	varchar(64)	0	0
 P	copilot	dash.usp_GetSecret	P	2	@Value	nvarchar(2000)	1	0
 P	copilot	dash.usp_RefreshDashboard	P	1	@SinceUtc	datetime2(0)	0	1
+P	copilot	dash.usp_RefreshResourceTotals	P	1	@FromKey	int	0	1
+P	copilot	dash.usp_RefreshResourceTotals	P	2	@MaxKey	int	0	1
+P	copilot	dash.usp_RefreshResourceTotals	P	3	@PrevKey	int	0	1
+P	copilot	dash.usp_RefreshResourceTotals	P	4	@MinKey	int	0	1
 P	copilot	dash.usp_SetPrivacyMode	P	1	@Mode	nvarchar(16)	0	0
 P	copilot	dash.usp_SetPrivacyMode	P	2	@By	nvarchar(256)	0	0
 P	copilot	dash.usp_SetSecret	P	1	@Name	varchar(64)	0	0
