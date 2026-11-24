@@ -1,6 +1,6 @@
 # 3.1.4 plan: every page under 1 second at 120 million interactions
 
-Status: draft, 2026-11-23. Nothing built yet. Based on `main` at 9ef0578 (3.1.3).
+Status: released as 3.1.4 on 2026-11-24, short of the goal: the user asked to cut it with the pages measured below. Results: [results-160m.md](results-160m.md). Based on `main` at 9ef0578 (3.1.3).
 
 ## The goal
 
