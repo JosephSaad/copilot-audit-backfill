@@ -297,6 +297,11 @@ u AS (SELECT ISNULL(NULLIF(du.Division, N''), N'(no division)') AS Unit, du.Acco
     public async Task<List<UnitRow>> UnitsAsync(ReportContext c)
     {
         var parent = c.Root ?? c.OrgTopUpn;
+        /* The hash joins are named only over the period totals: named over sums worked out from the weeks or the days, they
+           fixed the order of every join inside those too, and the plan ran on one processor (5 seconds for the period
+           before 180 days at the top). There the optimizer is asked for a parallel plan instead, which meets them by hash. */
+        var hash = c.RolledDays.Contains(c.Choice);
+        var join = hash ? "LEFT HASH JOIN" : "LEFT JOIN";
         var sql = $@"
 WITH {UnitMembers(c, parent is not null)},
 act AS (SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.PremiumUse AS PU, p.ActiveDays AS D,
@@ -314,8 +319,8 @@ SELECT u.Unit,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn,
        ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled, ISNULL(SUM(CAST(a.W AS BIGINT)), 0) AS Web
 FROM u
-LEFT HASH JOIN act AS a ON a.UserKey = u.UserKey
-LEFT HASH JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
+{join} act AS a ON a.UserKey = u.UserKey
+{join} bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 GROUP BY u.Unit)
 SELECT g.Unit,
        {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN N'Reporting directly' ELSE mp.DisplayName END")} AS Name,
@@ -323,7 +328,7 @@ SELECT g.Unit,
        g.People, g.Licensed, g.Active, g.ActiveLicensed, g.PremiumLicensed, g.Interactions, g.ActiveDays, g.Sessions, g.MultiTurn, g.Flags, g.Labeled, g.Web
 FROM g
 {(parent is null ? "" : "LEFT JOIN dash.Person AS mp ON mp.Upn = g.Unit")}
-ORDER BY {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN 1 ELSE 0 END, Name")};";
+ORDER BY {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN 1 ELSE 0 END, Name")}{(hash ? "" : "\nOPTION (OPTIMIZE FOR UNKNOWN, USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE'))")};";
         var rows = await db.QueryAsync<UnitRow>(sql, c.Args(new { parent }));
         if (c.PrivacyMode && parent is not null) Unnamed(rows);
         return rows;

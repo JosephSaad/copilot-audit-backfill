@@ -19,8 +19,9 @@ public class LeadershipSpeedTests
     {
         var m = Read("Data", "Metrics.cs");
         Assert.DoesNotContain("INTO #u", m);   // no temporary table: no compile on every visit
-        Assert.Contains("LEFT HASH JOIN act AS a ON a.UserKey = u.UserKey", m);
-        Assert.Contains("LEFT HASH JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1", m);
+        Assert.Contains("var join = hash ? \"LEFT HASH JOIN\" : \"LEFT JOIN\";", m);   // by hash over the period totals; a parallel plan otherwise
+        Assert.Contains("{join} act AS a ON a.UserKey = u.UserKey", m);
+        Assert.Contains("USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE')", m);
         Assert.Contains("FROM u INNER HASH JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey", m);
         Assert.Contains("LEFT JOIN dash.Person AS mp ON mp.Upn = g.Unit", m);
         /* The members with a key and an account on the closure come from its part index alone. */
