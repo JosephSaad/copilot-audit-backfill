@@ -2324,13 +2324,19 @@ Assert-That ([int] $fs.N -eq $sessCount -and "$($fs.AStatuses)" -eq '2111') `
 
 $skuChanges = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM (SELECT DISTINCT RecordId, Sku, Change FROM audit.vLicenseSkuChange WHERE TargetUpn IS NOT NULL) AS x;')
 $fc = (Invoke-SqlText -As Table -Sql @"
-SELECT COUNT(*) AS N,
+SELECT (SELECT COUNT(*) FROM bi.FactLicenseChange WHERE RecordId NOT LIKE 'lookup:%') AS N,
        (SELECT CONCAT(f.DateKey, ':', f.Change, ':', k.Sku) FROM bi.FactLicenseChange AS f
-        JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey WHERE f.RecordId = 'lic-a1') AS A
-FROM bi.FactLicenseChange;
+        JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey WHERE f.RecordId = 'lic-a1') AS A,
+       (SELECT STRING_AGG(CONCAT(u.UserPrincipalName, '@', f.DateKey, ':', f.Change, ':', f.ChangedBy), ',')
+        FROM bi.FactLicenseChange AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
+        WHERE f.RecordId LIKE 'lookup:%' AND u.UserPrincipalName IN (N'a@contoso.com', N'c@contoso.com')) AS Lookup
 "@).Rows[0]
 Assert-That ([int] $fc.N -eq $skuChanges -and "$($fc.A)" -eq '20260914:1:Microsoft_365_Copilot') `
     "every SKU change is a row, +1 or -1 ($($fc.N) of $skuChanges; user A $($fc.A))"
+# 3.1.7: a license the audit log has no change for counts from the lookup's licensed-since date (user C); one with
+# changes in the audit log from that date on (user A) does not count twice.
+Assert-That ("$($fc.Lookup)" -eq 'c@contoso.com@20260916:1:(license lookup)') `
+    "a license no audit record has is an assignment on its licensed-since date, once ($($fc.Lookup))"
 
 $ld = Invoke-SqlText -As Table -Sql @"
 SELECT u.UserPrincipalName AS Upn, STRING_AGG(CAST(l.DateKey AS varchar(8)), ',') WITHIN GROUP (ORDER BY l.DateKey) AS Days
@@ -2342,6 +2348,28 @@ $ldd = @{}; foreach ($r in $ld.Rows) { $ldd["$($r.Upn)"] = "$($r.Days)" }
 Assert-That ($ldd['a@contoso.com'] -eq '20260914,20260915,20260916,20260917') "user A counts as licensed from the day the license was assigned ($($ldd['a@contoso.com']))"
 Assert-That ($ldd['c@contoso.com'] -eq '20260916,20260917') "user C from the day of LicensedSinceUtc ($($ldd['c@contoso.com']))"
 Assert-That (-not $ldd.ContainsKey('b@contoso.com')) 'user B, unlicensed, never counts'
+
+# --- 3.1.7: a license the lookup sees go is a removal --------------------------
+# User C loses Copilot with no audit record of it (a group's license): the next refresh records the removal from the
+# lookup, and License changes counts it; C licensed again, nothing is removed twice.
+Invoke-SqlText -Sql "UPDATE audit.CopilotLicense SET IsCopilotLic = 0, UpdatedUtc = '2026-09-18T06:00:00' WHERE UserPrincipalName = N'c@contoso.com';"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenseEventDatabase = N'$licDb';"
+$rm = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.CopilotLicenseRemoval WHERE Upn = N'c@contoso.com') AS Recorded,
+       (SELECT COUNT(*) FROM audit.CopilotLicenseHolder WHERE Upn = N'c@contoso.com') AS StillHeld,
+       (SELECT STRING_AGG(CONCAT(f.DateKey, ':', f.Change), ',') WITHIN GROUP (ORDER BY f.Change DESC) FROM bi.FactLicenseChange AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
+        WHERE u.UserPrincipalName = N'c@contoso.com' AND f.RecordId LIKE 'lookup:%') AS Fact
+"@).Rows[0]
+Assert-That ([int] $rm.Recorded -eq 1 -and [int] $rm.StillHeld -eq 0 -and "$($rm.Fact)" -eq '20260916:1,20260918:-1') `
+    "a license the lookup no longer finds is recorded as removed on the day the lookup saw it, and its assignment stays ($($rm.Recorded), $($rm.Fact))"
+Invoke-SqlText -Sql "UPDATE audit.CopilotLicense SET IsCopilotLic = 1 WHERE UserPrincipalName = N'c@contoso.com';"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenseEventDatabase = N'$licDb';"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenseEventDatabase = N'$licDb';"
+$rm2 = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.CopilotLicenseRemoval WHERE Upn = N'c@contoso.com') AS Recorded,
+       (SELECT COUNT(*) FROM audit.CopilotLicenseHolder WHERE Upn = N'c@contoso.com') AS Held
+"@).Rows[0]
+Assert-That ([int] $rm2.Recorded -eq 1 -and [int] $rm2.Held -eq 1) "licensed again, the holder is kept and nothing is removed twice ($($rm2.Recorded), $($rm2.Held))"
 
 # --- A partial refresh replaces its window and nothing before it ------------
 $aKey = [int] (Invoke-SqlText -As Scalar -Sql "SELECT UserKey FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com';")

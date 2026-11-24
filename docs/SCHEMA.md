@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-132 tables (plus 2 left over from 1.x), 39 views, 1628 columns, from 22 scripts.
+134 tables (plus 2 left over from 1.x), 39 views, 1637 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -15,7 +15,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
-- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.ReportGroupMember`](#auditreportgroupmember), [`audit.ReportGroupDay`](#auditreportgroupday), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
+- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.CopilotLicenseHolder`](#auditcopilotlicenseholder), [`audit.CopilotLicenseRemoval`](#auditcopilotlicenseremoval), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.ReportGroupMember`](#auditreportgroupmember), [`audit.ReportGroupDay`](#auditreportgroupday), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
@@ -776,6 +776,33 @@ Who holds a license (Microsoft Graph) and where they sit in the organization (on
 Indexes and constraints:
 
 - `PK_CopilotLicense`: primary key, clustered (UserPrincipalName)
+
+### audit.CopilotLicenseHolder
+
+*Table.* Who held a Copilot license at the last bi refresh (3.1.7), as the license lookup (audit.CopilotLicense) found them: what the next refresh compares with to find the licenses that went. Replaced whole by each bi.usp_RefreshBi, except when the lookup finds under 85% of 100 or more holders, taken as a lookup that failed.
+
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(512) | **no** | PK | |
+| 2 | `Sku` | nvarchar(100) | **no** |  | the Copilot SKU, e.g. Microsoft_365_Copilot |
+| 3 | `SinceUtc` | datetime2(0) | yes |  | licensed since, as the lookup saw it |
+
+### audit.CopilotLicenseRemoval
+
+*Table.* Each Copilot license the lookup saw go (3.1.7): held at the bi refresh before, not held now or no longer in the directory. A license assigned or taken away through a group can leave no license change in the audit log; bi.FactLicenseChange counts these where no audit record has the removal, as RecordId `lookup:r:…` with ChangedBy `(license lookup)`. Only ever added to; it starts on the first refresh after the install.
+
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RemovalId` | int | **no** | identity, PK | |
+| 2 | `Upn` | nvarchar(512) | **no** |  | |
+| 3 | `Sku` | nvarchar(100) | **no** |  | |
+| 4 | `RemovedUtc` | datetime2(0) | **no** |  | when the lookup saw it gone: it went between that lookup and the one before |
+| 5 | `HeldSinceUtc` | datetime2(0) | yes |  | licensed since, as the lookup last saw it: counted as its assignment |
+| 6 | `RecordedUtc` | datetime2(0) | **no** | `sysutcdatetime` | |
 
 ### audit.UserDirectory
 

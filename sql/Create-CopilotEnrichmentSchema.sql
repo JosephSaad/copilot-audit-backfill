@@ -50,6 +50,33 @@ IF EXISTS (SELECT 1 FROM sys.columns
              AND name = N'IsCopilotLic' AND is_nullable = 0)
     ALTER TABLE audit.CopilotLicense ALTER COLUMN IsCopilotLic BIT NULL;
 
+/*
+    Who held a Copilot license at the last bi refresh, and each license the
+    nightly lookup saw go: held then, not held now, or no longer in the
+    directory (bi.usp_RefreshBi keeps both). A license assigned through a
+    group can leave no license change in the audit log, so this is how a
+    removal is known; License inventory and License changes count it where no
+    audit record has it. Only ever added to; removals start on the first
+    refresh after the install, as nothing recorded them before.
+*/
+IF OBJECT_ID(N'audit.CopilotLicenseHolder', N'U') IS NULL
+    CREATE TABLE audit.CopilotLicenseHolder
+    (
+        Upn       NVARCHAR(512)  NOT NULL CONSTRAINT PK_CopilotLicenseHolder PRIMARY KEY NONCLUSTERED,
+        Sku       NVARCHAR(100)  NOT NULL,
+        SinceUtc  DATETIME2(0)   NULL
+    );
+IF OBJECT_ID(N'audit.CopilotLicenseRemoval', N'U') IS NULL
+    CREATE TABLE audit.CopilotLicenseRemoval
+    (
+        RemovalId     INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_CopilotLicenseRemoval PRIMARY KEY,
+        Upn           NVARCHAR(512)  NOT NULL,
+        Sku           NVARCHAR(100)  NOT NULL,
+        RemovedUtc    DATETIME2(0)   NOT NULL,   -- when the lookup saw it gone (it went between that lookup and the one before)
+        HeldSinceUtc  DATETIME2(0)   NULL,       -- licensed since, as the lookup last saw it
+        RecordedUtc   DATETIME2(0)   NOT NULL CONSTRAINT DF_CopilotLicenseRemoval_Recorded DEFAULT (SYSUTCDATETIME())
+    );
+
 /* The Copilot SKU the license came from, e.g. Microsoft_365_Copilot. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber') IS NULL
     ALTER TABLE audit.CopilotLicense ADD SkuPartNumber NVARCHAR(100) NULL;

@@ -491,6 +491,45 @@ BEGIN
     UNION
     SELECT Upn FROM #cur WHERE IsLic IS NOT NULL;
 
+    /* ---- 1b. Copilot licenses the lookup saw go --------------------------------
+       A license assigned through a group can leave no license change in the
+       audit log, so who lost Copilot is read from the nightly lookup too: held
+       at the last refresh (audit.CopilotLicenseHolder), not held now or no
+       longer in the directory. When far fewer hold a license than last time
+       (under 85% of 100 or more), the lookup is taken to have failed: nothing
+       is recorded and the holders are kept as they were. #rem has every
+       removal recorded. */
+    DROP TABLE IF EXISTS #rem;
+    CREATE TABLE #rem
+    (
+        Upn         NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL,
+        Sku         NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL,
+        RemovedUtc  DATETIME2(0)  NOT NULL,
+        SinceUtc    DATETIME2(0)  NULL
+    );
+    IF OBJECT_ID(N'audit.CopilotLicenseHolder', N'U') IS NOT NULL AND OBJECT_ID(N'audit.CopilotLicenseRemoval', N'U') IS NOT NULL
+    BEGIN
+        DECLARE @heldBefore INT, @heldNow INT = (SELECT COUNT(*) FROM #cur WHERE IsLic = 1);
+        EXEC sys.sp_executesql N'SELECT @n = COUNT(*) FROM audit.CopilotLicenseHolder;', N'@n INT OUTPUT', @n = @heldBefore OUTPUT;
+        IF @heldBefore >= 100 AND @heldNow < @heldBefore * 0.85
+        BEGIN
+            SET @msg = CONCAT(N'Warning: the license lookup finds ', FORMAT(@heldNow, 'N0'), N' Copilot holders where the last refresh had ',
+                              FORMAT(@heldBefore, 'N0'), N': taken as a lookup that failed, so no license is recorded as removed this time.');
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END
+        ELSE
+            EXEC (N'
+            INSERT INTO audit.CopilotLicenseRemoval (Upn, Sku, RemovedUtc, HeldSinceUtc)
+            SELECT h.Upn, h.Sku, COALESCE(c.LookedUpUtc, SYSUTCDATETIME()), h.SinceUtc
+            FROM audit.CopilotLicenseHolder AS h
+            LEFT JOIN #cur AS c ON c.Upn = h.Upn COLLATE DATABASE_DEFAULT
+            WHERE ISNULL(c.IsLic, 0) = 0;
+            DELETE FROM audit.CopilotLicenseHolder;
+            INSERT INTO audit.CopilotLicenseHolder (Upn, Sku, SinceUtc)
+            SELECT Upn, ISNULL(Sku, N''Microsoft_365_Copilot''), SinceUtc FROM #cur WHERE IsLic = 1;');
+        EXEC (N'INSERT INTO #rem (Upn, Sku, RemovedUtc, SinceUtc) SELECT Upn, Sku, RemovedUtc, HeldSinceUtc FROM audit.CopilotLicenseRemoval;');
+    END;
+
     /* ---- 2. Everything else the facts are built from ------------------------ */
 
     /*
@@ -550,6 +589,7 @@ BEGIN
     FROM (SELECT Upn FROM #sess
           UNION SELECT Upn FROM #chg
           UNION SELECT Upn FROM #cur
+          UNION SELECT Upn FROM #rem
           UNION SELECT Upn FROM #profile) AS n
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimUser AS d WHERE d.UserPrincipalName = n.Upn);
 
@@ -562,6 +602,11 @@ BEGIN
     INSERT INTO bi.DimSku (Sku, IsCopilot)
     SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
+    /* The Copilot SKUs the lookup names, which no license change may have named. */
+    INSERT INTO bi.DimSku (Sku, IsCopilot)
+    SELECT DISTINCT n.Sku, 1
+    FROM (SELECT Sku FROM #cur WHERE IsLic = 1 AND Sku IS NOT NULL UNION SELECT Sku FROM #rem) AS n
+    WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = n.Sku);
     /* A SKU already here before it was known as a suite with Copilot inside (E7) becomes a Copilot SKU now, so
        License changes and License inventory count its changes as the licensed days do. */
     UPDATE bi.DimSku SET IsCopilot = 1 WHERE IsCopilot = 0 AND Sku IN (SELECT Sku FROM #suite);
@@ -992,6 +1037,40 @@ BEGIN
     CROSS APPLY (SELECT CAST(r.ChangedUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
     WHERE r.rn = 1;
     SET @changes = @@ROWCOUNT;
+
+    /* Copilot license changes no audit record has: one assigned or taken away
+       through a group can leave none. Each holder's licensed-since date from
+       the lookup is an assignment where no Copilot change of theirs is on or
+       after the day before it (the audit records are then the history), and so
+       is the licensed-since date a removal kept; each
+       removal the lookup saw (1b) is a removal where no Copilot removal of
+       theirs is in the two days before it. Marked RecordId 'lookup:',
+       ChangedBy '(license lookup)'. */
+    INSERT INTO bi.FactLicenseChange (RecordId, ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy)
+    SELECT x.RecordId, x.ChangedUtc,
+           YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
+           u.UserKey, k.SkuKey, x.Change, N'(license lookup)'
+    FROM (
+        /* Assignments: today's holders, and the holders a removal was recorded for, by licensed-since date. The same
+           person, license and date is one assignment however many times it is seen. */
+        SELECT CONCAT('lookup:a:', CONVERT(VARCHAR(40), HASHBYTES('SHA1', CONCAT(a.Upn, N'|', a.Sku, N'|', CONVERT(NVARCHAR(30), a.SinceUtc, 126))), 2)) AS RecordId,
+               a.Upn, a.Sku, a.SinceUtc AS ChangedUtc, CAST(1 AS SMALLINT) AS Change
+        FROM (SELECT Upn, Sku, SinceUtc FROM #cur WHERE IsLic = 1 AND SinceUtc IS NOT NULL AND Sku IS NOT NULL
+              UNION
+              SELECT Upn, Sku, SinceUtc FROM #rem WHERE SinceUtc IS NOT NULL) AS a
+        WHERE NOT EXISTS (SELECT 1 FROM #ev AS e WHERE e.Upn = a.Upn AND e.Ts >= DATEADD(DAY, -1, a.SinceUtc))
+        UNION ALL
+        SELECT CONCAT('lookup:r:', CONVERT(VARCHAR(40), HASHBYTES('SHA1', CONCAT(r.Upn, N'|', r.Sku, N'|', CONVERT(NVARCHAR(30), r.RemovedUtc, 126))), 2)),
+               r.Upn, r.Sku, r.RemovedUtc, CAST(-1 AS SMALLINT)
+        FROM #rem AS r
+        WHERE NOT EXISTS (SELECT 1 FROM #ev AS e WHERE e.Upn = r.Upn AND e.Added = 0
+                                                   AND e.Ts BETWEEN DATEADD(DAY, -2, r.RemovedUtc) AND r.RemovedUtc)
+    ) AS x
+    JOIN bi.DimUser AS u ON u.UserPrincipalName = x.Upn
+    JOIN bi.DimSku  AS k ON k.Sku = x.Sku
+    CROSS APPLY (SELECT CAST(x.ChangedUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
+    WHERE NOT EXISTS (SELECT 1 FROM bi.FactLicenseChange AS f WHERE f.RecordId = x.RecordId AND f.SkuKey = k.SkuKey AND f.Change = x.Change);
+    SET @changes += @@ROWCOUNT;
 
     /* Copilot Studio authoring events, from every license database that has them. */
     IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NOT NULL
