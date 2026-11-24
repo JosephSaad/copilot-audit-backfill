@@ -45,6 +45,370 @@
     Requires Create-CopilotDashboardSchema.sql and the bi schema.
 */
 SET NOCOUNT ON;
+GO
+
+/*
+    dash.usp_RefreshResourceTotals
+    ------------------------------------------------------------------------
+    The totals of resources read that Sensitive content, Access to labeled content, Oversharing hotspots, Labeled
+    content by unit and Usage by license read (see the schema's notes on dash.ReadMix): called by
+    dash.usp_RefreshDashboard after its own totals, with the first day that run rewrote (@FromKey, NULL for every day),
+    the last day with data and the day before it (@MaxKey, @PrevKey: the days the period totals end on) and the first
+    day with data (@MinKey). The period totals are rebuilt whole, from one pass each over the resources read,
+    dash.ResourceDay and the conversations; the readers of each site and the copy of the conversations from @FromKey on.
+    The setting DashResourceTotalsEnds records the two days once all of it is built, and is cleared while it is.
+*/
+CREATE OR ALTER PROCEDURE dash.usp_RefreshResourceTotals
+    @FromKey INT = NULL,
+    @MaxKey  INT = NULL,
+    @PrevKey INT = NULL,
+    @MinKey  INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    DECLARE @started DATETIME2(3) = SYSUTCDATETIME(), @msg NVARCHAR(400), @step DATETIME2(3) = SYSUTCDATETIME(), @times NVARCHAR(200) = N'';
+    SET @MaxKey = ISNULL(@MaxKey, (SELECT MAX(DateKey) FROM dash.UserDay));
+    SET @MinKey = ISNULL(@MinKey, (SELECT MIN(DateKey) FROM dash.UserDay));
+    SET @PrevKey = ISNULL(@PrevKey, (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @MaxKey));
+    IF @MaxKey IS NULL RETURN;   -- no data yet
+
+    /* Cleared first: a run stopped part way leaves the pages counting the old way. */
+    UPDATE dash.Setting SET Value = NULL, UpdatedBy = N'dash.usp_RefreshResourceTotals', UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'DashResourceTotalsEnds';
+    DECLARE @mayTruncate BIT = CASE WHEN HAS_PERMS_BY_NAME(N'dash.ReadMixPeriod', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
+
+    /* The first day of each period a page offers, ending on either day (All data: from the first day with data). */
+    DECLARE @maxDate DATE = CONVERT(DATE, CONVERT(CHAR(8), @MaxKey)), @prevDate DATE = CONVERT(DATE, CONVERT(CHAR(8), ISNULL(@PrevKey, @MaxKey)));
+    DECLARE @m7 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @maxDate), 112)), @m14 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -13, @maxDate), 112)),
+            @m30 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -29, @maxDate), 112)), @m90 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -89, @maxDate), 112)),
+            @m180 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -179, @maxDate), 112)), @m365 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -364, @maxDate), 112)),
+            @m730 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -729, @maxDate), 112));
+    DECLARE @p7 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, @prevDate), 112)), @p14 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -13, @prevDate), 112)),
+            @p30 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -29, @prevDate), 112)), @p90 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -89, @prevDate), 112)),
+            @p180 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -179, @prevDate), 112)), @p365 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -364, @prevDate), 112)),
+            @p730 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -729, @prevDate), 112));
+    /* Without a day before the last (one day of data), only the last day's totals are written. */
+    DECLARE @prev INT = ISNULL(@PrevKey, -1);
+
+    /* ---- Resources read, per person and combination ------------------------ */
+
+    /* Every combination the dimensions allow, numbered once: a few hundred rows, and a reader of them needs no scan to
+       find the ones in use. */
+    INSERT INTO dash.ReadMix (MixKey, ResourceTypeKey, SensitivityLabelKey, FileTypeKey, IsBlocked)
+    SELECT ISNULL((SELECT MAX(MixKey) FROM dash.ReadMix), 0) + ROW_NUMBER() OVER (ORDER BY t.ResourceTypeKey, l.SensitivityLabelKey, ft.FileTypeKey, b.IsBlocked),
+           t.ResourceTypeKey, l.SensitivityLabelKey, ft.FileTypeKey, b.IsBlocked
+    FROM bi.DimResourceType AS t
+    CROSS JOIN bi.DimSensitivityLabel AS l
+    CROSS JOIN bi.DimFileType AS ft
+    CROSS JOIN (VALUES (CAST(0 AS BIT)), (CAST(1 AS BIT))) AS b (IsBlocked)
+    WHERE NOT EXISTS (SELECT 1 FROM dash.ReadMix AS m WHERE m.ResourceTypeKey = t.ResourceTypeKey AND m.SensitivityLabelKey = l.SensitivityLabelKey
+                                                         AND m.FileTypeKey = ft.FileTypeKey AND m.IsBlocked = b.IsBlocked);
+
+    /* One pass over every resource read, both days' periods side by side. */
+    DROP TABLE IF EXISTS #mix;
+    SELECT f.UserKey, m.MixKey,
+           SUM(CASE WHEN f.DateKey >= @m7 THEN 1 ELSE 0 END) AS M7, SUM(CASE WHEN f.DateKey >= @m14 THEN 1 ELSE 0 END) AS M14,
+           SUM(CASE WHEN f.DateKey >= @m30 THEN 1 ELSE 0 END) AS M30, SUM(CASE WHEN f.DateKey >= @m90 THEN 1 ELSE 0 END) AS M90,
+           SUM(CASE WHEN f.DateKey >= @m180 THEN 1 ELSE 0 END) AS M180, SUM(CASE WHEN f.DateKey >= @m365 THEN 1 ELSE 0 END) AS M365,
+           SUM(CASE WHEN f.DateKey >= @m730 THEN 1 ELSE 0 END) AS M730, COUNT(*) AS MAll,
+           SUM(CASE WHEN f.DateKey BETWEEN @p7 AND @prev THEN 1 ELSE 0 END) AS P7, SUM(CASE WHEN f.DateKey BETWEEN @p14 AND @prev THEN 1 ELSE 0 END) AS P14,
+           SUM(CASE WHEN f.DateKey BETWEEN @p30 AND @prev THEN 1 ELSE 0 END) AS P30, SUM(CASE WHEN f.DateKey BETWEEN @p90 AND @prev THEN 1 ELSE 0 END) AS P90,
+           SUM(CASE WHEN f.DateKey BETWEEN @p180 AND @prev THEN 1 ELSE 0 END) AS P180, SUM(CASE WHEN f.DateKey BETWEEN @p365 AND @prev THEN 1 ELSE 0 END) AS P365,
+           SUM(CASE WHEN f.DateKey BETWEEN @p730 AND @prev THEN 1 ELSE 0 END) AS P730, SUM(CASE WHEN f.DateKey <= @prev THEN 1 ELSE 0 END) AS PAll
+    INTO #mix
+    FROM bi.FactAccessedResource AS f
+    JOIN dash.ReadMix AS m ON m.ResourceTypeKey = f.ResourceTypeKey AND m.SensitivityLabelKey = f.SensitivityLabelKey
+                          AND m.FileTypeKey = f.FileTypeKey AND m.IsBlocked = f.IsBlocked
+    WHERE f.DateKey BETWEEN @MinKey AND @MaxKey
+    GROUP BY f.UserKey, m.MixKey
+    OPTION (RECOMPILE);
+
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.ReadMixPeriod; ELSE DELETE FROM dash.ReadMixPeriod;
+    INSERT INTO dash.ReadMixPeriod WITH (TABLOCK) (EndKey, UserKey, MixKey, Reads7, Reads14, Reads30, Reads90, Reads180, Reads365, Reads730, ReadsAll)
+    SELECT @MaxKey, UserKey, MixKey, M7, M14, M30, M90, M180, M365, M730, MAll FROM #mix
+    UNION ALL
+    SELECT @PrevKey, UserKey, MixKey, P7, P14, P30, P90, P180, P365, P730, PAll FROM #mix WHERE PAll > 0 AND @PrevKey IS NOT NULL;
+    COMMIT TRANSACTION;
+    DROP TABLE #mix;
+    SELECT @times = CONCAT(N'resources read ', DATEDIFF(SECOND, @step, SYSUTCDATETIME()), N' s'), @step = SYSUTCDATETIME();
+
+    /* ---- dash.ResourceDay, per person ------------------------------------- */
+
+    /* Summed per person and label or site first (by the text, as dash.ResourceDay keeps them), then each label id and
+       site is numbered where it is new, from those rows, and the sums are kept by number. Read and numbered in one
+       statement, its threads deadlocked on each other; read twice, the days were read twice. */
+    DROP TABLE IF EXISTS #rps;
+    SELECT rd.Kind, rd.Item, rd.UserKey,
+               SUM(CASE WHEN rd.DateKey >= @m7 THEN rd.Interactions ELSE 0 END) AS M7, SUM(CASE WHEN rd.DateKey >= @m14 THEN rd.Interactions ELSE 0 END) AS M14,
+               SUM(CASE WHEN rd.DateKey >= @m30 THEN rd.Interactions ELSE 0 END) AS M30, SUM(CASE WHEN rd.DateKey >= @m90 THEN rd.Interactions ELSE 0 END) AS M90,
+               SUM(CASE WHEN rd.DateKey >= @m180 THEN rd.Interactions ELSE 0 END) AS M180, SUM(CASE WHEN rd.DateKey >= @m365 THEN rd.Interactions ELSE 0 END) AS M365,
+               SUM(CASE WHEN rd.DateKey >= @m730 THEN rd.Interactions ELSE 0 END) AS M730, SUM(rd.Interactions) AS MAll,
+               SUM(CASE WHEN rd.DateKey BETWEEN @p7 AND @prev THEN rd.Interactions ELSE 0 END) AS P7, SUM(CASE WHEN rd.DateKey BETWEEN @p14 AND @prev THEN rd.Interactions ELSE 0 END) AS P14,
+               SUM(CASE WHEN rd.DateKey BETWEEN @p30 AND @prev THEN rd.Interactions ELSE 0 END) AS P30, SUM(CASE WHEN rd.DateKey BETWEEN @p90 AND @prev THEN rd.Interactions ELSE 0 END) AS P90,
+               SUM(CASE WHEN rd.DateKey BETWEEN @p180 AND @prev THEN rd.Interactions ELSE 0 END) AS P180, SUM(CASE WHEN rd.DateKey BETWEEN @p365 AND @prev THEN rd.Interactions ELSE 0 END) AS P365,
+               SUM(CASE WHEN rd.DateKey BETWEEN @p730 AND @prev THEN rd.Interactions ELSE 0 END) AS P730, SUM(CASE WHEN rd.DateKey <= @prev THEN rd.Interactions ELSE 0 END) AS PAll
+    INTO #rps
+    FROM dash.ResourceDay AS rd
+    WHERE rd.DateKey BETWEEN @MinKey AND @MaxKey
+    GROUP BY rd.Kind, rd.Item, rd.UserKey
+    OPTION (RECOMPILE);
+    INSERT INTO dash.ResourceItem (Kind, Item)
+    SELECT i.Kind, i.Item FROM (SELECT DISTINCT s.Kind, s.Item FROM #rps AS s) AS i
+    WHERE NOT EXISTS (SELECT 1 FROM dash.ResourceItem AS ri WHERE ri.Kind = i.Kind AND ri.Item = i.Item)
+    OPTION (MAXDOP 1);
+
+    DROP TABLE IF EXISTS #rp;
+    SELECT CAST(CASE s.Kind WHEN 'Label' THEN 'L' WHEN 'Site' THEN 'S' ELSE 'B' END AS CHAR(1)) AS Kind, ri.ItemKey, s.UserKey,
+           s.M7, s.M14, s.M30, s.M90, s.M180, s.M365, s.M730, s.MAll, s.P7, s.P14, s.P30, s.P90, s.P180, s.P365, s.P730, s.PAll
+    INTO #rp
+    FROM #rps AS s JOIN dash.ResourceItem AS ri ON ri.Kind = s.Kind AND ri.Item = s.Item
+    OPTION (RECOMPILE);
+    DROP TABLE #rps;
+
+    /* All labels together, with the days that had any (a person's day counts once however many labels it read), and all
+       blocked sites together. */
+    DROP TABLE IF EXISTS #rpd;
+    WITH d AS (SELECT rd.UserKey, rd.DateKey, SUM(rd.Interactions) AS N FROM dash.ResourceDay AS rd
+               WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @MinKey AND @MaxKey GROUP BY rd.UserKey, rd.DateKey)
+    SELECT d.UserKey,
+           SUM(CASE WHEN d.DateKey >= @m7 THEN d.N ELSE 0 END) AS M7, SUM(CASE WHEN d.DateKey >= @m14 THEN d.N ELSE 0 END) AS M14,
+           SUM(CASE WHEN d.DateKey >= @m30 THEN d.N ELSE 0 END) AS M30, SUM(CASE WHEN d.DateKey >= @m90 THEN d.N ELSE 0 END) AS M90,
+           SUM(CASE WHEN d.DateKey >= @m180 THEN d.N ELSE 0 END) AS M180, SUM(CASE WHEN d.DateKey >= @m365 THEN d.N ELSE 0 END) AS M365,
+           SUM(CASE WHEN d.DateKey >= @m730 THEN d.N ELSE 0 END) AS M730, SUM(d.N) AS MAll,
+           SUM(CASE WHEN d.DateKey BETWEEN @p7 AND @prev THEN d.N ELSE 0 END) AS P7, SUM(CASE WHEN d.DateKey BETWEEN @p14 AND @prev THEN d.N ELSE 0 END) AS P14,
+           SUM(CASE WHEN d.DateKey BETWEEN @p30 AND @prev THEN d.N ELSE 0 END) AS P30, SUM(CASE WHEN d.DateKey BETWEEN @p90 AND @prev THEN d.N ELSE 0 END) AS P90,
+           SUM(CASE WHEN d.DateKey BETWEEN @p180 AND @prev THEN d.N ELSE 0 END) AS P180, SUM(CASE WHEN d.DateKey BETWEEN @p365 AND @prev THEN d.N ELSE 0 END) AS P365,
+           SUM(CASE WHEN d.DateKey BETWEEN @p730 AND @prev THEN d.N ELSE 0 END) AS P730, SUM(CASE WHEN d.DateKey <= @prev THEN d.N ELSE 0 END) AS PAll,
+           COUNT(CASE WHEN d.DateKey >= @m7 THEN 1 END) AS DM7, COUNT(CASE WHEN d.DateKey >= @m14 THEN 1 END) AS DM14,
+           COUNT(CASE WHEN d.DateKey >= @m30 THEN 1 END) AS DM30, COUNT(CASE WHEN d.DateKey >= @m90 THEN 1 END) AS DM90,
+           COUNT(CASE WHEN d.DateKey >= @m180 THEN 1 END) AS DM180, COUNT(CASE WHEN d.DateKey >= @m365 THEN 1 END) AS DM365,
+           COUNT(CASE WHEN d.DateKey >= @m730 THEN 1 END) AS DM730, COUNT(*) AS DMAll,
+           COUNT(CASE WHEN d.DateKey BETWEEN @p7 AND @prev THEN 1 END) AS DP7, COUNT(CASE WHEN d.DateKey BETWEEN @p14 AND @prev THEN 1 END) AS DP14,
+           COUNT(CASE WHEN d.DateKey BETWEEN @p30 AND @prev THEN 1 END) AS DP30, COUNT(CASE WHEN d.DateKey BETWEEN @p90 AND @prev THEN 1 END) AS DP90,
+           COUNT(CASE WHEN d.DateKey BETWEEN @p180 AND @prev THEN 1 END) AS DP180, COUNT(CASE WHEN d.DateKey BETWEEN @p365 AND @prev THEN 1 END) AS DP365,
+           COUNT(CASE WHEN d.DateKey BETWEEN @p730 AND @prev THEN 1 END) AS DP730, COUNT(CASE WHEN d.DateKey <= @prev THEN 1 END) AS DPAll
+    INTO #rpd
+    FROM d
+    GROUP BY d.UserKey
+    OPTION (RECOMPILE);
+
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.ResourcePeriod; ELSE DELETE FROM dash.ResourcePeriod;
+    INSERT INTO dash.ResourcePeriod WITH (TABLOCK) (EndKey, Kind, ItemKey, UserKey, N7, N14, N30, N90, N180, N365, N730, NAll, D7, D14, D30, D90, D180, D365, D730, DAll)
+    SELECT @MaxKey, Kind, ItemKey, UserKey, M7, M14, M30, M90, M180, M365, M730, MAll, 0, 0, 0, 0, 0, 0, 0, 0 FROM #rp
+    UNION ALL
+    SELECT @PrevKey, Kind, ItemKey, UserKey, P7, P14, P30, P90, P180, P365, P730, PAll, 0, 0, 0, 0, 0, 0, 0, 0 FROM #rp WHERE PAll > 0 AND @PrevKey IS NOT NULL
+    UNION ALL
+    SELECT @MaxKey, 'X', 0, UserKey, SUM(M7), SUM(M14), SUM(M30), SUM(M90), SUM(M180), SUM(M365), SUM(M730), SUM(MAll), 0, 0, 0, 0, 0, 0, 0, 0
+    FROM #rp WHERE Kind = 'B' GROUP BY UserKey
+    UNION ALL
+    SELECT @PrevKey, 'X', 0, UserKey, SUM(P7), SUM(P14), SUM(P30), SUM(P90), SUM(P180), SUM(P365), SUM(P730), SUM(PAll), 0, 0, 0, 0, 0, 0, 0, 0
+    FROM #rp WHERE Kind = 'B' AND @PrevKey IS NOT NULL GROUP BY UserKey HAVING SUM(PAll) > 0
+    UNION ALL
+    SELECT @MaxKey, 'A', 0, UserKey, M7, M14, M30, M90, M180, M365, M730, MAll, DM7, DM14, DM30, DM90, DM180, DM365, DM730, DMAll FROM #rpd
+    UNION ALL
+    SELECT @PrevKey, 'A', 0, UserKey, P7, P14, P30, P90, P180, P365, P730, PAll, DP7, DP14, DP30, DP90, DP180, DP365, DP730, DPAll FROM #rpd WHERE DPAll > 0 AND @PrevKey IS NOT NULL;
+    COMMIT TRANSACTION;
+    DROP TABLE #rp;
+    DROP TABLE #rpd;
+    SELECT @times = CONCAT(@times, N', labels and sites ', DATEDIFF(SECOND, @step, SYSUTCDATETIME()), N' s'), @step = SYSUTCDATETIME();
+
+    /* ---- The readers of each site, from @FromKey on ------------------------- */
+
+    /* Each person's last two days at each site, from the days this run rewrote. A pair's two days are worked out from its
+       new days and what the table knew of its days before @FromKey; where that is not enough (its days from @FromKey on
+       are gone, or both its days were in them), its days before @FromKey are read again, for those pairs alone.
+       PrevKey 0: not worked out, for a pair whose last day is more than a week before the data's last day when the
+       table was built whole; it is worked out when the pair is next read. A page reads PrevKey only for a pair whose last
+       day is after the period's, which is the data's last day, so it never reads a 0. */
+    DECLARE @siteWhole BIT = CASE WHEN @FromKey IS NULL OR NOT EXISTS (SELECT 1 FROM dash.SiteReader) THEN 1 ELSE 0 END;
+    IF @siteWhole = 1
+    BEGIN
+        DROP TABLE IF EXISTS #last;
+        SELECT f.SiteKey, f.UserKey, MAX(f.DateKey) AS LastKey
+        INTO #last
+        FROM bi.FactAccessedResource AS f
+        WHERE f.SiteKey > 1 AND f.DateKey <= @MaxKey
+        GROUP BY f.SiteKey, f.UserKey
+        OPTION (RECOMPILE);
+        /* The day before the last, for the pairs read in the last week: the only ones a page or the next nights can need it for. */
+        DECLARE @weekKey INT = @m7;
+        DROP TABLE IF EXISTS #prev;
+        SELECT f.SiteKey, f.UserKey, MAX(f.DateKey) AS PrevKey
+        INTO #prev
+        FROM bi.FactAccessedResource AS f
+        JOIN #last AS l ON l.SiteKey = f.SiteKey AND l.UserKey = f.UserKey AND l.LastKey >= @weekKey
+        WHERE f.SiteKey > 1 AND f.DateKey < l.LastKey
+        GROUP BY f.SiteKey, f.UserKey
+        OPTION (RECOMPILE);
+        BEGIN TRANSACTION;
+        IF @mayTruncate = 1 TRUNCATE TABLE dash.SiteReader; ELSE DELETE FROM dash.SiteReader;
+        INSERT INTO dash.SiteReader WITH (TABLOCK) (SiteKey, UserKey, LastKey, PrevKey)
+        SELECT l.SiteKey, l.UserKey, l.LastKey, CASE WHEN l.LastKey >= @weekKey THEN p.PrevKey ELSE 0 END
+        FROM #last AS l LEFT JOIN #prev AS p ON p.SiteKey = l.SiteKey AND p.UserKey = l.UserKey;
+        COMMIT TRANSACTION;
+        DROP TABLE #last;
+        DROP TABLE #prev;
+    END;
+    ELSE
+    BEGIN
+        DROP TABLE IF EXISTS #nd;
+        SELECT f.SiteKey, f.UserKey, f.DateKey
+        INTO #nd
+        FROM bi.FactAccessedResource AS f
+        WHERE f.DateKey BETWEEN @FromKey AND @MaxKey AND f.SiteKey > 1
+        GROUP BY f.SiteKey, f.UserKey, f.DateKey
+        OPTION (RECOMPILE);
+        DROP TABLE IF EXISTS #nw;
+        SELECT n.SiteKey, n.UserKey, MAX(n.DateKey) AS N1, COUNT(*) AS Cnt, CAST(NULL AS INT) AS N2
+        INTO #nw
+        FROM #nd AS n GROUP BY n.SiteKey, n.UserKey;
+        UPDATE w SET N2 = x.N2
+        FROM #nw AS w
+        JOIN (SELECT n.SiteKey, n.UserKey, MAX(n.DateKey) AS N2 FROM #nd AS n JOIN #nw AS w2 ON w2.SiteKey = n.SiteKey AND w2.UserKey = n.UserKey AND n.DateKey < w2.N1
+              GROUP BY n.SiteKey, n.UserKey) AS x ON x.SiteKey = w.SiteKey AND x.UserKey = w.UserKey;
+
+        /* The pairs this run touches: read from @FromKey on, before or now. */
+        DROP TABLE IF EXISTS #aff;
+        SELECT COALESCE(w.SiteKey, o.SiteKey) AS SiteKey, COALESCE(w.UserKey, o.UserKey) AS UserKey,
+               o.LastKey AS OL1, o.PrevKey AS OL0, CASE WHEN o.SiteKey IS NULL THEN 0 ELSE 1 END AS Old,
+               w.N1, w.N2, ISNULL(w.Cnt, 0) AS Cnt, CAST(NULL AS INT) AS O1, CAST(NULL AS INT) AS O2, CAST(0 AS BIT) AS Fallback
+        INTO #aff
+        FROM #nw AS w
+        FULL JOIN (SELECT r.SiteKey, r.UserKey, r.LastKey, r.PrevKey FROM dash.SiteReader AS r
+                   WHERE r.LastKey >= @FromKey
+                      OR EXISTS (SELECT 1 FROM #nw AS x WHERE x.SiteKey = r.SiteKey AND x.UserKey = r.UserKey)) AS o
+            ON o.SiteKey = w.SiteKey AND o.UserKey = w.UserKey;
+        /* What is known of each pair's days before @FromKey: its last two, its last, or nothing. */
+        UPDATE #aff SET
+            O1 = CASE WHEN OL1 < @FromKey THEN OL1 WHEN OL0 > 0 AND OL0 < @FromKey THEN OL0 END,
+            O2 = CASE WHEN OL1 < @FromKey THEN OL0 END,
+            Fallback = CASE WHEN Old = 0 OR OL1 < @FromKey THEN 0
+                            WHEN OL0 IS NULL THEN 0                               -- no day before its last at all
+                            WHEN OL0 > 0 AND OL0 < @FromKey THEN CASE WHEN Cnt = 0 THEN 1 ELSE 0 END
+                            ELSE CASE WHEN Cnt < 2 THEN 1 ELSE 0 END END;
+        IF EXISTS (SELECT 1 FROM #aff WHERE Fallback = 1)
+        BEGIN
+            DROP TABLE IF EXISTS #fb;
+            SELECT f.SiteKey, f.UserKey, f.DateKey
+            INTO #fb
+            FROM bi.FactAccessedResource AS f
+            JOIN #aff AS a ON a.SiteKey = f.SiteKey AND a.UserKey = f.UserKey AND a.Fallback = 1
+            WHERE f.DateKey < @FromKey AND f.SiteKey > 1
+            GROUP BY f.SiteKey, f.UserKey, f.DateKey
+            OPTION (RECOMPILE);
+            UPDATE a SET O1 = x.O1, O2 = (SELECT MAX(b.DateKey) FROM #fb AS b WHERE b.SiteKey = a.SiteKey AND b.UserKey = a.UserKey AND b.DateKey < x.O1)
+            FROM #aff AS a
+            LEFT JOIN (SELECT SiteKey, UserKey, MAX(DateKey) AS O1 FROM #fb GROUP BY SiteKey, UserKey) AS x ON x.SiteKey = a.SiteKey AND x.UserKey = a.UserKey
+            WHERE a.Fallback = 1;
+            DROP TABLE #fb;
+        END;
+        BEGIN TRANSACTION;
+        DELETE r FROM dash.SiteReader AS r JOIN #aff AS a ON a.SiteKey = r.SiteKey AND a.UserKey = r.UserKey;
+        INSERT INTO dash.SiteReader (SiteKey, UserKey, LastKey, PrevKey)
+        SELECT SiteKey, UserKey, COALESCE(N1, O1),
+               CASE WHEN N2 IS NOT NULL THEN N2 WHEN N1 IS NOT NULL THEN O1 ELSE O2 END
+        FROM #aff WHERE COALESCE(N1, O1) IS NOT NULL;
+        COMMIT TRANSACTION;
+        DROP TABLE #nd;
+        DROP TABLE #nw;
+        DROP TABLE #aff;
+    END;
+
+    SELECT @times = CONCAT(@times, N', site readers ', DATEDIFF(SECOND, @step, SYSUTCDATETIME()), N' s'), @step = SYSUTCDATETIME();
+
+    /* ---- The conversations, from @FromKey on --------------------------------- */
+
+    /* Loaded in parallel, which a columnstore takes a large load fastest by. Should SQL Server pick the load as a
+       deadlock victim among its own threads (it did, loading 30 million conversations), it is loaded again on one thread. */
+    DECLARE @sessionWhole BIT = CASE WHEN @FromKey IS NULL OR NOT EXISTS (SELECT 1 FROM dash.SessionSpan) THEN 1 ELSE 0 END;
+    DECLARE @try INT = 0;
+    WHILE 1 = 1
+    BEGIN
+        BEGIN TRY
+            BEGIN TRANSACTION;
+            IF @sessionWhole = 1 AND @mayTruncate = 1 TRUNCATE TABLE dash.SessionSpan;
+            ELSE IF @sessionWhole = 1 DELETE FROM dash.SessionSpan;
+            ELSE DELETE FROM dash.SessionSpan WHERE DateKey >= @FromKey;
+            IF @try = 0
+                INSERT INTO dash.SessionSpan WITH (TABLOCK) (SessionKey, DateKey, UserKey, AppKey, SessionStart, SpanMinutes, PromptCount)
+                SELECT fs.SessionKey, fs.DateKey, fs.UserKey, fs.AppKey, fs.SessionStart, fs.SpanMinutes, fs.PromptCount
+                FROM bi.FactSession AS fs
+                WHERE @sessionWhole = 1 OR fs.DateKey >= @FromKey
+                OPTION (RECOMPILE);
+            ELSE
+                INSERT INTO dash.SessionSpan WITH (TABLOCK) (SessionKey, DateKey, UserKey, AppKey, SessionStart, SpanMinutes, PromptCount)
+                SELECT fs.SessionKey, fs.DateKey, fs.UserKey, fs.AppKey, fs.SessionStart, fs.SpanMinutes, fs.PromptCount
+                FROM bi.FactSession AS fs
+                WHERE @sessionWhole = 1 OR fs.DateKey >= @FromKey
+                OPTION (RECOMPILE, MAXDOP 1);
+            COMMIT TRANSACTION;
+            BREAK;
+        END TRY
+        BEGIN CATCH
+            IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+            IF ERROR_NUMBER() <> 1205 OR @try > 0 THROW;
+            SET @try = 1;
+            RAISERROR('  The load of dash.SessionSpan was chosen as a deadlock victim: loading it again on one thread.', 0, 1) WITH NOWAIT;
+        END CATCH;
+    END;
+
+    /* Rows changed in place wait in delta stores, read row by row, until compressed: compressed now, where the caller may. */
+    IF @mayTruncate = 1
+    BEGIN
+        ALTER INDEX CCI_DashSiteReader ON dash.SiteReader REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX CCI_DashSessionSpan ON dash.SessionSpan REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+    END;
+
+    /* Each person's minutes and conversations in each app over each period, from the conversations as they now stand:
+       Usage by license summed them from every conversation of the period, 3 to 8 seconds for two years. */
+    DROP TABLE IF EXISTS #sp;
+    SELECT s.UserKey, s.AppKey,
+           SUM(CASE WHEN s.DateKey >= @m7 THEN s.SpanMinutes ELSE 0 END) AS MM7, COUNT(CASE WHEN s.DateKey >= @m7 AND s.SpanMinutes > 0 THEN 1 END) AS NM7, COUNT(CASE WHEN s.DateKey >= @m7 THEN 1 END) AS SM7,
+           SUM(CASE WHEN s.DateKey >= @m14 THEN s.SpanMinutes ELSE 0 END) AS MM14, COUNT(CASE WHEN s.DateKey >= @m14 AND s.SpanMinutes > 0 THEN 1 END) AS NM14, COUNT(CASE WHEN s.DateKey >= @m14 THEN 1 END) AS SM14,
+           SUM(CASE WHEN s.DateKey >= @m30 THEN s.SpanMinutes ELSE 0 END) AS MM30, COUNT(CASE WHEN s.DateKey >= @m30 AND s.SpanMinutes > 0 THEN 1 END) AS NM30, COUNT(CASE WHEN s.DateKey >= @m30 THEN 1 END) AS SM30,
+           SUM(CASE WHEN s.DateKey >= @m90 THEN s.SpanMinutes ELSE 0 END) AS MM90, COUNT(CASE WHEN s.DateKey >= @m90 AND s.SpanMinutes > 0 THEN 1 END) AS NM90, COUNT(CASE WHEN s.DateKey >= @m90 THEN 1 END) AS SM90,
+           SUM(CASE WHEN s.DateKey >= @m180 THEN s.SpanMinutes ELSE 0 END) AS MM180, COUNT(CASE WHEN s.DateKey >= @m180 AND s.SpanMinutes > 0 THEN 1 END) AS NM180, COUNT(CASE WHEN s.DateKey >= @m180 THEN 1 END) AS SM180,
+           SUM(CASE WHEN s.DateKey >= @m365 THEN s.SpanMinutes ELSE 0 END) AS MM365, COUNT(CASE WHEN s.DateKey >= @m365 AND s.SpanMinutes > 0 THEN 1 END) AS NM365, COUNT(CASE WHEN s.DateKey >= @m365 THEN 1 END) AS SM365,
+           SUM(CASE WHEN s.DateKey >= @m730 THEN s.SpanMinutes ELSE 0 END) AS MM730, COUNT(CASE WHEN s.DateKey >= @m730 AND s.SpanMinutes > 0 THEN 1 END) AS NM730, COUNT(CASE WHEN s.DateKey >= @m730 THEN 1 END) AS SM730,
+           SUM(s.SpanMinutes) AS MMAll, COUNT(CASE WHEN s.SpanMinutes > 0 THEN 1 END) AS NMAll, COUNT(*) AS SMAll,
+           SUM(CASE WHEN s.DateKey BETWEEN @p7 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP7, COUNT(CASE WHEN s.DateKey BETWEEN @p7 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP7, COUNT(CASE WHEN s.DateKey BETWEEN @p7 AND @prev THEN 1 END) AS SP7,
+           SUM(CASE WHEN s.DateKey BETWEEN @p14 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP14, COUNT(CASE WHEN s.DateKey BETWEEN @p14 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP14, COUNT(CASE WHEN s.DateKey BETWEEN @p14 AND @prev THEN 1 END) AS SP14,
+           SUM(CASE WHEN s.DateKey BETWEEN @p30 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP30, COUNT(CASE WHEN s.DateKey BETWEEN @p30 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP30, COUNT(CASE WHEN s.DateKey BETWEEN @p30 AND @prev THEN 1 END) AS SP30,
+           SUM(CASE WHEN s.DateKey BETWEEN @p90 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP90, COUNT(CASE WHEN s.DateKey BETWEEN @p90 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP90, COUNT(CASE WHEN s.DateKey BETWEEN @p90 AND @prev THEN 1 END) AS SP90,
+           SUM(CASE WHEN s.DateKey BETWEEN @p180 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP180, COUNT(CASE WHEN s.DateKey BETWEEN @p180 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP180, COUNT(CASE WHEN s.DateKey BETWEEN @p180 AND @prev THEN 1 END) AS SP180,
+           SUM(CASE WHEN s.DateKey BETWEEN @p365 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP365, COUNT(CASE WHEN s.DateKey BETWEEN @p365 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP365, COUNT(CASE WHEN s.DateKey BETWEEN @p365 AND @prev THEN 1 END) AS SP365,
+           SUM(CASE WHEN s.DateKey BETWEEN @p730 AND @prev THEN s.SpanMinutes ELSE 0 END) AS MP730, COUNT(CASE WHEN s.DateKey BETWEEN @p730 AND @prev AND s.SpanMinutes > 0 THEN 1 END) AS NP730, COUNT(CASE WHEN s.DateKey BETWEEN @p730 AND @prev THEN 1 END) AS SP730,
+           SUM(CASE WHEN s.DateKey <= @prev THEN s.SpanMinutes ELSE 0 END) AS MPAll, COUNT(CASE WHEN s.DateKey <= @prev AND s.SpanMinutes > 0 THEN 1 END) AS NPAll,
+           COUNT(CASE WHEN s.DateKey <= @prev THEN 1 END) AS SPAll
+    INTO #sp
+    FROM dash.SessionSpan AS s
+    WHERE s.DateKey BETWEEN @MinKey AND @MaxKey
+    GROUP BY s.UserKey, s.AppKey
+    OPTION (RECOMPILE);
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.SessionPeriod; ELSE DELETE FROM dash.SessionPeriod;
+    INSERT INTO dash.SessionPeriod WITH (TABLOCK) (EndKey, UserKey, AppKey, Minutes7, Minutes14, Minutes30, Minutes90, Minutes180, Minutes365, Minutes730, MinutesAll, Spanned7, Spanned14, Spanned30, Spanned90, Spanned180, Spanned365, Spanned730, SpannedAll, Sessions7, Sessions14, Sessions30, Sessions90, Sessions180, Sessions365, Sessions730, SessionsAll)
+    SELECT @MaxKey, UserKey, AppKey, MM7, MM14, MM30, MM90, MM180, MM365, MM730, MMAll, NM7, NM14, NM30, NM90, NM180, NM365, NM730, NMAll, SM7, SM14, SM30, SM90, SM180, SM365, SM730, SMAll FROM #sp
+    UNION ALL
+    SELECT @PrevKey, UserKey, AppKey, MP7, MP14, MP30, MP90, MP180, MP365, MP730, MPAll, NP7, NP14, NP30, NP90, NP180, NP365, NP730, NPAll, SP7, SP14, SP30, SP90, SP180, SP365, SP730, SPAll FROM #sp WHERE SPAll > 0 AND @PrevKey IS NOT NULL
+    OPTION (MAXDOP 1);
+    COMMIT TRANSACTION;
+    DROP TABLE #sp;
+    SELECT @times = CONCAT(@times, N', conversations ', DATEDIFF(SECOND, @step, SYSUTCDATETIME()), N' s');
+    DECLARE @ends NVARCHAR(40) = CONCAT(@MaxKey, N',', @PrevKey);
+    MERGE dash.Setting AS t
+    USING (SELECT 'DashResourceTotalsEnds' AS Name, @ends AS Value) AS s ON t.Name = s.Name
+    WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedBy = N'dash.usp_RefreshResourceTotals', UpdatedUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
+        VALUES (s.Name, s.Value, N'The last days the totals of resources read end on. Written by each refresh once they are built.', N'dash.usp_RefreshResourceTotals');
+
+    SET @msg = CONCAT(N'  Totals of resources read', CASE WHEN @FromKey IS NULL THEN N' (every day)' ELSE CONCAT(N', readers and conversations from ', @FromKey) END,
+                      N': ', FORMAT(DATEDIFF(MILLISECOND, @started, SYSUTCDATETIME()) / 1000.0, 'N1'), N' s (', @times, N').');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END;
+GO
 
 IF OBJECT_ID(N'dash.usp_RefreshDashboard', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE dash.usp_RefreshDashboard AS BEGIN SET NOCOUNT ON; END;');

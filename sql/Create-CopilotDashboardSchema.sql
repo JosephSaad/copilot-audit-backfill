@@ -962,3 +962,145 @@ OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsSha
              ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv
 /* 2.6.3: an agent the audit log names two ways is one agent here, under the identity its interactions are kept with. */
 WHERE a.MergedIntoKey IS NULL;');
+
+/*
+    The totals of resources read, for Sensitive content, Access to labeled content, Oversharing hotspots, Labeled
+    content by unit and Usage by license. Those pages counted bi.FactAccessedResource (280 million rows at 160 million
+    interactions) or dash.ResourceDay on every first visit: 5 to 13 seconds a page. Kept by dash.usp_RefreshResourceTotals,
+    which dash.usp_RefreshDashboard calls; it records the two days its period totals end on in the setting
+    DashResourceTotalsEnds, cleared while it rebuilds them, and the pages count the old way until it is set.
+
+      dash.ReadMix          each combination of resource type, sensitivity label, file type and blocked, numbered: a
+                            person's reads are counted per combination (a few dozen), not per four columns.
+      dash.ReadMixPeriod    each person's resources read of each combination, over each period a page offers, ending on
+                            the last day with data and the day before (EndKey): one column per period.
+      dash.ResourceItem     each label id and site dash.ResourceDay names, numbered.
+      dash.ResourcePeriod   dash.ResourceDay summed per person over each period, as dash.ReadMixPeriod: per label (L),
+                            labeled site (S) and blocked site (B), and all labels (A, with the days) and all blocked
+                            sites (X) together.
+      dash.SiteReader       each person and each site they read anything from, with their last two days there: whether
+                            they reached a site in a period ending on either of the two last days is one comparison.
+      dash.SessionSpan      the conversations (bi.FactSession) as a columnstore: the row store is read whole for any
+                            period, a columnstore only for the period's days and columns.
+      dash.SessionPeriod    each person's minutes and conversations in each app, over each period, as dash.ReadMixPeriod.
+*/
+IF OBJECT_ID(N'dash.ReadMix', N'U') IS NULL
+    CREATE TABLE dash.ReadMix
+    (
+        MixKey              INT NOT NULL CONSTRAINT PK_DashReadMix PRIMARY KEY,
+        ResourceTypeKey     INT NOT NULL,   -- bi.DimResourceType
+        SensitivityLabelKey INT NOT NULL,   -- bi.DimSensitivityLabel; 1 is no label
+        FileTypeKey         INT NOT NULL,   -- bi.DimFileType
+        IsBlocked           BIT NOT NULL,
+        CONSTRAINT UQ_DashReadMix UNIQUE (ResourceTypeKey, SensitivityLabelKey, FileTypeKey, IsBlocked)
+    );
+
+IF OBJECT_ID(N'dash.ReadMixPeriod', N'U') IS NULL
+    CREATE TABLE dash.ReadMixPeriod
+    (
+        EndKey   INT NOT NULL,   -- the periods' last day
+        UserKey  INT NOT NULL,
+        MixKey   INT NOT NULL,   -- dash.ReadMix
+        Reads7   INT NOT NULL,   -- resources read in the 7 days to EndKey
+        Reads14  INT NOT NULL,
+        Reads30  INT NOT NULL,
+        Reads90  INT NOT NULL,
+        Reads180 INT NOT NULL,
+        Reads365 INT NOT NULL,
+        Reads730 INT NOT NULL,
+        ReadsAll INT NOT NULL,   -- from the first day with data
+        INDEX CCI_DashReadMixPeriod CLUSTERED COLUMNSTORE
+    );
+
+IF OBJECT_ID(N'dash.ResourceItem', N'U') IS NULL
+    CREATE TABLE dash.ResourceItem
+    (
+        ItemKey INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashResourceItem PRIMARY KEY,
+        Kind    VARCHAR(8)    NOT NULL,   -- dash.ResourceDay's: Label, Site or Blocked
+        Item    NVARCHAR(400) NOT NULL,   -- the label id or the site, as dash.ResourceDay has it
+        CONSTRAINT UQ_DashResourceItem UNIQUE (Kind, Item)
+    );
+
+IF OBJECT_ID(N'dash.ResourcePeriod', N'U') IS NULL
+    CREATE TABLE dash.ResourcePeriod
+    (
+        EndKey  INT      NOT NULL,   -- the periods' last day
+        Kind    CHAR(1)  NOT NULL,   -- L a label, S a labeled site, B a blocked site, A all labels, X all blocked sites
+        ItemKey INT      NOT NULL,   -- dash.ResourceItem; 0 for A and X
+        UserKey INT      NOT NULL,
+        N7      INT      NOT NULL,   -- dash.ResourceDay's interactions in the 7 days to EndKey
+        N14     INT      NOT NULL,
+        N30     INT      NOT NULL,
+        N90     INT      NOT NULL,
+        N180    INT      NOT NULL,
+        N365    INT      NOT NULL,
+        N730    INT      NOT NULL,
+        NAll    INT      NOT NULL,
+        D7      SMALLINT NOT NULL,   -- A only: the days with labeled content in them; 0 for the other kinds
+        D14     SMALLINT NOT NULL,
+        D30     SMALLINT NOT NULL,
+        D90     SMALLINT NOT NULL,
+        D180    SMALLINT NOT NULL,
+        D365    SMALLINT NOT NULL,
+        D730    SMALLINT NOT NULL,
+        DAll    SMALLINT NOT NULL,
+        INDEX CCI_DashResourcePeriod CLUSTERED COLUMNSTORE
+    );
+
+IF OBJECT_ID(N'dash.SiteReader', N'U') IS NULL
+    CREATE TABLE dash.SiteReader
+    (
+        SiteKey INT NOT NULL,   -- bi.DimSite, never the "(none)" site
+        UserKey INT NOT NULL,
+        LastKey INT NOT NULL,   -- the last day they read from it
+        PrevKey INT NULL,       -- the last day before that; NULL when there is none
+        INDEX CCI_DashSiteReader CLUSTERED COLUMNSTORE
+    );
+
+IF OBJECT_ID(N'dash.SessionSpan', N'U') IS NULL
+    CREATE TABLE dash.SessionSpan
+    (
+        SessionKey   BIGINT         NOT NULL,
+        DateKey      INT            NOT NULL,
+        UserKey      INT            NOT NULL,
+        AppKey       INT            NOT NULL,   -- the first prompt's app
+        SessionStart DATETIME2(0)   NOT NULL,
+        SpanMinutes  DECIMAL(12, 2) NOT NULL,
+        PromptCount  INT            NOT NULL,
+        INDEX CCI_DashSessionSpan CLUSTERED COLUMNSTORE
+    );
+
+IF OBJECT_ID(N'dash.SessionPeriod', N'U') IS NULL
+    CREATE TABLE dash.SessionPeriod
+    (
+        EndKey  INT NOT NULL,   -- the periods' last day
+        UserKey INT NOT NULL,
+        AppKey  INT NOT NULL,   -- the first prompt's app
+        /* Per period (7 to 730 days to EndKey, All from the first day with data): the minutes of the conversations, those
+           of more than one prompt (with minutes) and all of them. */
+        Minutes7 DECIMAL(14, 2) NOT NULL,
+        Minutes14 DECIMAL(14, 2) NOT NULL,
+        Minutes30 DECIMAL(14, 2) NOT NULL,
+        Minutes90 DECIMAL(14, 2) NOT NULL,
+        Minutes180 DECIMAL(14, 2) NOT NULL,
+        Minutes365 DECIMAL(14, 2) NOT NULL,
+        Minutes730 DECIMAL(14, 2) NOT NULL,
+        MinutesAll DECIMAL(14, 2) NOT NULL,
+        Spanned7 INT NOT NULL,
+        Spanned14 INT NOT NULL,
+        Spanned30 INT NOT NULL,
+        Spanned90 INT NOT NULL,
+        Spanned180 INT NOT NULL,
+        Spanned365 INT NOT NULL,
+        Spanned730 INT NOT NULL,
+        SpannedAll INT NOT NULL,
+        Sessions7 INT NOT NULL,
+        Sessions14 INT NOT NULL,
+        Sessions30 INT NOT NULL,
+        Sessions90 INT NOT NULL,
+        Sessions180 INT NOT NULL,
+        Sessions365 INT NOT NULL,
+        Sessions730 INT NOT NULL,
+        SessionsAll INT NOT NULL,
+        INDEX CCI_DashSessionPeriod CLUSTERED COLUMNSTORE
+    );

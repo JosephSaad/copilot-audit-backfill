@@ -4778,6 +4778,85 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 28. The totals of resources read (dash.usp_RefreshResourceTotals), which dash.usp_RefreshDashboard calls: each
+#     checked against the same figure worked out here from the rows under it, after a refresh of every day and an
+#     incremental one, so the readers' and conversations' windowed rewrites are what is checked. Each count is of rows in
+#     one and not the other, both ways: 0 means the two are the same.
+# ---------------------------------------------------------------------------
+Write-Host "`n28. Totals of resources read (dash.usp_RefreshResourceTotals)" -ForegroundColor Cyan
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
+$resLast = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT MAX(DateKey) FROM dash.UserDay;')
+$resSince = [datetime]::ParseExact("$resLast", 'yyyyMMdd', $null).AddDays(-1)
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $resSince } -ShowMessages
+$resCheck = (Invoke-SqlText -As Table -Sql @"
+DECLARE @max INT = (SELECT MAX(DateKey) FROM dash.UserDay), @min INT = (SELECT MIN(DateKey) FROM dash.UserDay);
+DECLARE @prev INT = (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @max);
+DECLARE @k7 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, CONVERT(DATE, CONVERT(CHAR(8), @max))), 112));
+WITH mx AS (SELECT f.UserKey, f.ResourceTypeKey, f.SensitivityLabelKey, f.FileTypeKey, f.IsBlocked,
+                   SUM(CASE WHEN f.DateKey >= @k7 THEN 1 ELSE 0 END) AS R7, COUNT(*) AS RAll
+            FROM bi.FactAccessedResource AS f WHERE f.DateKey BETWEEN @min AND @max
+            GROUP BY f.UserKey, f.ResourceTypeKey, f.SensitivityLabelKey, f.FileTypeKey, f.IsBlocked),
+     tmx AS (SELECT p.UserKey, m.ResourceTypeKey, m.SensitivityLabelKey, m.FileTypeKey, m.IsBlocked, p.Reads7 AS R7, p.ReadsAll AS RAll
+             FROM dash.ReadMixPeriod AS p JOIN dash.ReadMix AS m ON m.MixKey = p.MixKey WHERE p.EndKey = @max),
+     mp AS (SELECT f.UserKey, m2.MixKey, COUNT(*) AS RAll FROM bi.FactAccessedResource AS f
+            JOIN dash.ReadMix AS m2 ON m2.ResourceTypeKey = f.ResourceTypeKey AND m2.SensitivityLabelKey = f.SensitivityLabelKey
+                                   AND m2.FileTypeKey = f.FileTypeKey AND m2.IsBlocked = f.IsBlocked
+            WHERE f.DateKey <= @prev GROUP BY f.UserKey, m2.MixKey),
+     tmp AS (SELECT UserKey, MixKey, ReadsAll AS RAll FROM dash.ReadMixPeriod WHERE EndKey = @prev),
+     rp AS (SELECT CASE rd.Kind WHEN 'Label' THEN 'L' WHEN 'Site' THEN 'S' ELSE 'B' END AS Kind, rd.Kind AS K, rd.Item, rd.UserKey,
+                   SUM(CASE WHEN rd.DateKey >= @k7 THEN rd.Interactions ELSE 0 END) AS N7, SUM(rd.Interactions) AS NAll
+            FROM dash.ResourceDay AS rd GROUP BY rd.Kind, rd.Item, rd.UserKey
+            UNION ALL
+            SELECT 'A', NULL, NULL, x.UserKey, SUM(CASE WHEN x.DateKey >= @k7 THEN x.N ELSE 0 END), SUM(x.N)
+            FROM (SELECT UserKey, DateKey, SUM(Interactions) AS N FROM dash.ResourceDay WHERE Kind = 'Label' GROUP BY UserKey, DateKey) AS x GROUP BY x.UserKey
+            UNION ALL
+            SELECT 'X', NULL, NULL, rd.UserKey, SUM(CASE WHEN rd.DateKey >= @k7 THEN rd.Interactions ELSE 0 END), SUM(rd.Interactions)
+            FROM dash.ResourceDay AS rd WHERE rd.Kind = 'Blocked' GROUP BY rd.UserKey),
+     trp AS (SELECT p.Kind, ri.Kind AS K, ri.Item, p.UserKey, p.N7, p.NAll
+             FROM dash.ResourcePeriod AS p LEFT JOIN dash.ResourceItem AS ri ON ri.ItemKey = p.ItemKey WHERE p.EndKey = @max),
+     dy AS (SELECT UserKey, COUNT(DISTINCT DateKey) AS D FROM dash.ResourceDay WHERE Kind = 'Label' GROUP BY UserKey),
+     tdy AS (SELECT UserKey, CAST(DAll AS INT) AS D FROM dash.ResourcePeriod WHERE EndKey = @max AND Kind = 'A'),
+     days AS (SELECT DISTINCT SiteKey, UserKey, DateKey FROM bi.FactAccessedResource WHERE SiteKey > 1 AND DateKey <= @max),
+     sr AS (SELECT d.SiteKey, d.UserKey, MAX(d.DateKey) AS LastKey,
+                   (SELECT MAX(e.DateKey) FROM days AS e WHERE e.SiteKey = d.SiteKey AND e.UserKey = d.UserKey AND e.DateKey < MAX(d.DateKey)) AS PrevKey
+            FROM days AS d GROUP BY d.SiteKey, d.UserKey),
+     ss AS (SELECT SessionKey, DateKey, UserKey, AppKey, SessionStart, SpanMinutes, PromptCount FROM bi.FactSession),
+     tss AS (SELECT SessionKey, DateKey, UserKey, AppKey, SessionStart, SpanMinutes, PromptCount FROM dash.SessionSpan),
+     sp AS (SELECT UserKey, AppKey, CAST(SUM(CASE WHEN DateKey >= @k7 THEN SpanMinutes ELSE 0 END) AS DECIMAL(14, 2)) AS M7, COUNT(CASE WHEN DateKey >= @k7 AND SpanMinutes > 0 THEN 1 END) AS N7,
+                   COUNT(CASE WHEN DateKey >= @k7 THEN 1 END) AS S7, CAST(SUM(SpanMinutes) AS DECIMAL(14, 2)) AS MAll, COUNT(CASE WHEN SpanMinutes > 0 THEN 1 END) AS NAll, COUNT(*) AS SAll
+            FROM bi.FactSession WHERE DateKey BETWEEN @min AND @max GROUP BY UserKey, AppKey),
+     tsp AS (SELECT UserKey, AppKey, Minutes7, Spanned7, Sessions7, MinutesAll, SpannedAll, SessionsAll FROM dash.SessionPeriod WHERE EndKey = @max)
+SELECT
+  (SELECT COUNT(*) FROM (SELECT * FROM mx EXCEPT SELECT * FROM tmx) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tmx EXCEPT SELECT * FROM mx) AS x) AS Mix,
+  (SELECT COUNT(*) FROM (SELECT * FROM mp EXCEPT SELECT * FROM tmp) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tmp EXCEPT SELECT * FROM mp) AS x) AS MixPrev,
+  (SELECT COUNT(*) FROM tmx) AS MixRows,
+  (SELECT COUNT(*) FROM (SELECT * FROM rp EXCEPT SELECT * FROM trp) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM trp EXCEPT SELECT * FROM rp) AS x) AS Resources,
+  (SELECT COUNT(*) FROM (SELECT * FROM dy EXCEPT SELECT * FROM tdy) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tdy EXCEPT SELECT * FROM dy) AS x) AS LabelDays,
+  (SELECT COUNT(*) FROM trp) AS ResourceRows,
+  (SELECT COUNT(*) FROM (SELECT SiteKey, UserKey, LastKey FROM sr EXCEPT SELECT SiteKey, UserKey, LastKey FROM dash.SiteReader) AS x)
+    + (SELECT COUNT(*) FROM (SELECT SiteKey, UserKey, LastKey FROM dash.SiteReader EXCEPT SELECT SiteKey, UserKey, LastKey FROM sr) AS x) AS Readers,
+  (SELECT COUNT(*) FROM dash.SiteReader AS r JOIN sr ON sr.SiteKey = r.SiteKey AND sr.UserKey = r.UserKey
+   WHERE ISNULL(r.PrevKey, -1) <> 0 AND ISNULL(r.PrevKey, -1) <> ISNULL(sr.PrevKey, -1)) AS ReaderPrev,
+  (SELECT COUNT(*) FROM dash.SiteReader WHERE LastKey >= @k7 AND PrevKey = 0) AS ReaderPrevMissing,
+  (SELECT COUNT(*) FROM dash.SiteReader) AS ReaderRows,
+  (SELECT COUNT(*) FROM (SELECT * FROM ss EXCEPT SELECT * FROM tss) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tss EXCEPT SELECT * FROM ss) AS x) AS Sessions,
+  (SELECT COUNT(*) FROM tss) AS SessionRows,
+  (SELECT COUNT(*) FROM (SELECT * FROM sp EXCEPT SELECT * FROM tsp) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tsp EXCEPT SELECT * FROM sp) AS x) AS SessionSums,
+  (SELECT COUNT(*) FROM tsp) AS SessionSumRows,
+  CASE WHEN (SELECT Value FROM dash.Setting WHERE Name = 'DashResourceTotalsEnds') = CONCAT(@max, N',', @prev) THEN 1 ELSE 0 END AS Ends;
+"@).Rows[0]
+Assert-That ([int] $resCheck.Mix -eq 0 -and [int] $resCheck.MixPrev -eq 0 -and [int] $resCheck.MixRows -gt 0) `
+    "dash.ReadMixPeriod holds each person's resources read per type, label, file type and blocked, over 7 days and all the data, ending on either of the last two days ($($resCheck.Mix)/$($resCheck.MixPrev) rows differ of $($resCheck.MixRows))"
+Assert-That ([int] $resCheck.Resources -eq 0 -and [int] $resCheck.LabelDays -eq 0 -and [int] $resCheck.ResourceRows -gt 0) `
+    "dash.ResourcePeriod holds dash.ResourceDay summed per person and label or site, all labels with their days and all blocked sites ($($resCheck.Resources)/$($resCheck.LabelDays) rows differ of $($resCheck.ResourceRows))"
+Assert-That ([int] $resCheck.Readers -eq 0 -and [int] $resCheck.ReaderPrev -eq 0 -and [int] $resCheck.ReaderPrevMissing -eq 0 -and [int] $resCheck.ReaderRows -gt 0) `
+    "dash.SiteReader holds each person's last two days at each site they read from, after an incremental refresh ($($resCheck.Readers)/$($resCheck.ReaderPrev)/$($resCheck.ReaderPrevMissing) rows differ of $($resCheck.ReaderRows))"
+Assert-That ([int] $resCheck.Sessions -eq 0 -and [int] $resCheck.SessionRows -gt 0) "dash.SessionSpan holds every conversation as bi.FactSession has it ($($resCheck.Sessions) rows differ of $($resCheck.SessionRows))"
+Assert-That ([int] $resCheck.SessionSums -eq 0 -and [int] $resCheck.SessionSumRows -gt 0) `
+    "dash.SessionPeriod holds each person's minutes and conversations per app over 7 days and all the data ($($resCheck.SessionSums) rows differ of $($resCheck.SessionSumRows))"
+Assert-That ([int] $resCheck.Ends -eq 1) 'the setting DashResourceTotalsEnds names the last two days once the totals are built'
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

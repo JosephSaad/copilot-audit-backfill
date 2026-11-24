@@ -221,13 +221,20 @@ namespace CopilotInsights.Pages.Compliance
         protected override async Task BuildAsync()
         {
             /* People per site on their own, then the rest per site and label: a distinct count
-               next to the other totals in one statement took 11 seconds for a year of 70 million reads. */
+               next to the other totals in one statement took 11 seconds for a year of 70 million reads. The people from the
+               refresh's list of each person's last two days at each site (dash.SiteReader), one comparison a person: the
+               distinct count over every resource read of the period took 15 seconds of processor for two years at 70,000
+               people and asked for gigabytes of memory. */
             var rows = await Db.QueryAsync<Row>($@"
-SELECT f.SiteKey, COUNT(DISTINCT f.UserKey) AS People
+{(Ctx.ResourceTotals ? $@"SELECT r.SiteKey, COUNT(*) AS People
+INTO #p
+FROM dash.SiteReader AS r {Ctx.Scope("r.UserKey")}
+WHERE {ReportContext.SiteRead("r")}
+GROUP BY r.SiteKey;" : $@"SELECT f.SiteKey, COUNT(DISTINCT f.UserKey) AS People
 INTO #p
 FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.SiteKey > 1
-GROUP BY f.SiteKey;
+GROUP BY f.SiteKey;")}
 WITH g AS (SELECT f.SiteKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N, SUM(CAST(f.IsBlocked AS INT)) AS B
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.SiteKey > 1
