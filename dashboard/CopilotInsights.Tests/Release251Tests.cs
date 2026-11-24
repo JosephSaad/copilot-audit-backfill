@@ -41,7 +41,8 @@ public class Release251Tests
     {
         Assert.Equal(28, Metrics.AdoptionDays);
         var leadership = Source.Read("Pages", "Leadership", "Leadership.cs");
-        Assert.Contains("var adoptedTask = m.AdoptedAsync(Ctx);", leadership);   // Read alongside the others
+        Assert.Contains("var adoptedTask = Ctx.Rollups ? null : m.AdoptedAsync(Ctx);", leadership);   // Read alongside the others, or with the trend's license days
+        Assert.Contains("var trendTask = m.TrendAsync(Ctx, withAdopted: true);", leadership);
         Assert.Contains("Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)", leadership);
         Assert.Contains("A rolling {Metrics.AdoptionDays} days, so weekends and holidays do not dip it", leadership);
     }

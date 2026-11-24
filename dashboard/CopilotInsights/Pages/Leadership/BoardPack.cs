@@ -43,7 +43,8 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var full = OpsReports.Covers(prev, first);
         var beforeTask = full ? metrics.TotalsAsync(prev) : null;
         var u0Task = full ? metrics.UnitsAsync(prev) : null;
-        var rpTask = full ? metrics.TrendAsync(prev) : null;
+        /* The period before is read only for its risk sums: its people and license holders are not shown. */
+        var rpTask = full ? metrics.SumsTrendAsync(prev) : null;
         await Task.WhenAll(new Task?[] { splitTask, nowTask, u1Task, beforeTask, u0Task }.OfType<Task>());
         var split = await splitTask;
         /* The Scorecard's parts (the Premium split and each unit against the period before), turned off in Admin › Reports
