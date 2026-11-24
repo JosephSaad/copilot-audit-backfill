@@ -4089,7 +4089,8 @@ try {
         foreach ($tag in @($compatFloor, $previous | Where-Object { $_ -and $_ -in $tags } | Select-Object -Unique)) {
             $old = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-schema-$($tag.TrimStart('v'))-$PID"
             $compatDirs.Add($old); $compatDirs.Add("$old.zip")
-            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql
+            # tools as well: from 3.1.3 on, the installer loads tools/RunLock.ps1.
+            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql tools
             if ($LASTEXITCODE -ne 0) { throw "git archive $tag failed." }
             Expand-Archive -LiteralPath "$old.zip" -DestinationPath $old -Force
             [string[]] $upgraded = & $installed "Up$($tag -replace '\D', '')" @($old, $root)
