@@ -705,3 +705,10 @@ form.admin label.quote { flex: 0 0 100%; }
 form.admin label.quote textarea { width: 100%; max-width: 760px; box-sizing: border-box; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; }
 form.admin:has(label.quote) > .row { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .story details { margin-top: 4px; }
+
+/* Report subscriptions (3.2.0): the link on a report, and the day boxes the frequency does not use. */
+.page-head a.subscribe { float: right; margin: 0 0 6px 12px; padding: 3px 10px; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 6px; text-decoration: none; white-space: nowrap; }
+.page-head a.subscribe:hover { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 600px) { .page-head a.subscribe { float: none; display: inline-block; margin: 0 0 8px; } }
+form.admin label[hidden] { display: none; }

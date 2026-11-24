@@ -472,7 +472,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
         /* Sections are ticked in their own step; the roles left are Organization, Admin and the Workbench's work roles. A
            persona role granted before is kept and listed, and no longer offered: a section with named people gives it. */
-        var offered = Roles.All.Where(r => r == Roles.Organization || r == Roles.Stories || (r == Roles.Admin && Viewer.IsAdmin) || (workbenchOn && Roles.IsWorkbench(r))).ToList();
+        var offered = Roles.All.Where(r => r == Roles.Organization || r == Roles.Stories || r == Roles.Preview || (r == Roles.Admin && Viewer.IsAdmin) || (workbenchOn && Roles.IsWorkbench(r))).ToList();
         var pagePicker = !Viewer.IsAdmin || !hasPages ? "" :
             "<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
             string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"/> {E(ap.Title)}</label>")) + "</fieldset>";
@@ -500,7 +500,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             (has31 ? Step("Sections they see", "section", SectionPicker.Boxes(ticked, workbenchOn)) +
                      Step("How much of the organization", "orgWide", SectionPicker.Scope(editing?.OrgWide == true)) +
                      Step("Lists that name people", "named", SectionPicker.Named(editing?.NamedPeople == true)) : "") +
-            (BetaReports.Count == 0 || !hasPages ? "" : Step("Beta reports they preview (optional)", "previewPage", PreviewBoxes(editPreview))) +
+
             Step("Other roles (optional)", "role", "<fieldset class=\"roles\"><legend>Roles</legend>" +
                 string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}{((HtmlString)InfoTip.Icon(Roles.Describe[r], r)).Value}</label>")) + "</fieldset>" + pagePicker) +
             "<div class=\"row\">" + Input("note", "Why (optional)", editing?.Note, 30) + Button(editing is null ? "Grant access" : "Save the change") + "</div>";
@@ -554,7 +554,7 @@ WHERE g.Principal IN @list;", new { list });
                     $" <a class=\"btn quiet\" href=\"{E(Request.Path + "?edit=" + Uri.EscapeDataString(g.Principal))}#grant\" title=\"{E($"Change the sections of {g.Principal}")}\">Change</a>"
                   : g.OrgWide ? " <small>(whole organization)</small>" : "") +
                 (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $" <small>({E(AdminPages.Names(g.Pages))})</small>" : "") +
-                (g.Role == Roles.Preview ? $" <small>({E(CopilotInsights.Pages.HiddenReports.Titles(g.Pages))})</small>" : "") +
+                (g.Role == Roles.Preview && !string.IsNullOrEmpty(g.Pages) ? $" <small>({E(CopilotInsights.Pages.HiddenReports.Titles(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Admin && !Viewer.IsAdmin ? "" :
                     Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}"))) + "</span>")) +
                 "<span class=\"grant all\">" + Form("revokeall", Hidden("principal", principal) +
@@ -854,8 +854,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
         /* Sections are their own grant; Sections and Restricted are never ticked as roles. */
-        /* Preview is its own step (the beta reports ticked), never ticked as a role. */
-        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && r != Roles.Sections && r != Roles.Preview && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
+        /* Preview is a role like the others: every beta report. */
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
         var sections = Sections.Format((section ?? []).Where(k => workbenchOn || Sections.Find(k)?.Workbench != true));
         int? profileId = int.TryParse(profile, out var pid) ? pid : null;
         var preview = CopilotInsights.Pages.HiddenReports.FormatKeys(previewPage, await CopilotInsights.Pages.HiddenReports.BetaAsync(S.Settings));
@@ -897,6 +897,10 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
             else if (has28 && AccessRules.IsPersona(r) && await Db.ExecuteAsync(
                 "UPDATE dash.RoleGrant SET OrgWide = @wide, GrantedBy = @by, GrantedUtc = SYSUTCDATETIME() WHERE Principal = @principal AND Role = @role AND OrgWide <> @wide;",
                 new { principal, role = r, wide, by }) > 0) widened.Add(r + (wide ? " now across the whole organization" : " now for their own part only"));
+            /* Preview ticked for someone whose older grant names some beta reports: it now opens every one. */
+            if (r == Roles.Preview && n <= 0 && await HasPagesAsync() && await Db.ExecuteAsync(
+                "UPDATE dash.RoleGrant SET Pages = NULL, GrantedBy = @by, GrantedUtc = SYSUTCDATETIME() WHERE Principal = @principal AND Role = 'Preview' AND Pages IS NOT NULL;",
+                new { principal, by }) > 0) widened.Add("Preview now of every beta report");
             if (r != Roles.Admin || !hasPages) continue;
             /* A new Admin grant takes its pages; one held already has them replaced, and says so. */
             var moved = await Db.ExecuteAsync(

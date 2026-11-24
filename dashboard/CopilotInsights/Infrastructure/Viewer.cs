@@ -26,8 +26,8 @@ public static class Roles
     public const string Sections = "Sections";
 
     /// <summary>
-    /// Preview opens the beta reports its grant ticks (dash.RoleGrant.Pages), inside the sections the holder sees already;
-    /// Stories curates the success stories. Neither shows usage data, so neither lets anyone past the level limit.
+    /// Preview opens every beta report (Admin › Reports shown) inside the sections the holder sees already; a grant made
+    /// before 3.2.0 that names some reports (dash.RoleGrant.Pages) opens those only. Stories curates the success stories. Neither shows usage data, so neither lets anyone past the level limit.
     /// </summary>
     public const string Preview = "Preview", Stories = "Stories";
 
@@ -54,7 +54,7 @@ public static class Roles
         [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
         [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
         [Sections] = "The menu sections ticked on the grant, for the holder's own part of the organization or the whole of it, with or without the lists that name people.",
-        [Preview] = "The beta reports ticked on the grant (Admin › Reports shown sets which are beta), in the sections the holder sees already, as those sections show them. Shows nothing else.",
+        [Preview] = "Every beta report (Admin › Reports shown sets which are beta), in the sections the holder sees already, as those sections show them. Shows nothing else.",
         [Stories] = "Curates the success stories: sees every story entered, edits, approves or declines them, and ticks the ones the weekly report quotes. Shows no usage data.",
     };
 }
@@ -94,8 +94,11 @@ public sealed class Viewer
     /// <summary>The beta reports a Preview grant opens to them, by the key Admin › Reports shown keeps (<see cref="Pages.Nav.Key"/>).</summary>
     public IReadOnlySet<string> PreviewPaths { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Whether a beta report is open to them: a full administrator, or a Preview grant that ticks it.</summary>
-    public bool Previews(string? key) => IsAdmin || key is not null && PreviewPaths.Contains(key.Length > 1 ? key.TrimEnd('/') : key);
+    /// <summary>Whether a Preview grant opens every beta report to them (one that names no reports).</summary>
+    public bool PreviewsAll { get; init; }
+
+    /// <summary>Whether a beta report is open to them: a full administrator, the Preview role, or an older Preview grant that names it.</summary>
+    public bool Previews(string? key) => IsAdmin || PreviewsAll || key is not null && PreviewPaths.Contains(key.Length > 1 ? key.TrimEnd('/') : key);
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles) || WidenedForSection;
     public bool Has(string role) => Roles.Contains(role);
     public string Name => DisplayName ?? Upn ?? WindowsName;
@@ -148,8 +151,11 @@ public sealed class Viewer
 /// </summary>
 public sealed record GrantedAccess(HashSet<string> Roles, HashSet<string> Paths, HashSet<string> OrgWideRoles, HashSet<string> Sections, HashSet<string> OrgWideSections)
 {
-    /// <summary>The beta reports their Preview grants tick.</summary>
+    /// <summary>The beta reports their Preview grants name (grants made before 3.2.0).</summary>
     public HashSet<string> Preview { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a Preview grant opens every beta report: one that names none, as Preview is granted from 3.2.0.</summary>
+    public bool PreviewAll { get; set; }
 }
 
 /// <summary>The security model's decisions, kept pure so they can be tested on their own.</summary>
@@ -182,9 +188,10 @@ public static class AccessRules
             }
             else if (string.Equals(g.Role, Roles.Preview, StringComparison.OrdinalIgnoreCase))
             {
-                /* The beta reports ticked; it opens no section and no named list. */
-                a.Preview.UnionWith(CopilotInsights.Pages.HiddenReports.ParseKeys(g.Pages));
-                if (a.Preview.Count > 0) a.Roles.Add(Roles.Preview);
+                /* Every beta report, or, granted before 3.2.0, the ones it names; it opens no section and no named list. */
+                var named = CopilotInsights.Pages.HiddenReports.ParseKeys(g.Pages).ToList();
+                if (named.Count == 0) a.PreviewAll = true; else a.Preview.UnionWith(named);
+                a.Roles.Add(Roles.Preview);
                 continue;
             }
             /* Restricted, withdrawn before use, is accepted by the database and gives nothing. */
@@ -341,6 +348,30 @@ public sealed class ViewerService(
         return await BuildAsync(signInName, upn, access, entra ? SignIn.Entra : SignIn.Windows);
     }
 
+    /// <summary>The viewer this request is built for, where it is not the one signed in: a report subscription's sender.</summary>
+    public void Use(Viewer viewer) => _viewer = viewer;
+
+    /// <summary>
+    /// Who a person is to the dashboard without signing in, for a report subscription sent while they are away: the
+    /// grants to their UPN and to the account they subscribed with, their AD groups' as the nightly directory load records
+    /// them (audit.GroupMember), and their Entra groups' as Microsoft Graph answers now, where it can be asked, as the
+    /// manager digest reads them (<see cref="GrantMap"/>). A group Windows would give at sign-in that the directory load
+    /// does not record gives nothing here; the subscription then pauses, saying why.
+    /// </summary>
+    public async Task<Viewer> WithoutSignInAsync(string upn, string signInName, string signedInWith, CancellationToken ct = default)
+    {
+        var map = await GrantMap.LoadAsync(db);
+        IReadOnlySet<Guid>? entra = null;
+        if (map.EntraGroups.Count > 0 && graph.Available && await PersonObjectIdAsync(upn) is { } oid)
+            try { entra = await graph.MemberOfAsync(oid, map.EntraGroups, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning(ex, "The Entra groups of {Upn} could not be read for a report subscription.", upn); }
+        var held = map.Held(upn, entra).Select(x => x.Grant)
+            .Concat(map.Grants.Where(g => Same(g.Principal, signInName) && !Same(g.Principal, upn)));
+        var access = AccessRules.Resolve(held);
+        if (_o.BootstrapAdmins.Any(b => Same(b, upn) || Same(b, signInName))) access.Roles.Add(Roles.Admin);
+        return await BuildAsync(signInName, upn, access, signedInWith);
+    }
+
     async Task<Viewer> BuildAsync(string signInName, string? upn, GrantedAccess access, string signedInWith)
     {
         var roles = access.Roles;
@@ -357,7 +388,7 @@ public sealed class ViewerService(
             MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
             AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths,
             OrgWideRoles = access.OrgWideRoles, SignedInWith = signedInWith,
-            SectionKeys = access.Sections, OrgWideSections = access.OrgWideSections, PreviewPaths = access.Preview,
+            SectionKeys = access.Sections, OrgWideSections = access.OrgWideSections, PreviewPaths = access.Preview, PreviewsAll = access.PreviewAll,
         };
     }
 

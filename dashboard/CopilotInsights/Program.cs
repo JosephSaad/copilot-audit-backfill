@@ -60,6 +60,9 @@ builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // The assu
 builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddSingleton<Notifier>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Notifier>());
+/* Report subscriptions: each persons reports by email, on their own schedule (My subscriptions). */
+builder.Services.AddSingleton<SubscriptionSender>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SubscriptionSender>());
 builder.Services.AddSingleton<PageWarmer>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PageWarmer>());
 builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute()));

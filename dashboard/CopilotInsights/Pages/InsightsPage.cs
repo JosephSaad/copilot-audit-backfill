@@ -290,6 +290,29 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>True while the warm-up builds the page: there is no request behind it, so no message from a redirect.</summary>
     protected bool Warming { get; private set; }
 
+    /// <summary>
+    /// True while the page is built for a report subscription's email (SubscriptionSender): a request made for the person,
+    /// with their filters, but no one at a browser, so no message from a redirect.
+    /// </summary>
+    protected bool ForEmail { get; private set; }
+
+    /// <summary>
+    /// Builds the page for a report subscription's email, as the person would see it now: the same checks as their visit
+    /// (their roles, sections, the report turned off or in beta, privacy mode), the same queries, from memory where they
+    /// can be, and a line in the audit log, Email. Returns why not, as the page would say it, or null when it is built.
+    /// </summary>
+    internal async Task<string?> BuildForEmailAsync()
+    {
+        ForEmail = true;
+        if (!await PrepareAsync()) return Denied;
+        await BuildCachedAsync();
+        await S.Audit.WriteAsync(Viewer, "Email", Request.Path, Ctx.ScopeLabel, $"days={Ctx.Days}{Request.QueryString}");
+        return null;
+    }
+
+    /// <summary>Whether this report may be sent by email on a schedule (<see cref="CopilotInsights.Data.Subscriptions.Report"/>), for the link on its page.</summary>
+    public bool Subscribable => CopilotInsights.Data.Subscriptions.Report(Request.Path) is not null;
+
     async Task BuildCachedAsync()
     {
         if (AdminOnly) { await BuildAsync(); return; }
@@ -607,7 +630,7 @@ END");
     protected async Task<string> NotSetUpAsync(string cannot, string version, params string[] objects)
     {
         var plain = $"{cannot}. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from {version} or later.";
-        if (!Viewer.AnyAdmin || Warming) return plain;
+        if (!Viewer.AnyAdmin || Warming || ForEmail) return plain;
         var names = string.Join(", ", objects.Select(o => "(N'" + o.Replace("'", "''") + "')"));
         var (database, account, missing) = (await Db.QueryAsync<(string Database, string Account, string? Missing)>($@"
 SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n) WHERE OBJECT_ID(o.n) IS NULL;")).Single();
@@ -647,7 +670,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /// <summary>The message a change left for the page it redirected back to.</summary>
     protected void ShowDone()
     {
-        if (Warming) return;
+        if (Warming || ForEmail) return;
         if (TempData["done"] is string d) Notice = d;
     }
 

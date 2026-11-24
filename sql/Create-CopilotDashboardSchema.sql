@@ -1165,3 +1165,65 @@ IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesPerReport')
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesReminderTo')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'StoriesReminderTo', N'', N'Where the reminder goes the day before the weekly report, when stories wait for review or none is ticked: addresses separated by ; (empty: no reminder).', N'install');
+/* ---- Report subscriptions -------------------------------------------------------------------------------------------
+   A report by email, on a schedule the person sets for themselves: the report's headline figures and charts, never its
+   lists, built at each send under the person's access as it is then. Daily (weekdays) for periods up to 30 days; weekly
+   or monthly for any period. Sent to the person's own address from the directory, at the time they chose in the
+   dashboard's time zone. Each send claims a row of ReportSubscriptionSend first, so several web servers send it once.
+   Not the digests administrators set up for a list of recipients (dash.Subscription). */
+IF OBJECT_ID(N'dash.ReportSubscription', N'U') IS NULL
+    CREATE TABLE dash.ReportSubscription
+    (
+        SubscriptionId  INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashReportSubscription PRIMARY KEY,
+        Upn             NVARCHAR(256)   NOT NULL,   -- whose: the email goes to them, built under their access
+        SignInName      NVARCHAR(256)   NOT NULL,   -- the account they subscribed with, for grants made to the account
+        SignedInWith    VARCHAR(10)     NOT NULL CONSTRAINT DF_DashReportSubscription_With DEFAULT ('Windows'),
+        Path            NVARCHAR(200)   NOT NULL,   -- the report's address
+        Title           NVARCHAR(200)   NOT NULL,   -- its title when subscribed
+        Query           NVARCHAR(1000)  NULL,       -- its filters (team, department...), the period apart
+        Days            INT             NOT NULL,   -- the period: 7 to 730 days, or 0 for all the data
+        Frequency       VARCHAR(10)     NOT NULL
+                        CONSTRAINT CK_DashReportSubscription_Frequency CHECK (Frequency IN ('Daily', 'Weekly', 'Monthly')),
+        DayOfWeek       TINYINT         NULL,       -- weekly: 0 Sunday to 6 Saturday
+        DayOfMonth      TINYINT         NULL,       -- monthly: 1 to 28
+        SendTime        TIME(0)         NOT NULL,   -- in the dashboard's time zone
+        Paused          BIT             NOT NULL CONSTRAINT DF_DashReportSubscription_Paused DEFAULT (0),
+        PausedReason    NVARCHAR(400)   NULL,
+        NextDueUtc      DATETIME2(0)    NULL,
+        LastSentUtc     DATETIME2(0)    NULL,
+        LastStatus      NVARCHAR(400)   NULL,
+        CreatedUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReportSubscription_Created DEFAULT (SYSUTCDATETIME()),
+        UpdatedUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReportSubscription_Updated DEFAULT (SYSUTCDATETIME()),
+        UpdatedBy       NVARCHAR(256)   NULL,
+        Deleted         BIT             NOT NULL CONSTRAINT DF_DashReportSubscription_Deleted DEFAULT (0),
+        INDEX IX_DashReportSubscription_Upn NONCLUSTERED (Upn, Deleted),
+        INDEX IX_DashReportSubscription_Due NONCLUSTERED (NextDueUtc, Paused, Deleted)
+    );
+IF OBJECT_ID(N'dash.ReportSubscriptionSend', N'U') IS NULL
+    CREATE TABLE dash.ReportSubscriptionSend
+    (
+        SendId          BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashReportSubscriptionSend PRIMARY KEY,
+        SubscriptionId  INT             NOT NULL CONSTRAINT FK_DashReportSubscriptionSend_Sub REFERENCES dash.ReportSubscription (SubscriptionId) ON DELETE CASCADE,
+        DueUtc          DATETIME2(0)    NOT NULL,   -- the send this is: claimed once, whichever web server takes it
+        ClaimedUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReportSubscriptionSend_Claimed DEFAULT (SYSUTCDATETIME()),
+        Server          NVARCHAR(128)   NULL,
+        Status          VARCHAR(12)     NOT NULL CONSTRAINT DF_DashReportSubscriptionSend_Status DEFAULT ('Claimed')
+                        CONSTRAINT CK_DashReportSubscriptionSend_Status CHECK (Status IN ('Claimed', 'Sent', 'Failed', 'Skipped', 'Paused', 'Missed')),
+        Detail          NVARCHAR(1000)  NULL,
+        Figures         INT             NULL,
+        Charts          INT             NULL,
+        EndedUtc        DATETIME2(0)    NULL,
+        CONSTRAINT UQ_DashReportSubscriptionSend_Due UNIQUE (SubscriptionId, DueUtc)
+    );
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'ReportSubscriptions')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'ReportSubscriptions', N'1', N'Whether people may subscribe to reports by email (1) or not (0). Off pauses every send; nothing is deleted.', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'SubscriptionsPerPerson')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'SubscriptionsPerPerson', N'20', N'The most report subscriptions one person may have (1 to 100).', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'SubscriptionEarliest')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'SubscriptionEarliest', N'07:30', N'The earliest time a report subscription may be sent, in the dashboard''s time zone (HH:mm, on the hour or half hour): after the morning pre-cache.', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'SubscriptionWaitUntil')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'SubscriptionWaitUntil', N'12:00', N'When the night''s refresh has not ended by a subscription''s time, it waits for it until this time (HH:mm), then goes with a note giving the newest data''s date.', N'install');

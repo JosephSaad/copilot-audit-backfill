@@ -1,4 +1,4 @@
-# release 3.1.7
+# release 3.2.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1429,6 +1429,37 @@ C	copilot	dash.RefreshRun	U	6	People	int	0
 C	copilot	dash.RefreshRun	U	7	ClosureRows	int	0	
 C	copilot	dash.RefreshRun	U	8	UserDayRows	int	0	
 C	copilot	dash.RefreshRun	U	9	BiRunId	int	1	
+C	copilot	dash.ReportSubscription	U	1	SubscriptionId	int	0	I
+C	copilot	dash.ReportSubscription	U	10	DayOfWeek	tinyint	1	
+C	copilot	dash.ReportSubscription	U	11	DayOfMonth	tinyint	1	
+C	copilot	dash.ReportSubscription	U	12	SendTime	time(0)	0	
+C	copilot	dash.ReportSubscription	U	13	Paused	bit	0	D
+C	copilot	dash.ReportSubscription	U	14	PausedReason	nvarchar(400)	1	
+C	copilot	dash.ReportSubscription	U	15	NextDueUtc	datetime2(0)	1	
+C	copilot	dash.ReportSubscription	U	16	LastSentUtc	datetime2(0)	1	
+C	copilot	dash.ReportSubscription	U	17	LastStatus	nvarchar(400)	1	
+C	copilot	dash.ReportSubscription	U	18	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.ReportSubscription	U	19	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.ReportSubscription	U	2	Upn	nvarchar(256)	0	
+C	copilot	dash.ReportSubscription	U	20	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.ReportSubscription	U	21	Deleted	bit	0	D
+C	copilot	dash.ReportSubscription	U	3	SignInName	nvarchar(256)	0	
+C	copilot	dash.ReportSubscription	U	4	SignedInWith	varchar(10)	0	D
+C	copilot	dash.ReportSubscription	U	5	Path	nvarchar(200)	0	
+C	copilot	dash.ReportSubscription	U	6	Title	nvarchar(200)	0	
+C	copilot	dash.ReportSubscription	U	7	Query	nvarchar(1000)	1	
+C	copilot	dash.ReportSubscription	U	8	Days	int	0	
+C	copilot	dash.ReportSubscription	U	9	Frequency	varchar(10)	0	
+C	copilot	dash.ReportSubscriptionSend	U	1	SendId	bigint	0	I
+C	copilot	dash.ReportSubscriptionSend	U	10	EndedUtc	datetime2(0)	1	
+C	copilot	dash.ReportSubscriptionSend	U	2	SubscriptionId	int	0	
+C	copilot	dash.ReportSubscriptionSend	U	3	DueUtc	datetime2(0)	0	
+C	copilot	dash.ReportSubscriptionSend	U	4	ClaimedUtc	datetime2(0)	0	D
+C	copilot	dash.ReportSubscriptionSend	U	5	Server	nvarchar(128)	1	
+C	copilot	dash.ReportSubscriptionSend	U	6	Status	varchar(12)	0	D
+C	copilot	dash.ReportSubscriptionSend	U	7	Detail	nvarchar(1000)	1	
+C	copilot	dash.ReportSubscriptionSend	U	8	Figures	int	1	
+C	copilot	dash.ReportSubscriptionSend	U	9	Charts	int	1	
 C	copilot	dash.Reservation	U	1	ReservationId	int	0	I
 C	copilot	dash.Reservation	U	10	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.Reservation	U	11	UpdatedUtc	datetime2(0)	0	D
@@ -2290,6 +2321,8 @@ O	copilot	dash.QueryCacheShared	U
 O	copilot	dash.ReadMix	U
 O	copilot	dash.ReadMixPeriod	U
 O	copilot	dash.RefreshRun	U
+O	copilot	dash.ReportSubscription	U
+O	copilot	dash.ReportSubscriptionSend	U
 O	copilot	dash.Reservation	U
 O	copilot	dash.ReservationRate	U
 O	copilot	dash.ReservationSnapshot	U

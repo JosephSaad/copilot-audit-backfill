@@ -4,6 +4,67 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-11-24
+
+Report subscriptions: anyone can have a report sent to them by email, on a schedule they set themselves. The email
+holds the report's headline figures and its charts as images, never its lists, and is built at each send with the
+person's access as it is then. And the Preview role now opens every beta report.
+
+**Install over 3.1.7** (from 3.1.6, the same steps; 3.1.7's own steps are included):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds two tables and four settings; nothing is removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added: the chart images are drawn with
+   Windows' own graphics library.
+4. On Admin › Email, set the dashboard's address, so the emails link to their report.
+
+### Added
+
+- **Email me this report.** A link at the top of every report that is not a list of named people (54 of the 77)
+  opens *My subscriptions* (menu, under *Start*) with the report, its period and its filters ready. The person chooses
+  the period, how often and when: **daily, on weekdays, for a period of up to 30 days; weekly or monthly for any
+  period**, at a time on the hour or half hour from 07:30 to 22:00 in the dashboard's time zone. On the same page they
+  change, pause, stop, or **Send me one now** to see how it looks.
+- **The email.** The report's headline figures, then each panel's charts as PNG images with their legend, event key and
+  notes, and an *Open the report* button with the same period and filters. Tables and lists are never sent. It goes
+  only to the person's own address from the directory, through the email set on Admin › Email, logged there as
+  *Subscription*.
+- **Access checked at every send.** The report is built as the person would see it at that moment: their grants by
+  name and by account, their AD groups as the nightly directory load records them, their Entra groups through Microsoft
+  Graph, their sections, beta and turned-off reports, privacy mode. If they can no longer open it, nothing is sent and
+  the subscription pauses, saying why, on their page. Subscribing is refused, with the reason, when their access comes
+  only through an AD group the directory load does not record.
+- **Late data.** An email due before the night's refresh has ended waits for it until `SubscriptionWaitUntil` (12:00),
+  then goes with a line saying how old its figures are. One more than 12 hours late (the site was down) is not sent.
+- **Several web servers.** Each send is claimed once (`dash.ReportSubscriptionSend`), so it goes from one server only.
+- **For administrators.** Admin › Alerts and digests › *Report subscriptions*: on or off, the most per person (20), the
+  earliest time (07:30) and how long to wait for the refresh. A full administrator sees everyone's subscriptions on
+  *My subscriptions*, with the last week's sends, and can pause or stop any. The digests administrators set up for a
+  list of recipients are unchanged.
+
+### Changed
+
+- **Preview opens every beta report.** Preview is ticked in Admin › Access › *Grant access* › *Other roles*, like the
+  other roles, and opens every report marked Beta, inside the sections the person already sees. The step that ticked
+  beta reports one by one is gone. A Preview grant made in 3.1.6 still opens the reports it names; ticking Preview for
+  that person again opens every one. Access profiles can include Preview. `Invoke-CopilotMaintenance.ps1 -Task
+  GrantRole -Role Preview` grants it.
+
+### Known limits
+
+- **Not tested at the client.** Tested on this project's demo database: subscribing from a report, a daily send at its
+  time, Send me one now, the late-data note, and a subscription that paused when its section grant was removed, each to
+  a local mail server; the email was checked as HTML. Not tested with Exchange Online, the client's relay, Outlook's
+  own rendering of the images, or real AD and Entra group grants.
+- **The charts need Windows.** They are drawn with GDI+, in every Windows Server; on a server without it (another
+  operating system, or Server Core without it) the email has its figures and link, and says a chart could not be drawn.
+- **A failed send is not tried again.** Its reason is on the person's page and in Admin › Email's log; the next one goes
+  at its time.
+- **Times are the dashboard's time zone** (Admin › Access), not each person's.
+- **An AD group only Windows knows.** Access that comes only through an AD group the nightly directory load does not
+  record cannot be checked without the person signed in: subscribing is refused, and an existing subscription pauses.
 ## [3.1.7] - 2026-11-24
 
 Copilot licenses assigned and removed through a group are counted. Where Copilot is assigned through a group
