@@ -59,6 +59,8 @@ Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both 
 
 **The workbook** (`Copilot weekly report <week ending>.xlsx`): *Summary* has the table, the box on disabled accounts, what each number means, the notes and both charts as native Excel charts that can be edited; *Weekly* has every week's figures, both columns and security alerts included, and where each week's M365 Copilot users enabled comes from; *Notes* says how each figure is counted.
 
+**In their words** (3.1.6): up to three success stories, as people wrote them on the dashboard (menu: *Success stories*), approved and ticked for the report by a curator (the Stories role). Each names the person only where they agreed and privacy mode is off; otherwise "a colleague in" their department, or "a colleague" where it is smaller than the minimum group size. The workbook's *Stories* sheet lists every approved story to date, with when each was sent. A report sent marks its stories sent and clears their ticks, so each goes out once unless a curator ticks it again; a preview (`-Preview`) or a test (`-To`) quotes them and marks nothing. Without a ticked story, the email has no such part. `StoriesPerReport` (dashboard setting, 3) sets how many; 0 leaves them out.
+
 **Days are in the reporting time zone** (`audit.ReportingTimeZone()`, the dashboard's), the same days `bi.Calendar` and every report use.
 
 **The figures come from the Copilot database and AD**, not the Microsoft 365 admin center, so they differ from its reports, which count activity their own way.
@@ -71,6 +73,7 @@ The task runs every hour. Each run checks whether the last complete week is due:
 2. **It sends once.** Each week sent is recorded in `audit.WeeklyReportSend`. A week already sent is not sent again.
 3. **It tries again on failure.** A send the relay refuses is recorded as *Failed* and tried on the next hourly run, up to `MaxAttempts` (8) times.
 4. **It catches up.** If the server was down on Tuesday, the first run after it comes back sends the week.
+5. **It reminds the curators** (3.1.6). The day before the send day, from the send time, one email a week goes to `StoriesReminderTo` (dashboard setting; empty: none) when success stories wait for review or none is ticked for the report.
 
 ## What it needs
 

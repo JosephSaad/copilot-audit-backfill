@@ -328,6 +328,13 @@ BEGIN
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections'));
 END;
+/* Then Preview, the beta reports a grant ticks (in its Pages column), and Stories, the success stories' curators. Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%''Stories''%')
+BEGIN
+    ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
+    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
+END;
 
 /* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
    of its own and the group's name as it was when granted, for the lists. NULL on every grant to a UPN or to DOMAIN\name. */
@@ -376,6 +383,13 @@ BEGIN
     ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
     ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections'));
+END;
+/* A profile can give Stories too (Preview is granted on its own, with its beta reports). Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%''Stories''%')
+BEGIN
+    ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
+    ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
 END;
 /* A profile's Sections row names its sections and whether the named lists show, as a Sections grant does. */
 IF COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL ALTER TABLE dash.AccessProfileRole ADD Sections NVARCHAR(1000) NULL;
@@ -1104,3 +1118,50 @@ IF OBJECT_ID(N'dash.SessionPeriod', N'U') IS NULL
         SessionsAll INT NOT NULL,
         INDEX CCI_DashSessionPeriod CLUSTERED COLUMNSTORE
     );
+
+/* ---- Success stories ------------------------------------------------------------------------------------------------
+   What people say Copilot did for them, in their own words, for the weekly report's "In their words". Anyone signed in
+   enters one; the Stories role approves or declines it, and ticks the approved ones the next report quotes. A story only
+   moves forward: Entered, then Approved, then Sent; Declined and Withdrawn end it. Editing never changes its status.
+   Deleting hides it (Deleted); only a full administrator purges one for good. Each send is a row of SuccessStorySend. */
+IF OBJECT_ID(N'dash.SuccessStory', N'U') IS NULL
+    CREATE TABLE dash.SuccessStory
+    (
+        StoryId         INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashSuccessStory PRIMARY KEY,
+        Quote           NVARCHAR(2000)  NOT NULL,
+        App             NVARCHAR(200)   NULL,       -- the app or agent it was in
+        UseCase         NVARCHAR(200)   NULL,
+        MinutesSaved    INT             NULL,       -- a week, as the person put it
+        Upn             NVARCHAR(256)   NOT NULL,   -- whose story: the person who entered it
+        DisplayName     NVARCHAR(256)   NULL,       -- their name as it was when entered
+        Unit            NVARCHAR(256)   NULL,       -- their department as it was when entered
+        MayName         BIT             NOT NULL CONSTRAINT DF_DashSuccessStory_MayName DEFAULT (0),
+        Status          VARCHAR(12)     NOT NULL CONSTRAINT DF_DashSuccessStory_Status DEFAULT ('Entered')
+                        CONSTRAINT CK_DashSuccessStory_Status CHECK (Status IN ('Entered', 'Approved', 'Sent', 'Declined', 'Withdrawn')),
+        DeclineReason   NVARCHAR(400)   NULL,
+        IncludeNext     BIT             NOT NULL CONSTRAINT DF_DashSuccessStory_Include DEFAULT (0),
+        EnteredUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashSuccessStory_Entered DEFAULT (SYSUTCDATETIME()),
+        UpdatedBy       NVARCHAR(256)   NULL,
+        UpdatedUtc      DATETIME2(0)    NULL,
+        ApprovedBy      NVARCHAR(256)   NULL,
+        ApprovedUtc     DATETIME2(0)    NULL,
+        EditedAfterSent BIT             NOT NULL CONSTRAINT DF_DashSuccessStory_EditedSent DEFAULT (0),
+        Deleted         BIT             NOT NULL CONSTRAINT DF_DashSuccessStory_Deleted DEFAULT (0),
+        DeletedBy       NVARCHAR(256)   NULL,
+        DeletedUtc      DATETIME2(0)    NULL,
+        INDEX IX_DashSuccessStory_Status NONCLUSTERED (Status, IncludeNext, Deleted)
+    );
+IF OBJECT_ID(N'dash.SuccessStorySend', N'U') IS NULL
+    CREATE TABLE dash.SuccessStorySend
+    (
+        StoryId  INT          NOT NULL CONSTRAINT FK_DashSuccessStorySend_Story REFERENCES dash.SuccessStory (StoryId) ON DELETE CASCADE,
+        SentWeek DATE         NOT NULL,   -- the Friday that ends the week the report covered
+        SentUtc  DATETIME2(0) NOT NULL CONSTRAINT DF_DashSuccessStorySend_Sent DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_DashSuccessStorySend PRIMARY KEY (StoryId, SentWeek)
+    );
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesPerReport')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'StoriesPerReport', N'3', N'The most success stories the weekly report quotes, oldest approved first (0 leaves them out).', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesReminderTo')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'StoriesReminderTo', N'', N'Where the reminder goes the day before the weekly report, when stories wait for review or none is ticked: addresses separated by ; (empty: no reminder).', N'install');

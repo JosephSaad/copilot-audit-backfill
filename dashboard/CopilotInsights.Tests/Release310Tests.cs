@@ -187,7 +187,7 @@ public class Release310Tests
         var page = Source.Read("Pages", "Admin", "Admin.cs");
         Assert.Contains("SectionPicker.Boxes(ticked, workbenchOn)", page);
         Assert.Contains("'s sections were {Say(before[0].Sections, before[0].OrgWide, before[0].NamedPeople)}; they are now {Say(sections, orgWide, named)}.", page);
-        Assert.Contains("tick at least one section or role, or choose a profile.", page);
+        Assert.Contains("tick at least one section, role or beta report, or choose a profile.", page);
         Assert.Contains("async Task WhoLosesAccessAsync(int max)", page);
         Assert.Contains("<h3>Sections they see</h3>", page);
         /* Every box carries its information icon, naming the reports behind it. */

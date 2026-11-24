@@ -61,6 +61,18 @@ public static partial class FieldTips
         ["role"] = "Organization: every section the person has shows the whole organization, and Power BI's Organization role follows it. Admin: the Admin pages. Governance, GovernanceOperator, GovernanceAuditor: work in the Governance Workbench.",
         ["/admin/access|profile"] = "An access profile to grant as well: a named set of sections and roles kept in Admin › Access profiles. Change the profile and everyone who holds it changes with it.",
         ["/admin/access|type"] = "User for one person; Group for an AD group (DOMAIN\\Group) or an Entra group, whose members get the grant.",
+        ["previewPage"] = "The beta reports (Admin › Reports shown) this person or group may open, inside the sections they see already. None ticked: no preview. Granting again replaces the reports ticked.",
+        ["/admin/reports|beta"] = "Beta: only administrators and the people given a preview of it (Admin › Access) see this report, with a Beta badge. Untick it to show the report to everyone with its section.",
+        /* Success stories. */
+        ["StoriesPerReport"] = "How many success stories the weekly report quotes, of those ticked on the Success stories page, oldest approved first: 0 to 10. 0 leaves them out. Default 3.",
+        ["StoriesReminderTo"] = "Email addresses, separated by ;, that get one reminder the day before the weekly report when stories wait for review or none is ticked. Empty: no reminder.",
+        ["/stories|quote"] = "What Copilot did for you, in your own words: what you asked, what it gave you, what it saved or made better. Up to 2,000 characters.",
+        ["/stories|app"] = "Where it happened: Word, Teams, Outlook, Copilot Chat or an agent's name (optional).",
+        ["/stories|useCase"] = "What kind of work it was: a summary, a first draft, an analysis, meeting notes (optional).",
+        ["/stories|minutesSaved"] = "About how many minutes it saves you a week, as a whole number (optional).",
+        ["/stories|mayName"] = "Ticked: the weekly report may quote you by name. Not ticked: as a colleague in your department, or a colleague, where the department is small.",
+        ["/stories|reason"] = "Why the story is declined, as the person who entered it sees it.",
+        ["/stories|status"] = "Which stories to list: waiting for review, approved, sent, declined, withdrawn, or all.",
         /* Admin › Access profiles. */
         ["/admin/profiles|name"] = "The profile's name, as people ask for it (Agent program lead).",
         ["/admin/profiles|description"] = "What the profile is for, and who should hold it (optional).",

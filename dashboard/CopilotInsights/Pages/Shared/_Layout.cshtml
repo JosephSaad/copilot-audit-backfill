@@ -56,6 +56,11 @@
        each with what it answers; the box at the top finds a report. Without script every section is open. *@
     <nav class="side" aria-label="Reports">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
+        @* Success stories: open to everyone the dashboard lets in, so not in a section. *@
+        @if (viewer is not null && viewer.Admitted)
+        {
+            <a class="home @(path == "/stories" ? "on" : "")" href="/stories">Success stories</a>
+        }
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).Concat(await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On)).ToList(); }
         @if (groups.Count > 0)
         {
@@ -94,7 +99,7 @@
                     @foreach (var p in g.Pages)
                     {
                         var href = Href(p);
-                        <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
+                        <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title@if (CopilotInsights.Pages.HiddenReports.Is(page?.BetaReports, CopilotInsights.Pages.Nav.Key(g, p))) { <span class="beta">Beta</span> }</a>
                     }
                     <button type="button" class="gabout" aria-haspopup="dialog" aria-expanded="false" aria-controls="@(id)-panel">About these reports</button>
                 </div>

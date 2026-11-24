@@ -1,4 +1,4 @@
-# release 3.1.5
+# release 3.1.6
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1573,6 +1573,30 @@ C	copilot	dash.Subscription	U	6	DayOfWeek	tinyint	1
 C	copilot	dash.Subscription	U	7	DayOfMonth	tinyint	1	
 C	copilot	dash.Subscription	U	8	HourLocal	tinyint	0	D
 C	copilot	dash.Subscription	U	9	RootUpn	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	1	StoryId	int	0	I
+C	copilot	dash.SuccessStory	U	10	Status	varchar(12)	0	D
+C	copilot	dash.SuccessStory	U	11	DeclineReason	nvarchar(400)	1	
+C	copilot	dash.SuccessStory	U	12	IncludeNext	bit	0	D
+C	copilot	dash.SuccessStory	U	13	EnteredUtc	datetime2(0)	0	D
+C	copilot	dash.SuccessStory	U	14	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	15	UpdatedUtc	datetime2(0)	1	
+C	copilot	dash.SuccessStory	U	16	ApprovedBy	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	17	ApprovedUtc	datetime2(0)	1	
+C	copilot	dash.SuccessStory	U	18	EditedAfterSent	bit	0	D
+C	copilot	dash.SuccessStory	U	19	Deleted	bit	0	D
+C	copilot	dash.SuccessStory	U	2	Quote	nvarchar(2000)	0	
+C	copilot	dash.SuccessStory	U	20	DeletedBy	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	21	DeletedUtc	datetime2(0)	1	
+C	copilot	dash.SuccessStory	U	3	App	nvarchar(200)	1	
+C	copilot	dash.SuccessStory	U	4	UseCase	nvarchar(200)	1	
+C	copilot	dash.SuccessStory	U	5	MinutesSaved	int	1	
+C	copilot	dash.SuccessStory	U	6	Upn	nvarchar(256)	0	
+C	copilot	dash.SuccessStory	U	7	DisplayName	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	8	Unit	nvarchar(256)	1	
+C	copilot	dash.SuccessStory	U	9	MayName	bit	0	D
+C	copilot	dash.SuccessStorySend	U	1	StoryId	int	0	
+C	copilot	dash.SuccessStorySend	U	2	SentWeek	date	0	
+C	copilot	dash.SuccessStorySend	U	3	SentUtc	datetime2(0)	0	D
 C	copilot	dash.Target	U	1	TargetId	int	0	I
 C	copilot	dash.Target	U	2	RootUpn	nvarchar(256)	1	
 C	copilot	dash.Target	U	3	Metric	varchar(16)	0	
@@ -2272,6 +2296,8 @@ O	copilot	dash.SitePerson	U
 O	copilot	dash.SiteReader	U
 O	copilot	dash.SkuName	U
 O	copilot	dash.Subscription	U
+O	copilot	dash.SuccessStory	U
+O	copilot	dash.SuccessStorySend	U
 O	copilot	dash.Target	U
 O	copilot	dash.TechnologyAllocation	U
 O	copilot	dash.TimeSaving	U

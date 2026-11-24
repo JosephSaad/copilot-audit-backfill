@@ -25,9 +25,20 @@ public static class Roles
     /// </summary>
     public const string Sections = "Sections";
 
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Sections];
+    /// <summary>
+    /// Preview opens the beta reports its grant ticks (dash.RoleGrant.Pages), inside the sections the holder sees already;
+    /// Stories curates the success stories. Neither shows usage data, so neither lets anyone past the level limit.
+    /// </summary>
+    public const string Preview = "Preview", Stories = "Stories";
+
+    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Sections, Preview, Stories];
 
     public static bool IsWorkbench(string role) => Workbench.Contains(role, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The roles that never let their holder past the level limit: Admin, the Workbench's, Preview and Stories.</summary>
+    public static bool Admits(string role) =>
+        !string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase) && !IsWorkbench(role)
+        && !string.Equals(role, Preview, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Stories, StringComparison.OrdinalIgnoreCase);
 
     public static readonly Dictionary<string, string> Describe = new()
     {
@@ -43,6 +54,8 @@ public static class Roles
         [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
         [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
         [Sections] = "The menu sections ticked on the grant, for the holder's own part of the organization or the whole of it, with or without the lists that name people.",
+        [Preview] = "The beta reports ticked on the grant (Admin › Reports shown sets which are beta), in the sections the holder sees already, as those sections show them. Shows nothing else.",
+        [Stories] = "Curates the success stories: sees every story entered, edits, approves or declines them, and ticks the ones the weekly report quotes. Shows no usage data.",
     };
 }
 
@@ -77,6 +90,12 @@ public sealed class Viewer
     public bool CanAdmin(string? path) => IsAdmin || AdminPaths.Contains(CopilotInsights.Data.AdminPages.Normalize(path));
     /// <summary>Any Admin page at all.</summary>
     public bool AnyAdmin => IsAdmin || AdminPaths.Count > 0;
+
+    /// <summary>The beta reports a Preview grant opens to them, by the key Admin › Reports shown keeps (<see cref="Pages.Nav.Key"/>).</summary>
+    public IReadOnlySet<string> PreviewPaths { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a beta report is open to them: a full administrator, or a Preview grant that ticks it.</summary>
+    public bool Previews(string? key) => IsAdmin || key is not null && PreviewPaths.Contains(key.Length > 1 ? key.TrimEnd('/') : key);
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles) || WidenedForSection;
     public bool Has(string role) => Roles.Contains(role);
     public string Name => DisplayName ?? Upn ?? WindowsName;
@@ -127,7 +146,11 @@ public sealed class Viewer
 /// What a person's grants give: their roles; the Admin pages of a limited Admin grant; the persona roles held across the
 /// whole organization; the menu sections opened, and those across the whole organization.
 /// </summary>
-public sealed record GrantedAccess(HashSet<string> Roles, HashSet<string> Paths, HashSet<string> OrgWideRoles, HashSet<string> Sections, HashSet<string> OrgWideSections);
+public sealed record GrantedAccess(HashSet<string> Roles, HashSet<string> Paths, HashSet<string> OrgWideRoles, HashSet<string> Sections, HashSet<string> OrgWideSections)
+{
+    /// <summary>The beta reports their Preview grants tick.</summary>
+    public HashSet<string> Preview { get; } = new(StringComparer.OrdinalIgnoreCase);
+}
 
 /// <summary>The security model's decisions, kept pure so they can be tested on their own.</summary>
 public static class AccessRules
@@ -155,6 +178,13 @@ public static class AccessRules
                 a.Sections.UnionWith(keys);
                 if (g.OrgWide) a.OrgWideSections.UnionWith(keys);
                 if (g.NamedPeople) a.Roles.UnionWith(Sections.NamedRoles(keys));
+                continue;
+            }
+            else if (string.Equals(g.Role, Roles.Preview, StringComparison.OrdinalIgnoreCase))
+            {
+                /* The beta reports ticked; it opens no section and no named list. */
+                a.Preview.UnionWith(CopilotInsights.Pages.HiddenReports.ParseKeys(g.Pages));
+                if (a.Preview.Count > 0) a.Roles.Add(Roles.Preview);
                 continue;
             }
             /* Restricted, withdrawn before use, is accepted by the database and gives nothing. */
@@ -190,7 +220,7 @@ public static class AccessRules
     public static bool MayUseDashboard(int? level, IReadOnlySet<string> roles, int maxLevel) =>
         maxLevel <= 0
         || level is { } l && l >= 1 && l <= maxLevel
-        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase) && !Roles.IsWorkbench(r));
+        || roles.Any(Roles.Admits);
 
     /// <summary>
     /// The SID comparison: the directory records no SID for the person, or records exactly the SID in the
@@ -327,7 +357,7 @@ public sealed class ViewerService(
             MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
             AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths,
             OrgWideRoles = access.OrgWideRoles, SignedInWith = signedInWith,
-            SectionKeys = access.Sections, OrgWideSections = access.OrgWideSections,
+            SectionKeys = access.Sections, OrgWideSections = access.OrgWideSections, PreviewPaths = access.Preview,
         };
     }
 

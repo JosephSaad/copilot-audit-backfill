@@ -46,6 +46,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         new("dash.FlagCase", "IF OBJECT_ID(N'dash.FlagCase', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', CONVERT(NVARCHAR(30), MAX(UpdatedUtc), 126), N':', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM dash.FlagCase;"),
         new("dash.LicenseAction", "IF OBJECT_ID(N'dash.LicenseAction', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', MAX(ActionId)) FROM dash.LicenseAction;"),
         new("dash.NonHumanException", "IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', CONVERT(NVARCHAR(30), MAX(ConfirmedUtc), 126), N':', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM dash.NonHumanException;"),
+        /* Success stories: written on the dashboard and, when it sends, by the weekly report on the job server. */
+        new("dash.SuccessStory", "IF OBJECT_ID(N'dash.SuccessStory', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', CONVERT(NVARCHAR(30), MAX(UpdatedUtc), 126), N':', CHECKSUM_AGG(BINARY_CHECKSUM(*)), N':', (SELECT COUNT_BIG(*) FROM dash.SuccessStorySend)) FROM dash.SuccessStory;"),
     ];
 
     /// <summary>The names of the tables in <see cref="Live"/>: a query that names one is kept only under that table's version.</summary>

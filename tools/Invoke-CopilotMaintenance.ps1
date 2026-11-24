@@ -73,7 +73,7 @@ param(
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
     [string] $Principal,
-    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Sections')][string] $Role,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Sections', 'Stories')][string] $Role,
     # GrantRole: the menu sections to grant, by key (the dashboard's Admin > Access page names them).
     [ValidateSet('leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'wb-ownership', 'wb-registry')]
     [string[]] $Sections,

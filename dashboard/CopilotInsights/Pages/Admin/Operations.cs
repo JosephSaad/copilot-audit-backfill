@@ -298,10 +298,14 @@ IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NOT NULL AND HAS_PERMS_BY_NAME(N'
             gt.Rows.Add([g.Role == "CopilotLicense" ? "M365 Copilot" : "Copilot Chat", g.GroupName, g.Members, g.EnabledMembers, g.Members - g.EnabledMembers, g.LoadedUtc]);
         Panels.Add(new("Weekly Copilot report", new HtmlString(Form("weekly",
             Select("WeeklyReportGroupCount", "Users Enabled and Active Users count", [("Enabled", "Accounts enabled today only"), ("All", "Everyone, disabled accounts and leavers included")],
-                V("WeeklyReportGroupCount") is "All" ? "All" : "Enabled") + Button("Save")) + gt.Render().Value),
+                V("WeeklyReportGroupCount") is "All" ? "All" : "Enabled") +
+            Input("StoriesPerReport", "Success stories quoted", V("StoriesPerReport") ?? "3", 3, "number") +
+            Input("StoriesReminderTo", "Remind the curators at", V("StoriesReminderTo"), 40) + Button("Save")) + gt.Render().Value),
             "Which people the report's two people rows count. Users Enabled is the members of the two AD groups, as the nightly AD load counted them; Active Users the people who used Copilot in the week. " +
             "Accounts enabled today only leaves out members and users whose AD account is disabled or gone; everyone includes them. It applies to the next report and to every week in its trend. " +
-            "Actions taken and security alerts count every interaction either way. Send-CopilotWeeklyReport.ps1 -IncludeDisabled counts everyone for one run.", "half"));
+            "Actions taken and security alerts count every interaction either way. Send-CopilotWeeklyReport.ps1 -IncludeDisabled counts everyone for one run. " +
+            "Success stories quoted: how many of the stories curators ticked on the Success stories page the report quotes in In their words (0 to 10; 0 leaves them out). " +
+            "Remind the curators at: addresses, separated by ;, that get one email the day before the report when stories wait for review or none is ticked (empty: no reminder).", "half"));
 
         /* Managers who asked not to get the digest: kept by administrators, now that the dashboard has no personal pages. */
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
@@ -398,11 +402,21 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         }));
     });
 
-    public Task<IActionResult> OnPostWeeklyAsync(string? WeeklyReportGroupCount) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostWeeklyAsync(string? WeeklyReportGroupCount, int? StoriesPerReport, string? StoriesReminderTo) => AdminChangeAsync(async () =>
     {
         if (WeeklyReportGroupCount is not ("Enabled" or "All")) throw new ArgumentException("choose accounts enabled today only, or everyone.");
+        if (StoriesPerReport is < 0 or > 10) throw new ArgumentException("success stories quoted is a whole number from 0 to 10.");
+        var remind = string.Join("; ", (StoriesReminderTo ?? "").Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        foreach (var a in remind.Split("; ", StringSplitOptions.RemoveEmptyEntries))
+            if (!System.Net.Mail.MailAddress.TryCreate(a, out _)) throw new ArgumentException($"{a} is not an email address.");
+        if (remind.Length > 400) throw new ArgumentException("the reminder addresses are at most 400 characters: use a distribution list.");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName,
-            new Dictionary<string, string?> { ["WeeklyReportGroupCount"] = WeeklyReportGroupCount }, showValues: true));
+            new Dictionary<string, string?>
+            {
+                ["WeeklyReportGroupCount"] = WeeklyReportGroupCount,
+                ["StoriesPerReport"] = (StoriesPerReport ?? 3).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["StoriesReminderTo"] = remind,
+            }, showValues: true));
     });
 
     public Task<IActionResult> OnPostOptoutAsync(string? upn) => AdminChangeAsync(async () =>

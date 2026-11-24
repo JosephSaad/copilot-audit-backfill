@@ -210,4 +210,47 @@ public static class HiddenReports
 
     public static bool Is(IReadOnlySet<string>? hidden, string? path) =>
         hidden is { Count: > 0 } && path is not null && hidden.Contains(path.Length > 1 ? path.TrimEnd('/') : path);
+
+    /// <summary>
+    /// A beta report (Admin › Reports shown): a setting of its own beside the one that turns a report off, so a dashboard
+    /// from before reads a beta report as shown.
+    /// </summary>
+    public const string BetaPrefix = "Beta:";
+
+    public static async Task<IReadOnlySet<string>> BetaAsync(Settings settings) =>
+        (await settings.AllAsync()).Where(kv => kv.Key.StartsWith(BetaPrefix, StringComparison.OrdinalIgnoreCase) && kv.Value == "1")
+            .Select(kv => kv.Key[BetaPrefix.Length..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The reports a viewer cannot open: those turned off, and the beta ones not open to them (<see cref="Viewer.Previews"/>).
+    /// Everything that reads the reports turned off (the menu, the start page, a page's own check) reads this, so a beta
+    /// report is gone for anyone not given a preview of it, as one turned off is. Pure, for the tests.
+    /// </summary>
+    public static IReadOnlySet<string> ForViewer(IReadOnlySet<string> hidden, IReadOnlySet<string> beta, Viewer? viewer)
+    {
+        if (beta.Count == 0) return hidden;
+        var off = new HashSet<string>(hidden, StringComparer.OrdinalIgnoreCase);
+        off.UnionWith(beta.Where(b => viewer?.Previews(b) != true));
+        return off;
+    }
+
+    /// <summary>The beta report keys a Preview grant stores (dash.RoleGrant.Pages), comma-separated; blanks dropped.</summary>
+    public static IReadOnlyList<string> ParseKeys(string? stored) =>
+        string.IsNullOrWhiteSpace(stored) ? []
+        : [.. stored.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(k => k.Length > 1 ? k.TrimEnd('/') : k).Distinct(StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>What a Preview grant stores: the reports ticked that are beta now, in the menu's order; null when none.</summary>
+    public static string? FormatKeys(IEnumerable<string?>? ticked, IReadOnlySet<string> beta)
+    {
+        var want = new HashSet<string>((ticked ?? []).OfType<string>().Select(t => t.Trim()), StringComparer.OrdinalIgnoreCase);
+        var keys = Choices.SelectMany(g => g.Pages).Select(p => p.Path).Where(p => want.Contains(p) && beta.Contains(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return keys.Count == 0 ? null : string.Join(",", keys);
+    }
+
+    /// <summary>The titles of stored report keys, for messages and lists.</summary>
+    public static string Titles(string? stored)
+    {
+        var all = Choices.SelectMany(g => g.Pages).GroupBy(p => p.Path, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Title, StringComparer.OrdinalIgnoreCase);
+        return string.Join(", ", ParseKeys(stored).Select(k => all.GetValueOrDefault(k, k)));
+    }
 }
