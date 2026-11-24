@@ -12,7 +12,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         /* Seven independent reads: started together, awaited where used. */
-        var trTask = m.TrendAsync(Ctx);
+        /* Only the use sums at each point are charted here: not the people and license holders TrendAsync adds. */
+        var trTask = m.SumsTrendAsync(Ctx);
         var unitsTask = m.UnitsAsync(Ctx);
         /* The model mix and the controls from each person's interactions per model and per flag the refresh keeps
            (kinds M and F), counted per trend point and model key, then named. Every interaction has a model key, so the
@@ -134,12 +135,16 @@ FROM bi.DimAgent AS ag
 CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'Copilot Studio' THEN N'Copilot Studio agents'
                          WHEN ag.AgentSource IS NOT NULL AND ag.AgentSource <> N'(no agent)' THEN N'Other agents' END AS Product) AS p
 WHERE p.Product IS NOT NULL;
-SELECT u.UserKey, sp.Product, CAST(u.Interactions AS BIGINT) AS N INTO #x
-FROM {Ctx.PerItem('A')} AS u {Ctx.Scope("u.UserKey")} JOIN #sp AS sp ON sp.AppKey = u.Item;
+/* Each person's interactions per product, summed before they are written: as a row per person and agent, the agents'
+   part wrote 1.9 million rows at two years, two seconds of the page. */
+SELECT u.UserKey, sp.Product, SUM(CAST(u.Interactions AS BIGINT)) AS N INTO #x
+FROM {Ctx.PerItem('A')} AS u {Ctx.Scope("u.UserKey")} JOIN #sp AS sp ON sp.AppKey = u.Item
+GROUP BY u.UserKey, sp.Product;
 DECLARE @apps BIT = CASE WHEN EXISTS (SELECT 1 FROM #x) THEN 1 ELSE 0 END;
 INSERT INTO #x (UserKey, Product, N)
-SELECT u.UserKey, ap.Product, CAST(u.Interactions AS BIGINT)
-FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")} JOIN #ap AS ap ON ap.AgentKey = u.Item;
+SELECT u.UserKey, ap.Product, SUM(CAST(u.Interactions AS BIGINT))
+FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")} JOIN #ap AS ap ON ap.AgentKey = u.Item
+GROUP BY u.UserKey, ap.Product;
 IF @apps = 1{(UseCases ? $@"
    /* Only when an agent answered in such an app: a use case is the app times 4, plus 2 for web search, plus 1 for an
       agent; below 4 it was not set, and then the fact is read to be sure. */
