@@ -2870,6 +2870,16 @@ WITH p7 AS (SELECT UserKey, COUNT(CASE WHEN Interactions > 0 THEN 1 END) AS A, S
             FROM bi.FactInteraction AS f JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey JOIN bi.DimApp AS ap ON ap.AppKey = f.AppKey
             GROUP BY f.UserKey, f.AgentKey),
      tcr AS (SELECT UserKey, AgentKey, I, B, CAST(Lic AS INT) AS Lic FROM dash.CreditUsePeriod WHERE EndKey = @max AND Days = 0),
+     hu AS (SELECT ud.UserKey, SUM(CASE WHEN ld.UserKey IS NOT NULL THEN ud.Interactions ELSE 0 END) AS H
+            FROM dash.UserDay AS ud LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = ud.DateKey AND ld.UserKey = ud.UserKey GROUP BY ud.UserKey),
+     thu AS (SELECT UserKey, HeldUse AS H FROM dash.UserPeriod WHERE EndKey = @max AND Days = 0),
+     he AS (SELECT w.WeekEnding, w.UserKey, CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS H
+            FROM (SELECT DISTINCT d.WeekEnding, ud.UserKey FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey) AS w
+            LEFT JOIN bi.DimDate AS f ON f.[Date] = w.WeekEnding LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = f.DateKey AND ld.UserKey = w.UserKey),
+     the AS (SELECT WeekEnding, UserKey, CAST(HeldAtEnd AS INT) AS H FROM dash.UserWeek),
+     hd AS (SELECT ld.DateKey, COUNT(*) AS Held, COUNT(en.UserKey) AS HeldEnabled, COUNT(CASE WHEN en.UserKey IS NOT NULL AND ad.UserKey IS NOT NULL THEN 1 END) AS Adopted
+            FROM bi.FactLicensedDay AS ld LEFT JOIN bi.DimUser AS en ON en.UserKey = ld.UserKey AND en.AccountEnabled = 1
+            LEFT JOIN dash.AdoptionDay AS ad ON ad.DateKey = ld.DateKey AND ad.UserKey = ld.UserKey GROUP BY ld.DateKey),
      tit AS (SELECT DateKey, UserKey, Kind, Item, Interactions AS I FROM dash.UserItemDay),
      itw AS (SELECT d.WeekEnding, it.UserKey, it.Kind, it.Item, SUM(it.I) AS I, COUNT(*) AS A FROM it JOIN bi.DimDate AS d ON d.DateKey = it.DateKey GROUP BY d.WeekEnding, it.UserKey, it.Kind, it.Item),
      titw AS (SELECT WeekEnding, UserKey, Kind, Item, Interactions AS I, CAST(ActiveDays AS INT) AS A FROM dash.UserItemWeek),
@@ -2894,6 +2904,11 @@ SELECT
   (SELECT COUNT(*) FROM (SELECT * FROM clo EXCEPT SELECT AncestorUpn, DescendantUpn, DescendantKey, DescendantEnabled FROM dash.OrgClosure) AS x) AS Closure,
   (SELECT COUNT(*) FROM (SELECT * FROM cr EXCEPT SELECT * FROM tcr) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tcr EXCEPT SELECT * FROM cr) AS x) AS Credit,
   (SELECT COUNT(*) FROM dash.CreditUsePeriod) AS CreditRows,
+  (SELECT COUNT(*) FROM (SELECT * FROM hu EXCEPT SELECT * FROM thu) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM thu EXCEPT SELECT * FROM hu) AS x) AS HeldUse,
+  (SELECT COUNT(*) FROM (SELECT * FROM he EXCEPT SELECT * FROM the) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM the EXCEPT SELECT * FROM he) AS x) AS HeldAtEnd,
+  (SELECT COUNT(*) FROM (SELECT * FROM hd EXCEPT SELECT DateKey, Held, HeldEnabled, AdoptedEnabled FROM dash.HeldDay) AS x)
+    + (SELECT COUNT(*) FROM (SELECT DateKey, Held, HeldEnabled, AdoptedEnabled FROM dash.HeldDay EXCEPT SELECT * FROM hd) AS x) AS HeldDays,
+  (SELECT COUNT(*) FROM dash.HeldDay) AS HeldDayRows,
   (SELECT COUNT(DISTINCT CONCAT(EndKey, '/', Days)) FROM dash.UserPeriod) AS PeriodsKept,
   (SELECT COUNT(*) FROM dash.UserPeriod) AS PeriodRows, (SELECT COUNT(*) FROM dash.UserItemPeriod) AS ItemPeriodRows;
 "@
@@ -2908,6 +2923,8 @@ Assert-That ([int] $tc.Adoption -eq 0) "dash.AdoptionDay holds each day a person
 Assert-That ([int] $tc.Sites -eq 0 -and [int] $tc.Activity -eq 0) "dash.SitePerson and dash.UserActivity hold each person's last day at each site and first and last day of use ($($tc.Sites), $($tc.Activity) rows differ)"
 Assert-That ([int] $tc.Closure -eq 0) "dash.OrgClosure carries each person's bi key and whether their account is enabled ($($tc.Closure) rows differ)"
 Assert-That ([int] $tc.Credit -eq 0 -and [int] $tc.CreditRows -gt 0) "dash.CreditUsePeriod holds each person's interactions, billed ones and licensed use per agent, as the Credit estimate counts them ($($tc.Credit) rows differ)"
+Assert-That ([int] $tc.HeldUse -eq 0 -and [int] $tc.HeldAtEnd -eq 0) "dash.UserPeriod.HeldUse and dash.UserWeek.HeldAtEnd hold the use on days holding a license and who held one at each week's end ($($tc.HeldUse), $($tc.HeldAtEnd) rows differ)"
+Assert-That ([int] $tc.HeldDays -eq 0 -and [int] $tc.HeldDayRows -gt 0) "dash.HeldDay holds each day's license holders, enabled holders and adopted holders ($($tc.HeldDays) rows differ of $($tc.HeldDayRows))"
 
 # A full bi rebuild stopped part way, as an upgrade's can be. While it has not finished the rollups are left as
 # they are: the dashboard installer's refresh then took the months the rebuild had not reached out of every rollup. The
