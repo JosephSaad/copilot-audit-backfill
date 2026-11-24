@@ -24,13 +24,20 @@ namespace CopilotInsights.Pages.Adoption
                person-week (2.5 million rows at 210,000 people) and loop over them, 3 seconds on every visit.
                Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. People are accounts enabled
                today (3.1.3): someone who has since left does not count as not coming back. */
-            var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
-WITH w AS (SELECT DISTINCT ud.UserKey, DATEDIFF(DAY, @first, d.WeekEnding) / 7 AS W
+            /* The twenty weeks are whole (Saturday to Friday), so each person's week is one row of the weekly totals the
+               refresh keeps (dash.UserWeek), where they are built; else it is worked out from the days. */
+            var weekRows = Ctx.Rollups
+                ? $@"SELECT uw.UserKey, DATEDIFF(DAY, @first, uw.WeekEnding) / 7 AS W
+           FROM dash.UserWeek AS uw {Ctx.Scope("uw.UserKey")} {ReportContext.EnabledJoin("uw.UserKey")}
+           WHERE uw.WeekEnding BETWEEN @first AND @last AND uw.Interactions > 0"
+                : $@"SELECT DISTINCT ud.UserKey, DATEDIFF(DAY, @first, d.WeekEnding) / 7 AS W
            FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} {ReportContext.EnabledJoin("ud.UserKey")}
            JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-           WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0),
+           WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0";
+            var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
+WITH w AS ({weekRows}),
      m AS (SELECT w.UserKey, SUM(POWER(2, w.W)) AS Weeks FROM w GROUP BY w.UserKey)
-SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a = ReportContext.Key(start), b = ReportContext.Key(w1), first = start.AddDays(6) }));
+SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a = ReportContext.Key(start), b = ReportContext.Key(w1), first = start.AddDays(6), last = w1 }));
             var curve = new double?[8];
             for (var lag = 1; lag <= 8; lag++)
             {
@@ -71,8 +78,10 @@ namespace CopilotInsights.Pages.Compliance
 
         protected override async Task BuildAsync()
         {
-            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
-            var series = (await m.UnitSeriesAsync(Ctx)).ToDictionary(x => (x.Unit, x.Bucket));
+            /* The units, their trend and the mix below do not depend on each other: read side by side. */
+            var (unitRows, seriesRows, mix) = await Queries(m.UnitsAsync(Ctx), m.UnitSeriesAsync(Ctx), MixAsync());
+            var units = SmallGroups.Shown(unitRows, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+            var series = seriesRows.ToDictionary(x => (x.Unit, x.Bucket));
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
             for (var r = 0; r < units.Count; r++)
@@ -81,8 +90,17 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Share of interactions that read labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions read labeled content"),
                 $"The share of each unit's interactions that read labeled content, for each part of the organization one level below. Darker is a larger share. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
 
-            /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
-            var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
+            var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
+            var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
+            var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
+            foreach (var ty in types)
+                t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
+            CsvTable = t2;
+            Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
+        }
+
+        /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
+        Task<List<(string Type, string Label, long N)>> MixAsync() => Db.QueryAsync<(string Type, string Label, long N)>($@"
 WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
@@ -94,14 +112,6 @@ LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
 JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = g.SensitivityLabelKey
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = LOWER(CAST(l.LabelId AS NVARCHAR(36)))
 GROUP BY COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)');", Ctx.Args());
-            var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
-            var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
-            var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
-            foreach (var ty in types)
-                t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
-            CsvTable = t2;
-            Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
-        }
     }
 }
 
@@ -115,16 +125,20 @@ namespace CopilotInsights.Pages.Agents
 
         protected override async Task BuildAsync()
         {
-            var tr = await Db.QueryAsync<(DateTime Bucket, long Calls, long All)>($@"
-SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-            var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
+            /* The trend and the agents called are read side by side. */
+            /* Both from the totals the refresh keeps: the interactions at each point (ReportContext.PerPoint), and those
+               that called another agent (flag 2 of PerItemPoint's flags). */
+            var trTask = Db.QueryAsync<(DateTime Bucket, long Calls, long All)>($@"
+WITH a AS (SELECT pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS AllI FROM {Ctx.PerPoint()} AS pp {Ctx.Scope("pp.UserKey")} GROUP BY pp.Bucket),
+c AS (SELECT fp.Bucket, SUM(CAST(fp.Interactions AS BIGINT)) AS Calls FROM {Ctx.PerItemPoint('F')} AS fp {Ctx.Scope("fp.UserKey")} WHERE fp.Item = 2 GROUP BY fp.Bucket)
+SELECT a.Bucket, ISNULL(c.Calls, 0), a.AllI FROM a LEFT JOIN c ON c.Bucket = a.Bucket;", Ctx.Args());
+            var targetsTask = Db.QueryAsync<(string Target, long N, int People)>($@"
 SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END)   -- people enabled today (3.1.3)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 12 AND vn.Value = f.TargetAgentName
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
 GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
+            var (tr, targets) = await Queries(trTask, targetsTask);
             long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
             Kpis.Add(new("Agents called", Num(targets.Count), "different agents another agent handed work to"));
@@ -147,19 +161,21 @@ namespace CopilotInsights.Pages.Enablement
 
         protected override async Task BuildAsync()
         {
-            var sessions = await Db.QueryAsync<(int Bucket, long N)>($@"
+            /* The three reads do not depend on each other: side by side. */
+            var sessionsTask = Db.QueryAsync<(int Bucket, long N)>($@"
 SELECT CASE WHEN fs.PromptCount >= 10 THEN 10 ELSE fs.PromptCount END, COUNT_BIG(*)
 FROM bi.FactSession AS fs {Ctx.Scope("fs.UserKey")}
 WHERE fs.DateKey BETWEEN @k0 AND @k1 GROUP BY CASE WHEN fs.PromptCount >= 10 THEN 10 ELSE fs.PromptCount END;", Ctx.Args());
-            var spans = await Db.QueryAsync<(int Bucket, long N)>($@"
+            var spansTask = Db.QueryAsync<(int Bucket, long N)>($@"
 SELECT CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END, COUNT_BIG(*)
 FROM bi.FactSession AS fs {Ctx.Scope("fs.UserKey")}
 WHERE fs.DateKey BETWEEN @k0 AND @k1
 GROUP BY CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END;", Ctx.Args());
-            var tr = await Db.QueryAsync<(DateTime Bucket, long Messages, long Prompts)>($@"
+            var trTask = Db.QueryAsync<(DateTime Bucket, long Messages, long Prompts)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.MessageCount AS BIGINT)), SUM(CAST(f.PromptCount AS BIGINT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+            var (sessions, spans, tr) = await Queries(sessionsTask, spansTask, trTask);
             long total = sessions.Sum(x => x.N);
             Kpis.Add(new("One-prompt sessions", Pct(Ratio(sessions.Where(x => x.Bucket <= 1).Sum(x => x.N), total)), "of sessions: asked once and left"));
             Kpis.Add(new("Five prompts or more", Pct(Ratio(sessions.Where(x => x.Bucket >= 5).Sum(x => x.N), total)), "of sessions: a longer back-and-forth"));

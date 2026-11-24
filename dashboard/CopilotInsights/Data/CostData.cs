@@ -90,17 +90,52 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
                 : "SELECT Item, Area, Name, Unit, MonthlyPrice FROM dash.CostPrice;")).ToDictionary(p => p.Item, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, Price>(StringComparer.OrdinalIgnoreCase);
         decimal PriceOf(string item, decimal fallback = 0) => prices.TryGetValue(item, out var p) ? p.MonthlyPrice : fallback;
+        /* The months' spend and what was saved already need only the prices: read beside the rest. */
+        var monthsTask = MonthsAsync(copilotPrice, prices.Values.ToList(), c);
+        var realizedTask = RealizedAsync();
 
         /* ---- Microsoft 365 Copilot: the licenses, their recommendations, and the value of the use ---- */
         var k30 = ReportContext.Key(c.End.AddDays(-29));
-        var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey);
         var kinds = Pages.Forecasting.ActionsModel.Kinds;
+        /* The reads of use and licenses below do not depend on each other or on the prices: they start together here and
+           are awaited where each is needed, so the model takes about as long as the slowest of them, not their sum. */
+        var countsTask = CountsAsync();
+        var rate = Dec(await settings.StringAsync("PaygInteractionCost"), 0.12m);
+        /* Pay-as-you-go candidates with some Premium use (none at all is a revocation, counted above): their license
+           against what their metered use would cost in credits. The same rule as Licensing › Better on pay-as-you-go.
+           Each person's last 30 days come from the totals the refresh keeps (ReportContext.PerPerson). */
+        var paygTask = db.QueryAsync<(int People, long Metered)>($@"
+WITH u AS (SELECT p.UserKey, CAST(p.Interactions AS BIGINT) AS I, CAST(p.PremiumUse AS BIGINT) AS P, CAST(p.AgentInteractions AS BIGINT) AS A
+           FROM {c.PerPerson(30, "@k30")} AS p WHERE p.Interactions > 0)
+SELECT COUNT(*), ISNULL(SUM(u.P + u.A), 0)
+FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
+JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
+WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
+  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
+  AND du.AccountEnabled = 1   -- enabled today (3.1.3), as Better on pay-as-you-go lists them; a disabled account is a leaver, counted there
+  AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }));
+        var suiteOnlyTask = db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;");
+        var leaversTask = ops.LeaversAsync();
+        var fitTask = suiteData.FitAsync(c, scoped: false);
+        var poolTask = ops.PoolAsync();
+        var valueTask = reports.ValueAsync(c);
+        var firstTask = OpsReports.FirstDayAsync(db);
+        /* Copilot's value goes with the use: the share of licensed interactions in the period by people whose Copilot comes
+           only with a suite is the suite's; the rest is the add-on's. */
+        var useTask = db.QueryAsync<(long All, long Suite)>(@"
+SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CASE WHEN cso.Upn IS NOT NULL THEN CAST(ud.Interactions AS BIGINT) END), 0)
+FROM dash.UserDay AS ud
+JOIN bi.FactLicensedDay AS ld ON ld.UserKey = ud.UserKey AND ld.DateKey = ud.DateKey
+JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
+LEFT JOIN dash.CopilotSuiteOnly AS cso ON cso.Upn = du.UserPrincipalName
+WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args());
+
         /* S: licensed through a suite only (E7): paid for in the suite's price, not as the add-on.
            L and S are paid seats, so every holder counts, a disabled or departed account's too (3.1.3). Revoke keeps
            everyone but the disabled (they are the leavers, counted there); train and upgrade are of accounts enabled
            today, as Upgrade, train or revoke lists them (ActionsModel.Enabled). */
-        var counts = (await db.QueryAsync<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)>($@"
-WITH {activity},
+        async Task<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)> CountsAsync() => (await db.QueryAsync<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)>($@"
+WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT COUNT(x.L), ISNULL(SUM(x.R), 0), ISNULL(SUM(x.T), 0), ISNULL(SUM(x.U), 0), ISNULL(SUM(x.S), 0)
 FROM (SELECT lic.UserKey AS L,
@@ -111,25 +146,14 @@ FROM (SELECT lic.UserKey AS L,
       FROM bi.DimUser AS du
       LEFT JOIN a ON a.UserKey = du.UserKey
       LEFT JOIN lic ON lic.UserKey = du.UserKey) AS x;", c.Args(new { k30 }))).Single();
-        var rate = Dec(await settings.StringAsync("PaygInteractionCost"), 0.12m);
-        /* Pay-as-you-go candidates with some Premium use (none at all is a revocation, counted above): their license
-           against what their metered use would cost in credits. The same rule as Licensing › Better on pay-as-you-go. */
-        var payg = (await db.QueryAsync<(int People, long Metered)>($@"
-WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P, SUM(CAST(ud.AgentInteractions AS BIGINT)) AS A
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey HAVING SUM(ud.Interactions) > 0)
-SELECT COUNT(*), ISNULL(SUM(u.P + u.A), 0)
-FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
-JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
-WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
-  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
-  AND du.AccountEnabled = 1   -- enabled today (3.1.3), as Better on pay-as-you-go lists them; a disabled account is a leaver, counted there
-  AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }))).Single();
+        var counts = await countsTask;
+        var payg = (await paygTask).Single();
         /* A disabled account's Copilot inside a suite saves nothing alone: taking the suite back is Suite fit's. */
-        var suiteOnly = (await db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var leavers = (await ops.LeaversAsync()).Count(l => !suiteOnly.Contains(l.UserPrincipalName));
-        var fit = await suiteData.FitAsync(c, scoped: false);
+        var suiteOnly = (await suiteOnlyTask).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var leavers = (await leaversTask).Count(l => !suiteOnly.Contains(l.UserPrincipalName));
+        var fit = await fitTask;
         /* The Copilot add-on's seats in the license pool: bought (so paid) and assigned. A suite with Copilot inside is not one. */
-        var pool = await ops.PoolAsync();
+        var pool = await poolTask;
         var hasMark = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL THEN 0 ELSE 1 END;") == 1;
         var suiteSkus = hasMark && pool.Count > 0
             ? (await db.QueryAsync<string>("SELECT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;")).ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -137,8 +161,8 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
         var addOn = pool.Where(p => p.IsCopilot && !suiteSkus.Contains(p.SkuPartNumber) && !p.SkuPartNumber.Contains("STUDIO", StringComparison.OrdinalIgnoreCase)).ToList();
         var addOnBought = addOn.Sum(p => p.Bought);
         var addOnAssigned = addOn.Sum(p => p.Consumed);
-        var value = await reports.ValueAsync(c);
-        var covered = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
+        var value = await valueTask;
+        var covered = OpsReports.DaysCovered(c, await firstTask);
         var copilotValue = CostRules.Monthly(value.ByApp.Sum(x => x.Value), covered);
         var copilotSaving = 0m;
         /* The add-on is priced, Copilot inside a suite (E7) is not: it is in the suite's price, which cannot be
@@ -146,15 +170,7 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
            its holders; the value of Copilot is shared by holder, the suite holders' part going with the suite. */
         var standalone = counts.Licensed - counts.Suite;
         var copilotSeats = addOnBought > 0 ? Math.Max(addOnBought, standalone) : standalone;
-        /* Copilot's value goes with the use: the share of licensed interactions in the period by people whose Copilot comes
-           only with a suite is the suite's; the rest is the add-on's. */
-        var use = (await db.QueryAsync<(long All, long Suite)>(@"
-SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CASE WHEN cso.Upn IS NOT NULL THEN CAST(ud.Interactions AS BIGINT) END), 0)
-FROM dash.UserDay AS ud
-JOIN bi.FactLicensedDay AS ld ON ld.UserKey = ud.UserKey AND ld.DateKey = ud.DateKey
-JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
-LEFT JOIN dash.CopilotSuiteOnly AS cso ON cso.Upn = du.UserPrincipalName
-WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
+        var use = (await useTask).Single();
         var suiteUse = use.All > 0 ? (decimal)use.Suite / use.All : counts.Licensed > 0 ? (decimal)counts.Suite / counts.Licensed : 0;
         var suiteCopilotValue = Math.Round(copilotValue * suiteUse, 2);
         var addOnValue = copilotValue - suiteCopilotValue;
@@ -528,12 +544,13 @@ SELECT cost.Account, cost.Cost, cost.Days, ISNULL(req.Requests, 0) FROM cost LEF
                 });
 
         /* What was saved already: Copilot licenses exported to revoke, or from disabled accounts, that have gone. */
-        var realized = await ops.HasAsync("dash.LicenseAction")
+        async Task<int> RealizedAsync() => await ops.HasAsync("dash.LicenseAction")
             ? await db.ScalarAsync<int>(@"
 SELECT COUNT(DISTINCT la.Upn) FROM dash.LicenseAction AS la JOIN bi.DimUser AS du ON du.UserPrincipalName = la.Upn
 WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
   AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = (SELECT MAX(DateKey) FROM bi.FactLicensedDay));")
             : 0;
+        var realized = await realizedTask;
 
         /* ---- The suites: held, what they include, and the moves Suite fit finds, summed as Suite fit sums them ---- */
         SuiteSummary? suiteSummary = null;
@@ -543,7 +560,7 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
             suiteSummary = SuiteData.Summarize(fit, suiteCopilotValue, sparePercent);
         }
         var ordered = areas.OrderBy(a => CostAreas.Slot(a.Name)).ToList();
-        return new(cur, ordered, CostRules.Ranked(opps), await MonthsAsync(copilotPrice, prices.Values.ToList(), c), cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary, details);
+        return new(cur, ordered, CostRules.Ranked(opps), await monthsTask, cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary, details);
     }
 
     static string Basis(List<Held> held, Dictionary<string, Price> prices, string area, string cur) =>
