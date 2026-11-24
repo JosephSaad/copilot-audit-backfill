@@ -71,8 +71,10 @@ namespace CopilotInsights.Pages.Compliance
 
         protected override async Task BuildAsync()
         {
-            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
-            var series = (await m.UnitSeriesAsync(Ctx)).ToDictionary(x => (x.Unit, x.Bucket));
+            /* The units, their trend and the resources read are independent: read side by side. */
+            var (unitRows, seriesRows, mix) = await Queries(m.UnitsAsync(Ctx), m.UnitSeriesAsync(Ctx), MixAsync());
+            var units = SmallGroups.Shown(unitRows, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+            var series = seriesRows.ToDictionary(x => (x.Unit, x.Bucket));
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
             for (var r = 0; r < units.Count; r++)
@@ -81,8 +83,17 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Share of interactions that read labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions read labeled content"),
                 $"The share of each unit's interactions that read labeled content, for each part of the organization one level below. Darker is a larger share. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
 
-            /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
-            var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
+            var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
+            var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
+            var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
+            foreach (var ty in types)
+                t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
+            CsvTable = t2;
+            Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
+        }
+
+        /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
+        Task<List<(string Type, string Label, long N)>> MixAsync() => Db.QueryAsync<(string Type, string Label, long N)>($@"
 WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
@@ -94,14 +105,6 @@ LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
 JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = g.SensitivityLabelKey
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = LOWER(CAST(l.LabelId AS NVARCHAR(36)))
 GROUP BY COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)');", Ctx.Args());
-            var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
-            var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
-            var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
-            foreach (var ty in types)
-                t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
-            CsvTable = t2;
-            Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
-        }
     }
 }
 
