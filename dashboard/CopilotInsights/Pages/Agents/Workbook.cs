@@ -19,6 +19,20 @@ static class Workbook
     /// <summary>An agent's detail page: by its key where the audit log knows it, else by its workbook id.</summary>
     public static string DetailUrl(ReportContext ctx, int? agentKey, string inventoryAgentId) =>
         ctx.Url("/agents/detail", extra: agentKey is { } k ? $"agent={k}" : $"inv={Uri.EscapeDataString(inventoryAgentId)}");
+
+    /// <summary>
+    /// SQL: each agent's use in the period into #u (AgentKey, N interactions, People, WebSearches), from each person's
+    /// use of each agent the refresh keeps. People are accounts enabled today; interactions everyone's. The "(none)"
+    /// agent has no row, which no list of agents shows. <paramref name="only"/>, when given, is a condition on the
+    /// agent's key u.Item.
+    /// </summary>
+    public static string AgentUseSql(ReportContext ctx, string? only = null) => $@"
+SELECT u.Item AS AgentKey, SUM(CAST(u.Interactions AS BIGINT)) AS N, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People,
+       SUM(CAST(u.Web AS BIGINT)) AS WebSearches
+INTO #u
+FROM {ctx.PerItem('G')} AS u {ctx.Scope("u.UserKey")} {ReportContext.EnabledJoin("u.UserKey", left: true)}
+{(only is null ? "" : "WHERE " + only)}
+GROUP BY u.Item;";
 }
 
 /// <summary>
@@ -162,12 +176,7 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
         for (var n = 0; n < filters.Count; n++)
             if (filters[n].Value is { } chosen) args.Add($"wf{n}", chosen);
         var filterNote = string.Concat(filters.Where(x => x.Value is not null).Select(x => $" Filtered to {x.Filter.Label}: {x.Value}."));
-        var (totals, rows) = await Db.QueryTwoAsync<Totals, Row>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
-INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY f.AgentKey;
+        var (totals, rows) = await Db.QueryTwoAsync<Totals, Row>($@"{Workbook.AgentUseSql(Ctx)}
 SELECT i.InventoryAgentId, i.AgentKey,
        COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, d.AgentId, i.InventoryAgentId) AS AgentName,
        COALESCE(i.OwnerUpn, al.Owner) AS Owner, i.Environment, i.Channels, i.IsShared, i.InProduction, i.IsAutonomous, i.CreatedAt, i.LastPublishedAt,
@@ -283,12 +292,7 @@ public sealed class OwnersModel(PageServices s) : InsightsPage(s)
             Notice = "The directory has not been loaded from Active Directory (tools\\Export-UsersWithHierarchy-ToSql.ps1), so owners cannot be checked.";
             return;
         }
-        var (rows, depts) = await Db.QueryTwoAsync<Row, Dept>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
-INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY f.AgentKey;
+        var (rows, depts) = await Db.QueryTwoAsync<Row, Dept>($@"{Workbook.AgentUseSql(Ctx)}
 SELECT i.InventoryAgentId, i.AgentKey, COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, i.InventoryAgentId) AS AgentName,
        o.Owner, CASE WHEN o.Owner IS NULL THEN N'No owner set' WHEN ud.UserPrincipalName IS NULL THEN N'Not in the directory (left?)'
                      WHEN ud.AccountEnabled = 0 THEN N'Account disabled' ELSE N'Active' END AS OwnerState,
@@ -383,12 +387,7 @@ public sealed class ChecksModel(PageServices s) : InsightsPage(s)
             return;
         }
         var dir = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;
-        var rows = await Db.QueryAsync<Finding>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People, SUM(CAST(f.UsedWebSearch AS INT)) AS WebSearches
-INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY f.AgentKey;
+        var rows = await Db.QueryAsync<Finding>($@"{Workbook.AgentUseSql(Ctx)}
 SELECT i.*, COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, i.InventoryAgentId) AS Name,
        NULLIF(LTRIM(RTRIM(COALESCE(i.OwnerUpn, al.Owner))), N'') AS Owner1,
        {(dir ? "CASE WHEN ud.UserPrincipalName IS NULL OR ud.AccountEnabled = 0 THEN 1 ELSE 0 END" : "0")} AS OwnerGone,
@@ -476,12 +475,7 @@ public sealed class ChildModel(PageServices s) : InsightsPage(s)
             Notice = "No parent and child agents are loaded. tools\\Import-AgentWorkbook.ps1 loads them each night from the agent workbook's ParentChildAgent sheet (after Install-CopilotAudit.ps1 -Dashboard from 2.5.7).";
             return;
         }
-        var (rows, people) = await Db.QueryTwoAsync<Row, (string ChildKey, int People)>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People
-INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}   -- people: enabled accounts (3.1.3); interactions: everyone's
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.AgentKey IN (SELECT ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL)
-GROUP BY f.AgentKey;
+        var (rows, people) = await Db.QueryTwoAsync<Row, (string ChildKey, int People)>($@"{Workbook.AgentUseSql(Ctx, "u.Item IN (SELECT ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL)")}
 /* One row for each child and parent: a parent can call its child from several topics. */
 SELECT l.ChildKey, MAX(l.ChildAgentName) AS ChildAgentName, MAX(l.ChildKind) AS ChildKind, MAX(l.ChildInventoryAgentId) AS ChildInventoryAgentId,
        COALESCE(MAX(NULLIF(l.ParentAgentName, N'')), MAX(d.AgentName), l.ParentInventoryAgentId, N'(unknown parent)') AS ParentName,
@@ -493,10 +487,9 @@ LEFT JOIN bi.DimAgent AS d ON d.AgentKey = l.ParentAgentKey
 LEFT JOIN #u AS u ON u.AgentKey = l.ParentAgentKey
 GROUP BY l.ChildKey, l.ParentInventoryAgentId;
 /* The people behind each child, counted once though they used several of its parents. */
-SELECT c.ChildKey, COUNT(DISTINCT f.UserKey) AS People
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey")}
-JOIN (SELECT DISTINCT ChildKey, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
-WHERE f.DateKey BETWEEN @k0 AND @k1
+SELECT c.ChildKey, COUNT(DISTINCT u.UserKey) AS People
+FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")} {ReportContext.EnabledJoin("u.UserKey")}
+JOIN (SELECT DISTINCT ChildKey, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = u.Item
 GROUP BY c.ChildKey;", Ctx.Args());
 
         var peopleOf = people.ToDictionary(p => p.ChildKey, p => p.People, StringComparer.OrdinalIgnoreCase);

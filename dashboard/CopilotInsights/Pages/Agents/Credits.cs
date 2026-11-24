@@ -35,16 +35,18 @@ public sealed class CreditsModel(PageServices s, CreditData creditData) : Insigh
     protected override async Task BuildAsync()
     {
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
-        var v = await creditData.BuildAsync(Ctx);
+        /* Each agent's owner and everyone who used it, billed or not: the estimate counts only the people billed. From
+           each person's use of each agent the refresh keeps; the agents are those dash.Agent does not mark "(no agent)".
+           Independent of the estimate: read side by side with it. */
+        var (v, everyone) = await Queries(creditData.BuildAsync(Ctx), Db.QueryAsync<Row>($@"
+SELECT ag.AgentKey, ag.Owner, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People   -- enabled accounts
+FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")}
+JOIN dash.Agent AS ag ON ag.AgentKey = u.Item
+{ReportContext.EnabledJoin("u.UserKey", left: true)}
+WHERE ag.AgentSource <> N'(no agent)'
+GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300));
         var cur = v.Currency;
-        /* Each agent's owner and everyone who used it, billed or not: the estimate counts only the people billed. */
-        var more = (await Db.QueryAsync<Row>($@"
-SELECT ag.AgentKey, ag.Owner, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People   -- enabled accounts (3.1.3)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
-{ReportContext.EnabledJoin("f.UserKey", left: true)}
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
-GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.AgentKey).ToDictionary(g => g.Key, g => g.First());
+        var more = everyone.GroupBy(r => r.AgentKey).ToDictionary(g => g.Key, g => g.First());
 
         var pg = new Paging(Request, Sorts, "credits");
         var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
