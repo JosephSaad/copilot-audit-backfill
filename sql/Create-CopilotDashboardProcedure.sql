@@ -688,6 +688,14 @@ BEGIN
         END CATCH;
     END;
 
+    /* Further totals, each in a procedure of its own below (resources read; sessions and hours of the day): each is
+       given the first day this run rewrote (NULL: every day) and the last two days the period totals end on. */
+    DECLARE @prevKey INT = (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @maxKey);
+    IF OBJECT_ID(N'dash.usp_RefreshResourceTotals', N'P') IS NOT NULL
+        EXEC dash.usp_RefreshResourceTotals @FromKey = @itemFrom, @MaxKey = @maxKey, @PrevKey = @prevKey, @MinKey = @minKey;
+    IF OBJECT_ID(N'dash.usp_RefreshActivityTotals', N'P') IS NOT NULL
+        EXEC dash.usp_RefreshActivityTotals @FromKey = @itemFrom, @MaxKey = @maxKey, @PrevKey = @prevKey, @MinKey = @minKey;
+
     DECLARE @ends NVARCHAR(40) = CONCAT(@maxKey, N',', (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @maxKey));
     MERGE dash.Setting AS t
     USING (SELECT 'DashTotalsEnds' AS Name, @ends AS Value) AS s ON t.Name = s.Name
