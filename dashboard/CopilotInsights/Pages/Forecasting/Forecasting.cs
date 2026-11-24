@@ -27,31 +27,72 @@ static class Weekly
     {
         var w1 = LastCompleteWeek(c.End);
         var w0 = w1.AddDays(-7 * (weeks - 1));
-        var rows = await db.QueryAsync<WeekRow>($@"
+        var args = c.Args(new { w0 = w0.AddDays(-6), we0 = w0, w1, wk0 = ReportContext.Key(w0.AddDays(-6)), wk1 = ReportContext.Key(w1) });
+        const string Weeks = @"wk AS (SELECT DISTINCT WeekEnding, YEAR(WeekEnding) * 10000 + MONTH(WeekEnding) * 100 + DAY(WeekEnding) AS EndKey
+       FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5)";
+        List<WeekRow> rows;
+        if (c.Rollups)
+        {
+            /* Each person's whole weeks are dash.UserWeek's rows. Two reads side by side, each on its own connection:
+               the licenses held at each week's end with the holders who used Copilot under one that week, and the
+               week's use; summing every person's days of the year took 13 seconds of processor at 160 million. */
+            const string Range = "uw.WeekEnding BETWEEN CAST(@we0 AS DATE) AND CAST(@w1 AS DATE)";
+            /* They name weeks, not date keys, so PlanHints leaves them as they are: the hint it would give, given here. */
+            var hint = c.Root is null ? PlanHints.Typical : PlanHints.Exact;
+            var licensedTask = db.QueryAsync<(DateTime WeekEnding, int Licensed, int ActiveLicensed)>($@"
+WITH {Weeks},
+held AS (SELECT wk.WeekEnding, ld.UserKey
+         FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")}),
+lic AS (SELECT held.WeekEnding, COUNT(*) AS Licensed FROM held GROUP BY held.WeekEnding),
+used AS (SELECT held.WeekEnding, COUNT(*) AS ActiveLicensed
+         FROM held JOIN dash.UserWeek AS uw ON uw.WeekEnding = held.WeekEnding AND uw.UserKey = held.UserKey
+         WHERE {Range} AND uw.LicensedUse > 0
+         GROUP BY held.WeekEnding)
+SELECT wk.WeekEnding, ISNULL(l.Licensed, 0), ISNULL(u.ActiveLicensed, 0)
+FROM wk LEFT JOIN lic AS l ON l.WeekEnding = wk.WeekEnding LEFT JOIN used AS u ON u.WeekEnding = wk.WeekEnding
+ORDER BY wk.WeekEnding
+{hint};", args);
+            var useTask = db.QueryAsync<(DateTime WeekEnding, int Active, int ChatOnly, long Interactions)>($@"
+SELECT uw.WeekEnding, COUNT(CASE WHEN uw.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END),
+       COUNT(CASE WHEN uw.Interactions > 0 AND uw.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END),
+       SUM(CAST(uw.Interactions AS BIGINT))
+FROM dash.UserWeek AS uw {c.Scope("uw.UserKey")} {ReportContext.EnabledJoin("uw.UserKey", left: true)}
+WHERE {Range}
+GROUP BY uw.WeekEnding
+{hint};", args);
+            await Task.WhenAll(licensedTask, useTask);
+            var use = (await useTask).ToDictionary(u => u.WeekEnding);
+            rows = (await licensedTask).Select(l => use.TryGetValue(l.WeekEnding, out var u)
+                ? new WeekRow { WeekEnding = l.WeekEnding, Licensed = l.Licensed, ActiveLicensed = l.ActiveLicensed, Active = u.Active, ChatOnly = u.ChatOnly, Interactions = u.Interactions }
+                : new WeekRow { WeekEnding = l.WeekEnding, Licensed = l.Licensed, ActiveLicensed = l.ActiveLicensed }).ToList();
+            return rows.SkipWhile(r => r.Active == 0 && r.Licensed == 0).ToList();
+        }
+        rows = await db.QueryAsync<WeekRow>($@"
 WITH per AS (SELECT d.WeekEnding, ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L
              FROM dash.UserDay AS ud {c.Scope("ud.UserKey")}
              JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
              WHERE ud.DateKey BETWEEN @wk0 AND @wk1
              GROUP BY d.WeekEnding, ud.UserKey),
-wk AS (SELECT DISTINCT WeekEnding, YEAR(WeekEnding) * 10000 + MONTH(WeekEnding) * 100 + DAY(WeekEnding) AS EndKey
-       FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5),
-/* Each week's people in one pass over per (2.4.7: it was read once for each column, 5 seconds at 40 million).
-   The people, licensed or not, are accounts enabled today (3.1.3), as Metrics.TrendAsync counts them; the interactions are everyone's. */
+{Weeks},
+/* Who held a license at each week's end, read at those days only and matched to the person's week by both keys. */
+held AS (SELECT wk.WeekEnding, ld.UserKey FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey),
+/* Each week's people in one pass over per (it was read once for each column, 5 seconds at 40 million).
+   The people, licensed or not, are accounts enabled today, as Metrics.TrendAsync counts them; the interactions are everyone's. */
 agg AS (SELECT per.WeekEnding, COUNT(CASE WHEN per.I > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
                COUNT(CASE WHEN per.L > 0 AND la.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
                COUNT(CASE WHEN per.I > 0 AND per.L = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ChatOnly,
                SUM(CAST(per.I AS BIGINT)) AS Interactions
-        FROM per JOIN wk ON wk.WeekEnding = per.WeekEnding
-        LEFT JOIN bi.FactLicensedDay AS la ON la.UserKey = per.UserKey AND la.DateKey = wk.EndKey
+        FROM per
+        LEFT JOIN held AS la ON la.WeekEnding = per.WeekEnding AND la.UserKey = per.UserKey
         {ReportContext.EnabledJoin("per.UserKey", left: true)}
         GROUP BY per.WeekEnding),
-lic AS (SELECT wk.WeekEnding, COUNT(*) AS Licensed
-        FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")}
-        GROUP BY wk.WeekEnding)
+lic AS (SELECT held.WeekEnding, COUNT(*) AS Licensed
+        FROM held {c.Scope("held.UserKey")} {ReportContext.EnabledJoin("held.UserKey")}
+        GROUP BY held.WeekEnding)
 SELECT wk.WeekEnding, ISNULL(a.Active, 0) AS Active, ISNULL(a.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(a.ChatOnly, 0) AS ChatOnly,
        ISNULL(l.Licensed, 0) AS Licensed, ISNULL(a.Interactions, 0) AS Interactions
 FROM wk LEFT JOIN agg AS a ON a.WeekEnding = wk.WeekEnding LEFT JOIN lic AS l ON l.WeekEnding = wk.WeekEnding
-ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportContext.Key(w0.AddDays(-6)), wk1 = ReportContext.Key(w1) }));
+ORDER BY wk.WeekEnding;", args);
         /* Leading weeks before any data are not history; start at the first week with a license or any use. */
         return rows.SkipWhile(r => r.Active == 0 && r.Licensed == 0).ToList();
     }
@@ -95,12 +136,24 @@ public static class Renewal
         decimal.TryParse(await settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v)
             ? Math.Clamp(v, 0, 100) : 10m;
 
+    /// <summary>
+    /// SQL: the people who used Copilot on @inactiveKey's day or after, as Unused licenses reads it. From each person's
+    /// last day of use once the refresh keeps it (dash.UserActivity), which is the same people as reading every day since.
+    /// </summary>
+    internal static string Ever(ReportContext c) => c.Rollups
+        ? "SELECT ua.UserKey FROM dash.UserActivity AS ua WHERE ua.LastActiveKey >= @inactiveKey"
+        : "SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud WHERE ud.DateKey >= @inactiveKey AND ud.Interactions > 0";
+
+    /// <summary>SQL: the person <paramref name="userKeyExpr"/> used Copilot on @inactiveKey's day or after (see <see cref="Ever"/>).</summary>
+    internal static string UsedSince(ReportContext c, string userKeyExpr) => c.Rollups
+        ? $"EXISTS (SELECT 1 FROM dash.UserActivity AS ua WHERE ua.UserKey = {userKeyExpr} AND ua.LastActiveKey >= @inactiveKey)"
+        : $"EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = {userKeyExpr} AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0)";
+
     public static async Task<List<DeptRow>> ByDepartmentAsync(Db db, ReportContext c) =>
         (await db.QueryAsync<DeptRow>($@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
-ever AS (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud WHERE ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
-/* 3.1.3: people, holders, use, light users and demand are accounts enabled today; a license on a disabled or departed
+WITH a AS (SELECT p.UserKey, p.ActiveDays AS D FROM {c.PerPerson(30, "@k30")} AS p),
+ever AS ({Ever(c)})
+/* People, holders, use, light users and demand are accounts enabled today; a license on a disabled or departed
    account is a paid seat, counted apart (HeldDisabled) and among the unused, as Unused licenses lists it. */
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People,
@@ -121,15 +174,20 @@ WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", c.Args(new { k30 = ReportContext.Key(c.End.AddDays(-29)), heavy = Heavy, idle = c.InactiveDays }))).ToList();
 
     /// <summary>The renewal figure for a context: from its departments' rows when the page already has them.</summary>
-    public static async Task<RenewalSize> SizeAsync(Db db, Settings settings, ReportContext c, IReadOnlyCollection<DeptRow>? rows = null)
+    public static async Task<RenewalSize> SizeAsync(Db db, Settings settings, ReportContext c, IReadOnlyCollection<DeptRow>? rows = null) =>
+        (await WithDepartmentsAsync(db, settings, c, rows)).Size;
+
+    /// <summary>The departments' rows and the renewal figure, the two reads side by side (each on its own connection).</summary>
+    public static async Task<(IReadOnlyCollection<DeptRow> Rows, RenewalSize Size)> WithDepartmentsAsync(Db db, Settings settings, ReportContext c, IReadOnlyCollection<DeptRow>? rows = null)
     {
+        var histTask = Weekly.HistoryAsync(db, c);
         rows ??= await ByDepartmentAsync(db, c);
         int held = rows.Sum(r => r.Held), active = rows.Sum(r => r.Active), demand = rows.Sum(r => r.Demand);
-        var hist = await Weekly.HistoryAsync(db, c);
+        var hist = await histTask;
         var proj = hist.Count >= 8 ? Forecast.Holt(hist.Select(h => (double)h.ActiveLicensed).ToList(), 13) : null;
         var projected = proj is null ? active : (int)Math.Ceiling(proj.At(13));
         var spare = await SparePercentAsync(settings);
-        return new(held, active, projected, demand, spare, Target(active, projected, demand, spare));
+        return (rows, new(held, active, projected, demand, spare, Target(active, projected, demand, spare)));
     }
 }
 
@@ -211,8 +269,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
         var currency = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         string Money(decimal v) => $"{v:#,0} {currency}";
         /* The departments and the renewal figure as Budget and renewal works them out (see Renewal). */
-        var rows = await Renewal.ByDepartmentAsync(Db, Ctx);
-        var size = await Renewal.SizeAsync(Db, S.Settings, Ctx, rows);
+        var (rows, size) = await Renewal.WithDepartmentsAsync(Db, S.Settings, Ctx);
         int held = size.Held, idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = size.Demand, active = size.Active;
         /* The licenses on disabled or departed accounts are paid seats too: the right size is set against every seat held. */
         var heldDisabled = rows.Sum(r => r.HeldDisabled);
