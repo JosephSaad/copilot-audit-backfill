@@ -32,12 +32,16 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
            person and agent; the agents the page lists are still those dash.Agent does not mark "(no agent)". The three
            reads are independent: run side by side. */
         var (rows, trend, agentPeople) = await Queries(Db.QueryAsync<Row>($@"
-/* People are accounts enabled today; interactions are everyone's. */
-SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(CAST(u.Interactions AS BIGINT)) AS N, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People,
-       COUNT(CASE WHEN u.ActiveDays > 1 AND {ReportContext.IsEnabled()} THEN 1 END) AS Returning, ag.IsShared, ag.InventoryAgentId
-FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")}
-JOIN dash.Agent AS ag ON ag.AgentKey = u.Item
-{ReportContext.EnabledJoin("u.UserKey", left: true)}
+/* People are accounts enabled today; interactions are everyone's. Summed per agent before the join to dash.Agent, a
+   view of four tables: joined first, its two million rows were sorted and looked up one by one (5 s of processor at
+   160 million interactions, against under 1 s). */
+WITH g AS (SELECT u.Item, SUM(CAST(u.Interactions AS BIGINT)) AS N, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People,
+                  COUNT(CASE WHEN u.ActiveDays > 1 AND {ReportContext.IsEnabled()} THEN 1 END) AS Returning
+           FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")}
+           {ReportContext.EnabledJoin("u.UserKey", left: true)}
+           GROUP BY u.Item)
+SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(g.N) AS N, SUM(g.People) AS People, SUM(g.Returning) AS Returning, ag.IsShared, ag.InventoryAgentId
+FROM g JOIN dash.Agent AS ag ON ag.AgentKey = g.Item
 WHERE ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, ag.IsShared, ag.InventoryAgentId;", Ctx.Args()),
             Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"

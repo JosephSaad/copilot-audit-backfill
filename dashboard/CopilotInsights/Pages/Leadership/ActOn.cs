@@ -41,8 +41,9 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         var unitsTask = metrics.UnitsAsync(Ctx);
         var targetsTask = reports.TargetsAsync(Ctx);
         var costsTask = wholeCosts ? costs.BuildAsync(Ctx) : null;
-        var trendTask = Viewer.Has(Roles.Security) ? metrics.TrendAsync(Ctx) : null;
-        await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, trendTask }.OfType<Task>());
+        /* One period total: the trend's points add up to it, without reading the license days for each point. */
+        var signalsTask = Viewer.Has(Roles.Security) ? metrics.PeriodSumsAsync(Ctx) : null;
+        await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, signalsTask }.OfType<Task>());
 
         var counts = await countsTask;
         int revoke = counts.GetValueOrDefault("revoke"), train = counts.GetValueOrDefault("train"), upgrade = counts.GetValueOrDefault("upgrade");
@@ -90,10 +91,10 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         }
 
         /* The security signals are the Security section's: counted here for its holders only, as on the board pack. */
-        if (trendTask is not null)
+        if (signalsTask is not null)
         {
-            var tr = await trendTask;
-            Add("Jailbreak attempts and prompt injections in the period", (int)Math.Min(int.MaxValue, tr.Sum(x => x.Jailbreak) + tr.Sum(x => x.Injection)),
+            var sums = await signalsTask;
+            Add("Jailbreak attempts and prompt injections in the period", (int)Math.Min(int.MaxValue, sums.Jailbreak + sums.Injection),
                 "Each is flagged by Microsoft in the audit record, and waits for triage.", "/security/flags");
         }
 

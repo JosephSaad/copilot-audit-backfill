@@ -101,6 +101,7 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
            are awaited where each is needed, so the model takes about as long as the slowest of them, not their sum. */
         var countsTask = CountsAsync();
         var rate = Dec(await settings.StringAsync("PaygInteractionCost"), 0.12m);
+        var protectedLevels = await ProtectedLevels.SqlLevelsAsync(settings);
         /* Pay-as-you-go candidates with some Premium use (none at all is a revocation, counted above): their license
            against what their metered use would cost in credits. The same rule as Licensing › Better on pay-as-you-go.
            Each person's last 30 days come from the totals the refresh keeps (ReportContext.PerPerson). */
@@ -111,7 +112,7 @@ SELECT COUNT(*), ISNULL(SUM(u.P + u.A), 0)
 FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
 WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
-  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
+  AND {ProtectedLevels.Not("du.UserPrincipalName", protectedLevels)} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
   AND du.AccountEnabled = 1   -- enabled today (3.1.3), as Better on pay-as-you-go lists them; a disabled account is a leaver, counted there
   AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }));
         var suiteOnlyTask = db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;");
@@ -580,11 +581,22 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
         var end = new DateTime(c.End.Year, c.End.Month, 1);
         var rows = new List<(DateTime Month, string Area, decimal Spend)>();
         var k0 = ReportContext.Key(first); var k1 = ReportContext.Key(end.AddDays(-1));
-        foreach (var r in await db.QueryAsync<(int Ym, int PersonDays)>(
-                     /* The add-on's days only: someone whose Copilot comes inside a suite today is left out of every month, an approximation where they moved to it in the window. */
-                     @"SELECT ld.DateKey / 100, COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
-                       WHERE ld.DateKey BETWEEN @k0 AND @k1 AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS cso WHERE cso.Upn = du.UserPrincipalName)
-                       GROUP BY ld.DateKey / 100;", new { k0, k1 }))
+        /* The add-on's days only: someone whose Copilot comes inside a suite today is left out of every month, an
+           approximation where they moved to it in the window. Once the refresh keeps each day's holders (dash.HeldDay),
+           a month is the sum of its days, less the suite-only holders' days, met only when there are any: six months of
+           license days were 25 million rows met with the directory by sign-in, 1.7 s of processor a visit. */
+        var monthsSql = c.Held
+            ? @"WITH h AS (SELECT hd.DateKey / 100 AS Ym, SUM(CAST(hd.Held AS BIGINT)) AS N FROM dash.HeldDay AS hd
+                           WHERE hd.DateKey BETWEEN @k0 AND @k1 GROUP BY hd.DateKey / 100),
+                    s AS (SELECT ld.DateKey / 100 AS Ym, COUNT_BIG(*) AS N FROM dash.CopilotSuiteOnly AS cso
+                          JOIN bi.DimUser AS du ON du.UserPrincipalName = cso.Upn
+                          JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey BETWEEN @k0 AND @k1
+                          GROUP BY ld.DateKey / 100)
+                SELECT h.Ym, CAST(h.N - ISNULL(s.N, 0) AS INT) FROM h LEFT JOIN s ON s.Ym = h.Ym WHERE h.N - ISNULL(s.N, 0) > 0;"
+            : @"SELECT ld.DateKey / 100, COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
+                WHERE ld.DateKey BETWEEN @k0 AND @k1 AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS cso WHERE cso.Upn = du.UserPrincipalName)
+                GROUP BY ld.DateKey / 100;";
+        foreach (var r in await db.QueryAsync<(int Ym, int PersonDays)>(monthsSql, new { k0, k1 }))
         {
             var m = new DateTime(r.Ym / 100, r.Ym % 100, 1);
             rows.Add((m, CostAreas.Copilot, r.PersonDays * copilotPrice / DateTime.DaysInMonth(m.Year, m.Month)));

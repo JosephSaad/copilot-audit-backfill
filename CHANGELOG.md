@@ -4,6 +4,69 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.5] - 2026-11-24
+
+Page speed, second round: every page in the Leadership and Agents sections opens in under 3 seconds on a first visit
+at any period and scope (most in under 2), and so do the slowest pages elsewhere, among them the compliance pages,
+Usage by license, Security signals, Models and controls, Conversation depth, Suite fit and Credit use. Nothing a page
+shows changes: every figure is the same number, worked out the same way.
+
+**Install over 3.1.4** (from 3.1.2 or 3.1.3, do their steps as well):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`). No setting is new.
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds the new tables and a procedure (nothing is removed), and its
+   dashboard refresh builds the new resource totals whole the first time: about 4 minutes in the lab at 160 million
+   interactions.
+3. Deploy the dashboard package (`copilot-insights-v3.1.5.zip`) on each web server. Where the dashboard is an
+   application inside a site (a virtual directory such as `/CopilotDashboard`), give the installer `-SiteName` and
+   `-ApplicationPath`: without them it makes a new site of its own.
+
+Until the first refresh after the install, the pages read as 3.1.4 did: the same figures, at 3.1.4's speed.
+
+### Changed
+
+- **Faster first visits, second round.** Measured in the lab at 160 million interactions over two years with the query
+  cache off (every visit a first visit), each page's slowest period and scope, against 3.1.4:
+  Oversharing hotspots 12.6 s to 2.2 s; Usage by license 7.9 s to 3.4 s; Labeled content by unit 6.8 s to 1.0 s;
+  Sensitive content 6.5 s to 2.2 s; Access to labeled content 4.8 s to 2.3 s; Security signals 4.3 s to 1.2 s; Credit
+  use 3.6 s to 2.8 s; Conversation depth 3.3 s to 2.7 s; Models and controls 3.1 s to 3.2 s; Suite fit 3.1 s to 1.2 s;
+  What to act on 8.2 s to 5.1 s; Costs and savings 5.1 s to 4.0 s; Board pack 3.5 s to 2.8 s; Agents costing credits
+  2.3 s to 1.0 s. Every other Leadership and Agents page was under 2.3 s at its slowest. Every page and its times:
+  `plans/3.1.4-page-speed/results-315.md`.
+- **New totals for the resources Copilot read.** The nightly dashboard refresh now also keeps, per person, the
+  resources read by type, label, file type and blocked; labels and sites from the daily rollup; each person's last
+  days at each site; and conversations by app and length (`dash.usp_RefreshResourceTotals`, tables `dash.ReadMix`,
+  `dash.ReadMixPeriod`, `dash.ResourceItem`, `dash.ResourcePeriod`, `dash.SiteReader`, `dash.SessionSpan`,
+  `dash.SessionPeriod`; see docs/SCHEMA.md). The compliance pages and Usage by license read them.
+- **Less work on the pages without new totals.** Trends that need no license counts no longer read the license days;
+  units are counted from their trend points; the board pack's period before is summed from whole weeks; the cost
+  model counts its license months from each day's holders; Suite fit works out each kind of holder's fit once; the
+  protected levels are written into the statement; the leavers' last use is settled once; Conversation depth reads the
+  sessions once.
+- **The nightly refresh** builds the resource totals too: in the lab, a nightly dashboard refresh took 934 s (about 15.5 minutes), of which
+  152 s were the new totals; it was 825 s in 3.1.4. The first one after the upgrade builds them whole, about 4
+  minutes more. They take about 1 GB more in the Copilot database at 160 million interactions.
+
+### Known limits
+
+- **The bar for this release was 6 s** at a page's slowest period and scope on a first visit, set by the user, with
+  Leadership and Agents the priority. Over 3 s at their slowest: What to act on (5.1 s, the whole organization: it
+  builds the whole cost model for its savings line), Costs and savings (4.0 s), Apps and agents (3.5 s), Usage by
+  license (3.4 s) and Models and controls (3.2 s). In earlier runs the same day, on a quieter server, Apps and agents
+  took 1.2 s, What to act on 2.9 s and Costs and savings 1.8 s: these times swing with what else the server is doing.
+- **Measured with the query cache off.** Every visit was a first visit. With the cache on (the default), a page already
+  built since the last data change opens from memory, and the 07:00 pre-cache builds the whole organization's pages.
+- **Only the pages this release worked on were measured again**: the Leadership and Agents sections and the ten slowest
+  pages elsewhere. The other pages read some of the same shared code; they were under 2 s in 3.1.4 and were not timed
+  again.
+- **Synthetic lab data on one server**: 160 million interactions over two years, 210,000 people, 8 processors, SQL
+  Server 2025 Enterprise Developer at MAXDOP 6; not the client's data or hardware.
+- **Same figures, checked**: every changed page's text at 30 days, 730 days and All data, for the whole organization and
+  a team, matched 3.1.3's, apart from the date a page was printed and the time of the last refresh. The SQL integration
+  test checks every new total against the rows under it.
+
 ## [3.1.4] - 2026-11-24
 
 Page speed only. The nightly refresh now keeps each person's totals for every period a page offers, per week, per app,

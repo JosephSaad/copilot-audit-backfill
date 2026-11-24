@@ -20,7 +20,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var flagged = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM dash.FlaggedInteraction) THEN 1 ELSE 0 END;") == 1;
         var (signals, hour) = flagged ? ("dash.FlaggedInteraction", "DATEPART(HOUR, f.ActivityHour)") : ("bi.FactInteraction", "f.HourOfDay");
         /* Six independent reads, each on its own connection: started together, awaited where they are used. */
-        var trTask = m.TrendAsync(Ctx);
+        /* The chart and the figures are sums of use at each point: not the people and license holders TrendAsync adds. */
+        var trTask = m.SumsTrendAsync(Ctx);
         /* Each person's signals over the period, summed once by the refresh. */
         var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM {Ctx.PerPerson()} AS p {Ctx.Scope("p.UserKey")}
@@ -37,9 +38,12 @@ FROM {signals} AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1)
 GROUP BY a.App;", Ctx.Args());
-        var unitsTask = m.UnitsAsync(Ctx);
+        /* The units' interactions and signals are their points added up: only their people are read beside them, not
+           every member's period a second time. */
+        var unitsTask = m.UnitPeopleAsync(Ctx);
         var seriesTask = m.UnitSeriesAsync(Ctx);
         await Task.WhenAll(trTask, peopleTask, hoursTask, appsTask, unitsTask, seriesTask);
+        var unitRows = Metrics.WithUse(await unitsTask, await seriesTask);
         var tr = await trTask;
         long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
         var people = await peopleTask;
@@ -72,7 +76,7 @@ GROUP BY a.App;", Ctx.Args());
                 .Select(a => new Bar(a.App, a.Jb + a.Inj + a.Blk, Note: $"jailbreak {a.Jb:#,0}, injection {a.Inj:#,0}, blocked {a.Blk:#,0}", Slot: 7)).ToList(), Fmt.Count, "Security signals by app"),
             "The 12 apps with the most security signals in the period. Hover for each kind.", "half"));
 
-        var units = FoldSmall(await unitsTask, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
+        var units = FoldSmall(unitRows, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Interactions > 0).OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).Take(15).ToList();
         Panels.Add(new("By unit, per 1,000 interactions",
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
@@ -80,7 +84,7 @@ GROUP BY a.App;", Ctx.Args());
             "All three signals together, per 1,000 interactions, so large and small units compare fairly. An interaction with two signals counts twice." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
 
         /* The same rate at each point, unit by unit: Security › Security signals by unit was a page of its own for this one chart. */
-        var shown = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+        var shown = SmallGroups.Shown(unitRows, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
         var series = (await seriesTask).ToDictionary(x => (x.Unit, x.Bucket));
         var buckets = Buckets();
         var rates = new double?[shown.Count, buckets.Count];

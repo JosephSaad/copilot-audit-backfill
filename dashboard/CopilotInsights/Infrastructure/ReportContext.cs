@@ -164,7 +164,7 @@ public sealed record Bucket(DateTime Key, string Label, bool Partial);
 /// into) and the viewer's scope. Every query that touches people goes through
 /// Scope() or PersonScope(), so the security model is applied in one place.
 /// </summary>
-public sealed class ReportContext
+public sealed partial class ReportContext
 {
     /// <summary>The period choice that means every day with data, from the first record to the last complete day (3.1.3).</summary>
     public const int AllData = 0;
@@ -683,12 +683,12 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
             Viewer = viewer, Days = days, Choice = choice, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
             PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
-            Rollups = t.Built, RolledDays = t.Days, RolledItemDays = t.ItemDays, ItemKinds = t.Kinds, CreditDays = t.Credit, RolledCreditDays = t.CreditDays, Held = t.Held,
+            Rollups = t.Built, RolledDays = t.Days, RolledItemDays = t.ItemDays, ItemKinds = t.Kinds, CreditDays = t.Credit, RolledCreditDays = t.CreditDays, Held = t.Held, ResourceTotals = t.Resources,
         };
     }
 
     /// <summary>What <see cref="RollupsAsync"/> found: which totals the refresh has built.</summary>
-    public sealed record Totals(bool Built, IReadOnlySet<int> Days, IReadOnlySet<int> ItemDays, string Kinds, bool Credit, IReadOnlySet<int> CreditDays, bool Held = false)
+    public sealed record Totals(bool Built, IReadOnlySet<int> Days, IReadOnlySet<int> ItemDays, string Kinds, bool Credit, IReadOnlySet<int> CreditDays, bool Held = false, bool Resources = false)
     {
         public static readonly Totals None = new(false, new HashSet<int>(), new HashSet<int>(), "", false, new HashSet<int>());
     }
@@ -714,6 +714,8 @@ SELECT 6, 0, NULL WHERE OBJECT_ID(N'dash.HeldDay', N'U') IS NOT NULL AND EXISTS 
 UNION ALL
 SELECT 5, 0, (SELECT Value FROM dash.Setting WHERE Name = 'DashItemKinds')
 UNION ALL
+SELECT 11, 0, (SELECT Value FROM dash.Setting WHERE Name = 'DashResourceTotalsEnds')
+UNION ALL
 SELECT 0, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.UserActivity) AND EXISTS (SELECT 1 FROM dash.UserItemDay);", new { endKey });
             var list = rows.ToList();
             /* The refresh records the two last days it built every period for, in dash.UserPeriod, dash.UserItemPeriod and
@@ -722,7 +724,8 @@ SELECT 0, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.UserActivity) AND EXISTS (SEL
             var ends = (list.FirstOrDefault(r => r.Which == 1).Kinds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             IReadOnlySet<int> periods = ends.Contains(endKey.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 ? ReportContext.DayChoices.ToHashSet() : new HashSet<int>();
-            return new(list.Any(r => r.Which == 0), periods, periods, list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), periods, list.Any(r => r.Which == 6));
+            return new(list.Any(r => r.Which == 0), periods, periods, list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), periods, list.Any(r => r.Which == 6),
+                ReportContext.EndsHold(list.FirstOrDefault(r => r.Which == 11).Kinds, endKey));
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Totals.None; }
     }

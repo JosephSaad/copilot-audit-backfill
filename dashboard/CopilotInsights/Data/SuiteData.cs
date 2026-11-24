@@ -67,6 +67,7 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
 
         var k30 = ReportContext.Key(c.End.AddDays(-29));
         var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30);
+        var protectedLevels = await ProtectedLevels.SqlLevelsAsync(settings);
         var rows = await db.QueryAsync<Rec>($@"
 WITH {activity},
 sh AS (SELECT u.UserPrincipalName AS Upn, cs.SkuPattern
@@ -81,7 +82,7 @@ pbi AS ({(biKnown ? "SELECT UserPrincipalName, MAX(CASE WHEN ISNULL(ActiveDays30
 SELECT sh.Upn, sh.SkuPattern, du.DisplayName, du.Department, ISNULL(a.P, 0) AS CopilotDays,
        ISNULL(ad.Cop, 0) AS CopilotAddOn, ISNULL(ad.Bi, 0) AS PowerBiAddOn,
        {(biKnown ? "ISNULL(b.Used, 0)" : "-1")} AS PowerBi,
-       CASE WHEN {ProtectedLevels.Not("sh.Upn")} THEN 0 ELSE 1 END AS Protected,
+       CASE WHEN {ProtectedLevels.Not("sh.Upn", protectedLevels)} THEN 0 ELSE 1 END AS Protected,
        CASE WHEN du.AccountEnabled = 0 OR du.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0 THEN 0 ELSE 1 END AS Enabled,
        du.LicensedSinceUtc AS CopilotSince
 FROM sh
@@ -94,18 +95,37 @@ LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = sh.Upn;", c.Args(
 
         var byPattern = suites.ToDictionary(s => s.Pattern, StringComparer.OrdinalIgnoreCase);
         var today = c.End.Date;
-        var list = new List<SuiteRow>();
+        var list = new List<SuiteRow>(rows.Count);
+        /* What fits a holder depends only on their suites and a few facts about them, which most of the 210,000
+           holders share: each answer is worked out once and shared (it is never changed), and so is each suite's next
+           one down. SuiteRules.Fit reads nothing else of the holder, so the answer is the same either way. */
+        var lowers = new Dictionary<Suite, Suite?>();
+        var fits = new Dictionary<(Suite Suite, string Others, int Days, bool CopilotAddOn, bool PowerBiAddOn, bool? UsesPowerBi, bool Protected, bool Enabled, bool New), SuiteFit>();
+        SuiteFit FitOf(SuiteHolder h)
+        {
+            var isNew = h.CopilotSince is { } since && (today - since).TotalDays < SuiteRules.NewLicenseDays;
+            var key = (h.Suite, h.Others.Count == 0 ? "" : string.Join("\t", h.Others.Select(o => o.Pattern)), h.CopilotDays, h.CopilotAddOn, h.PowerBiAddOn, h.UsesPowerBi, h.Protected, h.Enabled, isNew);
+            if (fits.TryGetValue(key, out var fit)) return fit;
+            if (!lowers.TryGetValue(h.Suite, out var lower)) lowers[h.Suite] = lower = SuiteRules.Lower(h.Suite, suites);
+            return fits[key] = SuiteRules.Fit(h, lower, copilotPrice, biPrice, today, cur);
+        }
+        IReadOnlyList<Suite> none = [];
         foreach (var g in rows.GroupBy(r => r.Upn, StringComparer.OrdinalIgnoreCase))
         {
-            /* A person on two suites (E5 left beside E7 after a move up, Office 365 E3 beside Microsoft 365 E5): the highest
-               is theirs, Microsoft 365 before Office 365 at the same tier as it holds more; the others are copies. */
-            var held = g.Select(r => byPattern.TryGetValue(r.SkuPattern, out var s) ? s : null).OfType<Suite>()
-                .GroupBy(s => s.Name).Select(x => x.First()).OrderByDescending(s => s.Tier).ThenBy(s => s.Family == "Microsoft 365" ? 0 : 1).ToList();
-            if (held.Count == 0) continue;
             var r = g.First();
-            var h = new SuiteHolder(r.Upn, held[0], r.CopilotDays, r.CopilotAddOn == 1, r.PowerBiAddOn == 1, held.Skip(1).ToList(),
+            List<Suite> held;
+            /* Most hold one suite: its row is theirs. */
+            if (g.Skip(1).Any())
+                /* A person on two suites (E5 left beside E7 after a move up, Office 365 E3 beside Microsoft 365 E5): the highest
+                   is theirs, Microsoft 365 before Office 365 at the same tier as it holds more; the others are copies. */
+                held = g.Select(x => byPattern.TryGetValue(x.SkuPattern, out var s) ? s : null).OfType<Suite>()
+                    .GroupBy(s => s.Name).Select(x => x.First()).OrderByDescending(s => s.Tier).ThenBy(s => s.Family == "Microsoft 365" ? 0 : 1).ToList();
+            else if (byPattern.TryGetValue(r.SkuPattern, out var one)) held = [one];
+            else continue;
+            if (held.Count == 0) continue;
+            var h = new SuiteHolder(r.Upn, held[0], r.CopilotDays, r.CopilotAddOn == 1, r.PowerBiAddOn == 1, held.Count == 1 ? none : held.Skip(1).ToList(),
                 r.PowerBi < 0 ? null : r.PowerBi == 1, r.Protected == 1, r.Enabled == 1, r.CopilotSince);
-            list.Add(new(r.DisplayName, r.Upn, r.Department, h, SuiteRules.Fit(h, SuiteRules.Lower(held[0], suites), copilotPrice, biPrice, today, cur)));
+            list.Add(new(r.DisplayName, r.Upn, r.Department, h, FitOf(h)));
         }
         /* Each suite's seats: bought and assigned, from the pool. They are the tenant's, so only where the whole organization is shown. */
         var seats = scoped && c.Root is not null ? [] : (await db.QueryAsync<(string SkuPattern, int Bought, int Assigned)>(@"

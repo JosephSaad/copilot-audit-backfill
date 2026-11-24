@@ -45,7 +45,9 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
     async Task<Prep> PrepAsync() => await Db.KeptAsync("CreditUse.Prep", Ctx, async () =>
     {
         var v = await credits.BuildAsync(Ctx);
-        var enabled = (await Db.QueryAsync<int>($"SELECT du.UserKey FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.AccountEnabled = 1;", Ctx.Args())).ToHashSet();
+        /* The estimate's people are the scope's already, each marked enabled as bi.DimUser has it: reading the scope's
+           enabled accounts again, after the estimate and on its own, gave the same set and only added a read. */
+        var enabled = v.People.Where(p => p.Enabled).Select(p => p.UserKey).ToHashSet();
         var people = v.People.Where(p => enabled.Contains(p.UserKey)).ToList();
         var allBilled = v.People.Where(p => p.Month.Credits > 0).ToList();
         var billed = people.Where(p => p.Month.Credits > 0).OrderByDescending(p => p.Month.Credits).ThenBy(p => p.Name ?? p.Upn).ToList();

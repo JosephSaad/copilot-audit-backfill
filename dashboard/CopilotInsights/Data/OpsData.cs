@@ -150,9 +150,12 @@ FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 EL
         var addOn = await HasAsync("dash.CopilotSuiteOnly") ? $"AND {CopilotSuites.NotOnlyInSuite("u.UserPrincipalName")}" : "";
         /* The last day of use, over every day: the refresh keeps it for each person (dash.UserActivity), so it is one row's
            seek, not a person's days read. Before the refresh has built it, the days are read as before. */
-        var lastKey = await HasAsync("dash.UserActivity")
-            ? @"CASE WHEN EXISTS (SELECT 1 FROM dash.UserActivity) THEN (SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = u.UserKey)
-                    ELSE (SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = u.UserKey AND x.Interactions > 0) END"
+        /* Which of the two is settled here, once: with both in the statement, its plan read every person's days for the
+           branch it would not take (1.5 seconds a visit at 160 million interactions). */
+        var built = await HasAsync("dash.UserActivity")
+            && await db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserActivity) THEN 1 ELSE 0 END;") == 1;
+        var lastKey = built
+            ? "(SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = u.UserKey)"
             : "(SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = u.UserKey AND x.Interactions > 0)";
         return await db.QueryAsync<LeaverRow>($@"
 WITH today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay)

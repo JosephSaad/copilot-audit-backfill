@@ -12,15 +12,17 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* The four reads are independent and each opens its own connection: read together, not one after another. */
+        /* The reads are independent and each opens its own connection: read together, not one after another. The trend
+           counts the adopted holders with the license holders, from the same license days, once the refresh keeps the
+           adoption days; before, they are read on their own as before. */
         var totalsTask = m.TotalsAsync(Ctx);
-        var trendTask = m.TrendAsync(Ctx);
-        var adoptedTask = m.AdoptedAsync(Ctx);
+        var trendTask = m.TrendAsync(Ctx, withAdopted: true);
+        var adoptedTask = Ctx.Rollups ? null : m.AdoptedAsync(Ctx);
         var unitsTask = m.UnitsAsync(Ctx);
-        await Task.WhenAll(totalsTask, trendTask, adoptedTask, unitsTask);
+        await Task.WhenAll(new Task?[] { totalsTask, trendTask, adoptedTask, unitsTask }.OfType<Task>());
         var t = await totalsTask;
         var tr = await trendTask;
-        var adopted = await adoptedTask;
+        var adopted = adoptedTask is null ? tr.ToDictionary(w => w.Bucket, w => w.Adopted ?? 0) : await adoptedTask;
         var x = Labels();
 
         Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"had an interaction in the period, of {t.People:#,0} people in {Here}" : "had an interaction in the period", Href: Open("/licensing/ranking")));
@@ -128,7 +130,8 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var trTask = m.TrendAsync(Ctx);
+        /* The chart and the shares need only the use sums at each point, not the people and license holders TrendAsync adds. */
+        var trTask = m.SumsTrendAsync(Ctx);
         var totalsTask = m.TotalsAsync(Ctx);
         /* Each person's use of each agent and app is read from the nightly totals (Ctx.PerItem, Ctx.PerItemPoint), not
            counted from the 160 million interactions: a few hundred thousand rows a period instead of a scan of the fact.
