@@ -4870,7 +4870,8 @@ INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, GrantedBy) VALUES (N
 $pv = Invoke-SqlText -As Table -Sql "SELECT Role, Pages FROM dash.RoleGrant WHERE Principal = N'it-preview@contoso.com' ORDER BY Role;"
 Assert-That ($pv.Rows.Count -eq 2 -and [string] $pv.Rows[0].Pages -eq '/leadership/act') 'dash.RoleGrant takes a Preview grant with its beta reports, and the Stories role'
 Assert-That (Test-Refused "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, GrantedBy) VALUES (N'it-x@contoso.com', 'User', 'Persona', N'it');") 'a role the dashboard does not know is still refused'
-Assert-That (-not (Test-Refused "INSERT INTO dash.AccessProfile (Name, UpdatedBy) VALUES (N'it-stories', N'it'); INSERT INTO dash.AccessProfileRole (ProfileId, Role) SELECT ProfileId, 'Stories' FROM dash.AccessProfile WHERE Name = N'it-stories';")) 'an access profile can give the Stories role'
+Invoke-SqlText -Sql "INSERT INTO dash.AccessProfile (Name, UpdatedBy) VALUES (N'it-stories', N'it'); INSERT INTO dash.AccessProfileRole (ProfileId, Role) SELECT ProfileId, 'Stories' FROM dash.AccessProfile WHERE Name = N'it-stories';"
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM dash.AccessProfileRole AS r JOIN dash.AccessProfile AS p ON p.ProfileId = r.ProfileId WHERE p.Name = N'it-stories' AND r.Role = 'Stories';") -eq 1) 'an access profile can give the Stories role'
 $story = [int] (Invoke-SqlText -As Scalar -Sql @"
 INSERT INTO dash.SuccessStory (Quote, Upn, DisplayName, Unit, MayName) OUTPUT inserted.StoryId VALUES (N'It drafted the brief in minutes.', N'it-preview@contoso.com', N'IT Person', N'Finance', 1);
 "@)
