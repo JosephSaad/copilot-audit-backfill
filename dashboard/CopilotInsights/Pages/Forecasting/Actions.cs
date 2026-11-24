@@ -100,6 +100,16 @@ LEFT JOIN bi.DimDate AS dl ON dl.DateKey = u.LastActiveKey
 OUTER APPLY (SELECT TOP (1) r.LicenseTypeKey FROM #rec AS r WHERE r.UserKey = k.UserKey ORDER BY r.DateKey DESC) AS rec
 LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;";
 
+    /// <summary>
+    /// The plan hint for a statement that writes a page's people into a temporary table from the totals the refresh
+    /// keeps: PlanHints' own (built for a typical range for the whole organization, for the people asked for inside a
+    /// part of it), and on one thread. Read from the totals, the people are a few hundred thousand rows; written into the
+    /// table by several threads at once, they waited on each other: 9 to 23 seconds for under half a second of work.
+    /// Summing the days instead (no totals for the window), the statement keeps PlanHints' hint alone.
+    /// </summary>
+    internal static string IntoHint(ReportContext c, int? choice = 30) =>
+        !c.RolledDays.Contains(choice ?? c.Choice) ? "" : c.Root is null ? "OPTION (OPTIMIZE FOR UNKNOWN, MAXDOP 1)" : "OPTION (RECOMPILE, MAXDOP 1)";
+
     internal static async Task<bool> PremiumReadyAsync(Db db, int k30, int k1) => (await ActivitySqlAsync(db, k30, k1)).Contains("PremiumUse");
 
     static readonly Dictionary<string, string> Sorts = new()
@@ -180,7 +190,8 @@ LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN lic ON lic.UserKey = du.UserKey
 WHERE {Kinds[kind].Where}
   AND {Enabled(kind)}
-  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q);
+  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
+{IntoHint(Ctx)};
 SELECT COUNT(*) FROM #b;
 SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.Like }));
         pg.Total = count.Single();

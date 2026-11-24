@@ -81,7 +81,8 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
       WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I
         AND du.AccountEnabled = 1   -- 3.1.3: a disabled or departed account is on Licenses on disabled accounts
         AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
-SELECT x.* INTO #x FROM x;
+SELECT x.* INTO #x FROM x
+{CopilotInsights.Pages.Forecasting.ActionsModel.IntoHint(Ctx, null)};
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
 {pg.OrderAndPage()};
