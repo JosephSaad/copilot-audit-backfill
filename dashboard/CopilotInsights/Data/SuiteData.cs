@@ -67,6 +67,7 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
 
         var k30 = ReportContext.Key(c.End.AddDays(-29));
         var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30);
+        var protectedLevels = await ProtectedLevels.SqlLevelsAsync(settings);
         var rows = await db.QueryAsync<Rec>($@"
 WITH {activity},
 sh AS (SELECT u.UserPrincipalName AS Upn, cs.SkuPattern
@@ -81,7 +82,7 @@ pbi AS ({(biKnown ? "SELECT UserPrincipalName, MAX(CASE WHEN ISNULL(ActiveDays30
 SELECT sh.Upn, sh.SkuPattern, du.DisplayName, du.Department, ISNULL(a.P, 0) AS CopilotDays,
        ISNULL(ad.Cop, 0) AS CopilotAddOn, ISNULL(ad.Bi, 0) AS PowerBiAddOn,
        {(biKnown ? "ISNULL(b.Used, 0)" : "-1")} AS PowerBi,
-       CASE WHEN {ProtectedLevels.Not("sh.Upn")} THEN 0 ELSE 1 END AS Protected,
+       CASE WHEN {ProtectedLevels.Not("sh.Upn", protectedLevels)} THEN 0 ELSE 1 END AS Protected,
        CASE WHEN du.AccountEnabled = 0 OR du.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0 THEN 0 ELSE 1 END AS Enabled,
        du.LicensedSinceUtc AS CopilotSince
 FROM sh

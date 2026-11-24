@@ -13,17 +13,31 @@ public static class ProtectedLevels
     public const int Default = 5;
 
     /// <summary>A predicate: the person signed in as <paramref name="upn"/> (a SQL expression) is not at a protected level.</summary>
-    public static string Not(string upn) =>
-        $"NOT EXISTS (SELECT 1 FROM dash.Person AS pl WHERE pl.Upn = {upn} AND pl.Level BETWEEN 1 AND " +
-        $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default}))";
+    /// <param name="levels">The setting as <see cref="SqlLevelsAsync"/> reads it, when the caller has it: written into the
+    /// statement as a number. Read in the statement instead, the setting was looked up once per row: 1 of the 1.5 seconds
+    /// Suite fit took over 210,000 license holders.</param>
+    public static string Not(string upn, int? levels = null) =>
+        $"NOT EXISTS (SELECT 1 FROM dash.Person AS pl WHERE pl.Upn = {upn} AND pl.Level BETWEEN 1 AND {Bound(levels)})";
 
     /// <summary>
     /// The same rule as a join, for a query that counts inside an aggregate, where SQL Server allows no subquery:
     /// LEFT JOIN this, and a person is not protected when <paramref name="alias"/>.Upn IS NULL.
     /// </summary>
-    public static string Join(string alias, string upn) =>
-        $"LEFT JOIN dash.Person AS {alias} ON {alias}.Upn = {upn} AND {alias}.Level BETWEEN 1 AND " +
-        $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default})";
+    public static string Join(string alias, string upn, int? levels = null) =>
+        $"LEFT JOIN dash.Person AS {alias} ON {alias}.Upn = {upn} AND {alias}.Level BETWEEN 1 AND {Bound(levels)}";
+
+    static string Bound(int? levels) => levels is int n
+        ? n.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        : $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default})";
+
+    /// <summary>
+    /// The setting as the statements read it (TRY_CAST, or <see cref="Default"/>), not clamped as <see cref="LevelsAsync"/>
+    /// is for the note: for <see cref="Not"/> and <see cref="Join"/>, so a number written into a statement applies the
+    /// very rule the lookup did.
+    /// </summary>
+    public static async Task<int> SqlLevelsAsync(Infrastructure.Settings settings) =>
+        int.TryParse((await settings.StringAsync(Setting))?.Trim(), System.Globalization.NumberStyles.AllowLeadingSign,
+            System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : Default;
 
     /// <summary>What a list says about who it leaves out.</summary>
     public static async Task<string> NoteAsync(Infrastructure.Settings settings)

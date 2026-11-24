@@ -101,6 +101,7 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
            are awaited where each is needed, so the model takes about as long as the slowest of them, not their sum. */
         var countsTask = CountsAsync();
         var rate = Dec(await settings.StringAsync("PaygInteractionCost"), 0.12m);
+        var protectedLevels = await ProtectedLevels.SqlLevelsAsync(settings);
         /* Pay-as-you-go candidates with some Premium use (none at all is a revocation, counted above): their license
            against what their metered use would cost in credits. The same rule as Licensing › Better on pay-as-you-go.
            Each person's last 30 days come from the totals the refresh keeps (ReportContext.PerPerson). */
@@ -111,7 +112,7 @@ SELECT COUNT(*), ISNULL(SUM(u.P + u.A), 0)
 FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
 WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
-  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
+  AND {ProtectedLevels.Not("du.UserPrincipalName", protectedLevels)} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
   AND du.AccountEnabled = 1   -- enabled today (3.1.3), as Better on pay-as-you-go lists them; a disabled account is a leaver, counted there
   AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }));
         var suiteOnlyTask = db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;");
