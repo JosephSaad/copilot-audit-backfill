@@ -204,7 +204,8 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
         public int People { get; set; }
     }
 
-    /* bi.UseCases applies the rules (its one definition); the fact carries the key into it. */
+    /* bi.UseCases applies the rules (its one definition); the fact carries the key into it, and the nightly totals keep
+       each person's interactions per key (Ctx.PerItem('U')), so a rule changed today still applies to every day. */
     const string UseCase = "JOIN bi.UseCases AS uc ON uc.UseCaseKey = g.UseCaseKey";
 
     protected override async Task BuildAsync()
@@ -213,24 +214,22 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps: the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
-        /* The three reads are independent: started together. */
+        /* The three reads are independent: started together. Each person's interactions per use-case key are the nightly
+           totals' (Ctx.PerItem, Ctx.PerItemPoint), one row a person and key, where the 160 million interactions were
+           grouped on every first visit: 9 to 28 seconds at two years. */
         var byDeptTask = Db.QueryAsync<G>($@"
 SELECT UseCaseKey, UseCase INTO #uc FROM bi.UseCases;
-WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.UserKey, f.UseCaseKey)
+WITH g AS (SELECT it.UserKey, it.Item AS UseCaseKey, CAST(it.Interactions AS BIGINT) AS N
+           FROM {Ctx.PerItem('U')} AS it {Ctx.Scope("it.UserKey")})
 SELECT g.UserKey, uc.UseCase, SUM(g.N) AS N INTO #k FROM g JOIN #uc AS uc ON uc.UseCaseKey = g.UseCaseKey GROUP BY g.UserKey, uc.UseCase;
 /* People are accounts enabled today (3.1.3); interactions are everyone's. */
 SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People
 FROM #k AS k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
 GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
         var trendTask = Db.QueryAsync<G>($@"
-WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY {Ctx.BucketSql("d")}, f.UseCaseKey)
+WITH g AS (SELECT pt.Bucket, pt.Item AS UseCaseKey, SUM(CAST(pt.Interactions AS BIGINT)) AS N
+           FROM {Ctx.PerItemPoint('U')} AS pt {Ctx.Scope("pt.UserKey")}
+           GROUP BY pt.Bucket, pt.Item)
 SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase, g.Bucket;", Ctx.Args(), timeout: 300);
         var deptsTask = Db.QueryAsync<(string Dept, int People)>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
