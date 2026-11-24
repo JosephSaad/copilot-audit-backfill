@@ -244,16 +244,13 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey
 WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 AND du.CopilotLicenseToday <> N'Licensed'
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { heavy = Heavy })),
-            /* Each person's records by license type first, then the enabled among them: counted distinct over every
-               record joined to the directory, it took twice the time. */
+            /* Each person's interactions by the license type recorded in them (ReportContext.PerItem, kind L: one row a
+               person a type), then the enabled among them. Read from every record of the period, it took 16 seconds of
+               processor at All data and 160 million interactions. */
             Db.QueryAsync<(string LicenseType, int People, long N)>($@"
-WITH g AS (SELECT f.LicenseTypeKey, f.UserKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.LicenseTypeKey, f.UserKey)
-SELECT l.LicenseType, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END), SUM(g.N)
-FROM g
-JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = g.LicenseTypeKey
+SELECT l.LicenseType, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END), SUM(CAST(g.Interactions AS BIGINT))
+FROM {Ctx.PerItem('L')} AS g {Ctx.Scope("g.UserKey")}
+JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = g.Item
 {ReportContext.EnabledJoin("g.UserKey", left: true)}
 GROUP BY l.LicenseType;", Ctx.Args()));
         var users = depts.Sum(d => d.Users);

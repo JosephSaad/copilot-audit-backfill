@@ -295,8 +295,9 @@ WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.Export
 today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay),
 o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
              CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS LicensedNow,
-             CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0
-                               AND ud.DateKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)) THEN 1 ELSE 0 END AS UsedSince
+             CASE WHEN EXISTS ({(Ctx.Rollups
+                 ? "SELECT 1 FROM dash.UserActivity AS ua WHERE ua.UserKey = du.UserKey AND ua.LastActiveKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)"   // used after the day: their last day of use is later
+                 : "SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0 AND ud.DateKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)")}) THEN 1 ELSE 0 END AS UsedSince
       FROM x
       LEFT JOIN bi.DimUser AS du ON du.UserPrincipalName = x.Upn
       LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = (SELECT K FROM today)
