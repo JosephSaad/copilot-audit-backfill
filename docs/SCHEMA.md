@@ -25,7 +25,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -3393,7 +3393,7 @@ Indexes and constraints:
 
 ### dash.UserItemDay
 
-*Table.* Each person's use of each app (Kind A, Item = bi.DimApp.AppKey) or agent (Kind G, Item = bi.DimAgent.AgentKey, never the "(none)" agent) per day (3.1.4), for the pages that count people per app or agent. Kept by dash.usp_RefreshDashboard as dash.UserDay is, from the same day.
+*Table.* Each person's use of each app (Kind A, Item = bi.DimApp.AppKey) or agent (Kind G, Item = bi.DimAgent.AgentKey, never the "(none)" agent) per day (3.1.4), for the pages that count people per app or agent; also per use case (U), license type Copilot recorded (L), model (M), and the interactions with a flag (F: Item 1 memory updated, 2 called another agent, 3 data-loss check deferred). Kept by dash.usp_RefreshDashboard as dash.UserDay is, from the same day; the setting DashItemKinds records the kinds it holds, and a table built with fewer is built whole once.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -3401,8 +3401,8 @@ Indexes and constraints:
 |--:|---|---|---|---|---|
 | 1 | `DateKey` | int | **no** | **PK** |  |
 | 2 | `UserKey` | int | **no** | **PK** |  |
-| 3 | `Kind` | char(1) | **no** | **PK** | A: an app, G: an agent |
-| 4 | `Item` | int | **no** | **PK** | the app's or the agent's key |
+| 3 | `Kind` | char(1) | **no** | **PK** | A: an app, G: an agent, U: a use case, L: a license type, M: a model, F: a flag |
+| 4 | `Item` | int | **no** | **PK** | the app's, agent's, use case's, license type's or model's key, or the flag's number |
 | 5 | `Interactions` | int | **no** |  |  |
 | 6 | `Prompts` | int | **no** |  |  |
 | 7 | `Resources` | int | **no** |  | the resources its interactions read |
@@ -3478,6 +3478,42 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashSitePerson`: primary key, clustered (Kind, SiteKey, UserKey)
+
+### dash.CreditUseDay
+
+*Table.* What the Copilot Credit estimate counts, per person, agent (the "(none)" agent too) and day (3.1.4): Agents costing credits, Credit use and License for credits read it instead of the interactions. Kept by dash.usp_RefreshDashboard as dash.UserItemDay is.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** |  |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `AgentKey` | int | **no** | **PK** |  |
+| 4 | `I` | int | **no** |  | interactions |
+| 5 | `A` | int | **no** |  | with an agent |
+| 6 | `B` | int | **no** |  | billed: an agent used by someone not licensed at the time, or in a Copilot Studio channel |
+| 7 | `BW` | int | **no** |  | billed, reading work data |
+| 8 | `BA` | int | **no** |  | billed, calling another agent |
+| 9 | `R` | bigint | **no** |  | resources read |
+| 10 | `M` | bigint | **no** |  | messages (the prompt and the answer each count) |
+| 11 | `Lic` | tinyint | **no** |  | 1 when any was made while licensed |
+| 12 | `AnyBilled` | tinyint | **no** |  | 1 when any was billed |
+
+Indexes and constraints:
+
+- `PK_DashCreditUseDay`: primary key, clustered (DateKey, UserKey, AgentKey)
+- `NCCI_DashCreditUseDay`: nonclustered columnstore (every column)
+
+### dash.CreditUsePeriod
+
+*Table.* dash.CreditUseDay summed over each period a page offers (3.1.4), as dash.UserPeriod: EndKey, Days (7 to 730, or 0 for All data), UserKey, AgentKey and the same counts (bigint), Lic and AnyBilled the most of the days'. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+Indexes and constraints:
+
+- `CCI_DashCreditUsePeriod`: clustered columnstore
 
 ### dash.RefreshRun
 
