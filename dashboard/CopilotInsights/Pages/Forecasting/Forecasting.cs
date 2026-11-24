@@ -171,7 +171,10 @@ LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
 WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
-GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", c.Args(new { k30 = ReportContext.Key(c.End.AddDays(-29)), heavy = Heavy, idle = c.InactiveDays }))).ToList();
+GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)')
+/* In name order: when the smallest departments are folded together and several are the same size, the one added
+   is the first of them, which was whichever the plan returned first, so it changed with the plan. */
+ORDER BY Department;", c.Args(new { k30 = ReportContext.Key(c.End.AddDays(-29)), heavy = Heavy, idle = c.InactiveDays }))).ToList();
 
     /// <summary>The renewal figure for a context: from its departments' rows when the page already has them.</summary>
     public static async Task<RenewalSize> SizeAsync(Db db, Settings settings, ReportContext c, IReadOnlyCollection<DeptRow>? rows = null) =>
