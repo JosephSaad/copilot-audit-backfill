@@ -99,12 +99,16 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Resources read, by type and label", t2.Render(), "Resources read, not interactions: one interaction can read several. The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
         }
 
-        /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
+        /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. From each
+           person's resources read in the period where the refresh keeps them, else from every resource read (2 to 6
+           seconds for two years). */
         Task<List<(string Type, string Label, long N)>> MixAsync() => Db.QueryAsync<(string Type, string Label, long N)>($@"
-WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
+WITH g AS ({(Ctx.ResourceTotals ? $@"SELECT r.ResourceTypeKey, r.SensitivityLabelKey, SUM(r.Reads) AS N
+           FROM {Ctx.ReadMix()} AS r {Ctx.Scope("r.UserKey")}
+           GROUP BY r.ResourceTypeKey, r.SensitivityLabelKey" : $@"SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.ResourceTypeKey, f.SensitivityLabelKey)
+           GROUP BY f.ResourceTypeKey, f.SensitivityLabelKey")})
 SELECT COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)'), SUM(g.N)
 FROM g
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey

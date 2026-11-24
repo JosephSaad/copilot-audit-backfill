@@ -137,7 +137,12 @@ GROUP BY x.Bucket, COALESCE(vn.Name, a.App);", Ctx.Args());
 
         /* By file type (docx, xlsx, pptx ... and, for what is not a file, its kind), or by kind before that column exists. */
         var fileTypes = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL THEN 0 ELSE 1 END") == 1;
-        var sourcesTask = Db.QueryAsync<(string Type, long N)>(fileTypes ? $@"
+        /* From each person's resources read in the period where the refresh keeps them: counted from every resource read,
+           8 seconds for two years. */
+        var sourcesTask = Db.QueryAsync<(string Type, long N)>(fileTypes && Ctx.ResourceTotals ? $@"
+WITH {pop},
+x AS (SELECT r.FileTypeKey, SUM(r.Reads) AS N FROM {Ctx.ReadMix()} AS r JOIN p ON p.UserKey = r.UserKey GROUP BY r.FileTypeKey)
+SELECT t.FileType, x.N FROM x JOIN bi.DimFileType AS t ON t.FileTypeKey = x.FileTypeKey;" : fileTypes ? $@"
 WITH {pop},
 x AS (SELECT f.FileTypeKey, COUNT_BIG(*) AS N FROM bi.FactAccessedResource AS f JOIN p ON p.UserKey = f.UserKey
       WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.FileTypeKey)
@@ -150,14 +155,19 @@ LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
 GROUP BY COALESCE(vn.Name, t.ResourceType);", Ctx.Args());
 
         /* Minutes per person and app once, then by app, by card and by person from that. Sessions counts those with any
-           minutes, the list's length when it has no search. */
+           minutes, the list's length when it has no search. Each person's minutes per app are the refresh's sums of the
+           period where it keeps them (dash.SessionPeriod), and the conversations listed its columnstore copy of them
+           (dash.SessionSpan): the row store is read whole for any period, 5 to 8 seconds for two years. */
+        var sessionTable = Ctx.ResourceTotals ? "dash.SessionSpan" : "bi.FactSession";
         var minutesTask = Db.QueryAsync<Minutes>($@"
 WITH {pop}
-SELECT fs.AppKey, fs.UserKey, SUM(fs.SpanMinutes) AS M, COUNT_BIG(CASE WHEN fs.SpanMinutes > 0 THEN 1 END) AS N
+{(Ctx.ResourceTotals ? $@"SELECT sp.AppKey, sp.UserKey, sp.M, CAST(sp.N AS BIGINT) AS N
+INTO #s
+FROM {Ctx.SessionSums()} AS sp JOIN p ON p.UserKey = sp.UserKey;" : $@"SELECT fs.AppKey, fs.UserKey, SUM(fs.SpanMinutes) AS M, COUNT_BIG(CASE WHEN fs.SpanMinutes > 0 THEN 1 END) AS N
 INTO #s
 FROM bi.FactSession AS fs JOIN p ON p.UserKey = fs.UserKey
 WHERE fs.DateKey BETWEEN @k0 AND @k1
-GROUP BY fs.AppKey, fs.UserKey;
+GROUP BY fs.AppKey, fs.UserKey;")}
 SELECT N'a' AS Kind, a.AppKey AS [Key], COALESCE(vn.Name, a.App) AS Name, CAST(NULL AS NVARCHAR(512)) AS Upn, COUNT(*) AS People, SUM(s.M) AS Total, SUM(s.N) AS Sessions
 FROM #s AS s JOIN bi.DimApp AS a ON a.AppKey = s.AppKey LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.AppKey, COALESCE(vn.Name, a.App)
@@ -180,7 +190,7 @@ JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
         var sessionsTask = Db.QueryAsync<Session>($@"
 WITH {search},
 s AS (SELECT fs.SessionKey, fs.SpanMinutes, fs.PromptCount, fs.SessionStart, fs.AppKey, fs.UserKey, {sortText} AS SortText
-      FROM bi.FactSession AS fs JOIN ps ON ps.UserKey = fs.UserKey
+      FROM {sessionTable} AS fs JOIN ps ON ps.UserKey = fs.UserKey
       WHERE fs.DateKey BETWEEN @k0 AND @k1 AND fs.SpanMinutes > 0),
 pageRows AS (SELECT x.* FROM s AS x {page})
 SELECT x.SpanMinutes, x.PromptCount, x.SessionStart, COALESCE(vn.Name, a.App) AS App, du.DisplayName, du.UserPrincipalName
@@ -189,12 +199,16 @@ JOIN bi.DimApp AS a ON a.AppKey = x.AppKey LEFT JOIN dash.ValueName AS vn ON vn.
 ORDER BY {pg.OrderBy};", Ctx.Args(new { q = pg.Like }));
         var countTask = pg.Search is null ? Task.FromResult<long?>(null) : Db.ScalarAsync<long?>($@"
 WITH {search}
-SELECT COUNT_BIG(*) FROM bi.FactSession AS fs JOIN ps ON ps.UserKey = fs.UserKey
+SELECT COUNT_BIG(*) FROM {sessionTable} AS fs JOIN ps ON ps.UserKey = fs.UserKey
 WHERE fs.DateKey BETWEEN @k0 AND @k1 AND fs.SpanMinutes > 0;", Ctx.Args(new { q = pg.Like }));
 
+        /* The newest record from the period's last day on, and only where there is none every record: in one statement both
+           were read, the second a pass over every record (1.5 seconds at 160 million), whichever was needed. */
         var factsTask = Db.QueryAsync<(DateTime? Refreshed, DateTime? Latest)>(@"
-SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
-       ISNULL((SELECT MAX(f.CreatedUtc) FROM bi.FactInteraction AS f WHERE f.DateKey >= @k1), (SELECT MAX(f.CreatedUtc) FROM bi.FactInteraction AS f));", Ctx.Args());
+DECLARE @latest DATETIME2(0);
+SELECT @latest = MAX(f.CreatedUtc) FROM bi.FactInteraction AS f WHERE f.DateKey >= @k1;
+IF @latest IS NULL SELECT @latest = MAX(f.CreatedUtc) FROM bi.FactInteraction AS f;
+SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun), @latest;", Ctx.Args());
 
         await Task.WhenAll(peopleTask, appsTask, sourcesTask, minutesTask, sessionsTask, countTask, factsTask);
         var (days, people) = peopleTask.Result;

@@ -25,7 +25,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.ReadMix`](#dashreadmix), [`dash.ReadMixPeriod`](#dashreadmixperiod), [`dash.ResourceItem`](#dashresourceitem), [`dash.ResourcePeriod`](#dashresourceperiod), [`dash.SiteReader`](#dashsitereader), [`dash.SessionSpan`](#dashsessionspan), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -3533,6 +3533,176 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `CCI_DashCreditUsePeriod`: clustered columnstore
+
+### dash.ReadMix
+
+*Table.* Each combination of resource type, sensitivity label, file type and blocked, numbered (3.1.5): every combination bi.DimResourceType, bi.DimSensitivityLabel and bi.DimFileType allow, added by each refresh of the totals of resources read. A person's reads are counted per combination, not per four columns.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `MixKey` | int | **no** | **PK** |  |
+| 2 | `ResourceTypeKey` | int | **no** |  | bi.DimResourceType |
+| 3 | `SensitivityLabelKey` | int | **no** |  | bi.DimSensitivityLabel; 1 is no label |
+| 4 | `FileTypeKey` | int | **no** |  | bi.DimFileType |
+| 5 | `IsBlocked` | bit | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashReadMix`: primary key, clustered (MixKey)
+- `UQ_DashReadMix`: unique (ResourceTypeKey, SensitivityLabelKey, FileTypeKey, IsBlocked)
+
+### dash.ReadMixPeriod
+
+*Table.* Each person's resources read (bi.FactAccessedResource) of each combination in dash.ReadMix, over each period a page offers, ending on the last day with data and the day before it (3.1.5): one column per period. Sensitive content, Labeled content by unit and Usage by license read it instead of the fact. Rebuilt whole by dash.usp_RefreshResourceTotals, in one pass over the fact; read once the setting `DashResourceTotalsEnds` names the period's last day.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EndKey` | int | **no** |  | the periods' last day |
+| 2 | `UserKey` | int | **no** |  |  |
+| 3 | `MixKey` | int | **no** |  | dash.ReadMix |
+| 4 | `Reads7` | int | **no** |  | resources read in the 7 days to EndKey |
+| 5 | `Reads14` | int | **no** |  |  |
+| 6 | `Reads30` | int | **no** |  |  |
+| 7 | `Reads90` | int | **no** |  |  |
+| 8 | `Reads180` | int | **no** |  |  |
+| 9 | `Reads365` | int | **no** |  |  |
+| 10 | `Reads730` | int | **no** |  |  |
+| 11 | `ReadsAll` | int | **no** |  | from the first day with data |
+
+Indexes and constraints:
+
+- `CCI_DashReadMixPeriod`: clustered columnstore
+
+### dash.ResourceItem
+
+*Table.* Each label id and site dash.ResourceDay names, numbered (3.1.5), so dash.ResourcePeriod counts by a number, not by the text. Added to by each refresh of the totals of resources read.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ItemKey` | int | **no** | **PK**, identity |  |
+| 2 | `Kind` | varchar(8) | **no** |  | dash.ResourceDay's: Label, Site or Blocked |
+| 3 | `Item` | nvarchar(400) | **no** |  | the label id or the site, as dash.ResourceDay has it |
+
+Indexes and constraints:
+
+- `PK_DashResourceItem`: primary key, clustered (ItemKey)
+- `UQ_DashResourceItem`: unique (Kind, Item)
+
+### dash.ResourcePeriod
+
+*Table.* dash.ResourceDay summed per person over each period a page offers, ending on the last day with data and the day before it (3.1.5), one column per period: per label (Kind L), labeled site (S) and blocked site (B), all labels together with the days that had any (A) and all blocked sites together (X). Sensitive content and Access to labeled content read it instead of the days. Rebuilt whole by dash.usp_RefreshResourceTotals; read once the setting `DashResourceTotalsEnds` names the period's last day.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EndKey` | int | **no** |  | the periods' last day |
+| 2 | `Kind` | char(1) | **no** |  | L a label, S a labeled site, B a blocked site, A all labels, X all blocked sites |
+| 3 | `ItemKey` | int | **no** |  | dash.ResourceItem; 0 for A and X |
+| 4 | `UserKey` | int | **no** |  |  |
+| 5 | `N7` | int | **no** |  | dash.ResourceDay's interactions in the 7 days to EndKey |
+| 6 | `N14` | int | **no** |  |  |
+| 7 | `N30` | int | **no** |  |  |
+| 8 | `N90` | int | **no** |  |  |
+| 9 | `N180` | int | **no** |  |  |
+| 10 | `N365` | int | **no** |  |  |
+| 11 | `N730` | int | **no** |  |  |
+| 12 | `NAll` | int | **no** |  |  |
+| 13 | `D7` | smallint | **no** |  | A only: the days with labeled content in them; 0 for the other kinds |
+| 14 | `D14` | smallint | **no** |  |  |
+| 15 | `D30` | smallint | **no** |  |  |
+| 16 | `D90` | smallint | **no** |  |  |
+| 17 | `D180` | smallint | **no** |  |  |
+| 18 | `D365` | smallint | **no** |  |  |
+| 19 | `D730` | smallint | **no** |  |  |
+| 20 | `DAll` | smallint | **no** |  |  |
+
+Indexes and constraints:
+
+- `CCI_DashResourcePeriod`: clustered columnstore
+
+### dash.SiteReader
+
+*Table.* Each person and each site they read anything from through Copilot (bi.FactAccessedResource, never the "(none)" site), with their last two days there (3.1.5): whether they reached a site in a period ending on the data's last day or the day before is one comparison. Oversharing hotspots counts each site's people from it, where a distinct count over every resource read of the period took 15 seconds of processor. Kept by dash.usp_RefreshResourceTotals from the first day each refresh rewrote; built whole the first time.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SiteKey` | int | **no** |  | bi.DimSite |
+| 2 | `UserKey` | int | **no** |  |  |
+| 3 | `LastKey` | int | **no** |  | the last day they read from it |
+| 4 | `PrevKey` | int | yes |  | the last day before that; NULL when there is none; 0 when not worked out (a last day more than a week before the data's last day when the table was built whole) |
+
+Indexes and constraints:
+
+- `CCI_DashSiteReader`: clustered columnstore
+
+### dash.SessionSpan
+
+*Table.* The conversations of bi.FactSession as a columnstore (3.1.5): Usage by license reads each person's minutes per app and the longest conversations of a period from it, where the row store was read whole for any period. Kept by dash.usp_RefreshResourceTotals from the first day each refresh rewrote; built whole the first time.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SessionKey` | bigint | **no** |  |  |
+| 2 | `DateKey` | int | **no** |  |  |
+| 3 | `UserKey` | int | **no** |  |  |
+| 4 | `AppKey` | int | **no** |  | the first prompt's app |
+| 5 | `SessionStart` | datetime2(0) | **no** |  |  |
+| 6 | `SpanMinutes` | decimal(12,2) | **no** |  |  |
+| 7 | `PromptCount` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `CCI_DashSessionSpan`: clustered columnstore
+
+### dash.SessionPeriod
+
+*Table.* Each person's conversations (dash.SessionSpan) in each app over each period a page offers, ending on the last day with data and the day before it (3.1.5), one column per period: their minutes, those with minutes (more than one prompt) and all of them. Usage by license reads it instead of every conversation of the period. Rebuilt whole by dash.usp_RefreshResourceTotals; read once the setting `DashResourceTotalsEnds` names the period's last day.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EndKey` | int | **no** |  | the periods' last day |
+| 2 | `UserKey` | int | **no** |  |  |
+| 3 | `AppKey` | int | **no** |  | the first prompt's app |
+| 4 | `Minutes7` | decimal(14,2) | **no** |  | the conversations' minutes in the 7 days to EndKey |
+| 5 | `Minutes14` | decimal(14,2) | **no** |  |  |
+| 6 | `Minutes30` | decimal(14,2) | **no** |  |  |
+| 7 | `Minutes90` | decimal(14,2) | **no** |  |  |
+| 8 | `Minutes180` | decimal(14,2) | **no** |  |  |
+| 9 | `Minutes365` | decimal(14,2) | **no** |  |  |
+| 10 | `Minutes730` | decimal(14,2) | **no** |  |  |
+| 11 | `MinutesAll` | decimal(14,2) | **no** |  | from the first day with data |
+| 12 | `Spanned7` | int | **no** |  | conversations with minutes in the 7 days to EndKey |
+| 13 | `Spanned14` | int | **no** |  |  |
+| 14 | `Spanned30` | int | **no** |  |  |
+| 15 | `Spanned90` | int | **no** |  |  |
+| 16 | `Spanned180` | int | **no** |  |  |
+| 17 | `Spanned365` | int | **no** |  |  |
+| 18 | `Spanned730` | int | **no** |  |  |
+| 19 | `SpannedAll` | int | **no** |  |  |
+| 20 | `Sessions7` | int | **no** |  | all conversations in the 7 days to EndKey |
+| 21 | `Sessions14` | int | **no** |  |  |
+| 22 | `Sessions30` | int | **no** |  |  |
+| 23 | `Sessions90` | int | **no** |  |  |
+| 24 | `Sessions180` | int | **no** |  |  |
+| 25 | `Sessions365` | int | **no** |  |  |
+| 26 | `Sessions730` | int | **no** |  |  |
+| 27 | `SessionsAll` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `CCI_DashSessionPeriod`: clustered columnstore
 
 ### dash.RefreshRun
 
