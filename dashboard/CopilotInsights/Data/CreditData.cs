@@ -51,9 +51,13 @@ public sealed class CreditData(Db db, Settings settings)
 
     async Task<CreditView> BuildFreshAsync(ReportContext c)
     {
-        var rates = await RatesAsync();
+        /* The names, the agents and the rates do not depend on the use: they are read beside it. */
+        var whoTask = db.QueryAsync<(int UserKey, string? DisplayName, string UserPrincipalName, string? Department, bool Enabled)>(
+                "SELECT UserKey, DisplayName, UserPrincipalName, Department, CAST(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END AS BIT) FROM bi.DimUser;");
+        var agentsTask = db.QueryAsync<(int AgentKey, string AgentName, string? AgentSource)>("SELECT AgentKey, AgentName, AgentSource FROM dash.Agent;");
+        var ratesTask = RatesAsync();
+        var firstTask = OpsReports.FirstDayAsync(db);
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
-        var days = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
         /* One pass over the fact, to one row a person and agent, then grouped twice (by person, by agent): nothing of the
            period copied out, as at 120M interactions that copy was the cost of the page. This replaced GROUPING SETS
            with a distinct count of people, which aggregated the fact twice and spooled it (2.6 s against 0.2 s for the
@@ -86,10 +90,10 @@ FROM #ua AS ua {ReportContext.EnabledJoin("ua.UserKey", left: true)} GROUP BY ua
         var byUser = all.Where(r => r.G == 0).ToList();
         var byAgent = all.Where(r => r.G == 1 && r.A > 0).ToList();
         static CreditUse Use(Row r) => new(r.I, r.A, r.B, r.BW, r.BA, r.R, r.M / 2);   // MessageCount counts the prompt and the answer
-        var who = (await db.QueryAsync<(int UserKey, string? DisplayName, string UserPrincipalName, string? Department, bool Enabled)>(
-                "SELECT UserKey, DisplayName, UserPrincipalName, Department, CAST(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END AS BIT) FROM bi.DimUser;")).ToDictionary(u => u.UserKey);
-        var agents = (await db.QueryAsync<(int AgentKey, string AgentName, string? AgentSource)>("SELECT AgentKey, AgentName, AgentSource FROM dash.Agent;"))
-            .GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First());
+        var rates = await ratesTask;
+        var days = OpsReports.DaysCovered(c, await firstTask);
+        var who = (await whoTask).ToDictionary(u => u.UserKey);
+        var agents = (await agentsTask).GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First());
         var people = byUser.Select(r =>
         {
             var u = who.TryGetValue(r.Key, out var x) ? x : (r.Key, null, $"(user {r.Key})", null, false);

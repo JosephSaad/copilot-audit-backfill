@@ -64,7 +64,9 @@ namespace CopilotInsights.Pages.Adoption
 
         protected override async Task BuildAsync()
         {
-            var licensed = await Db.QueryAsync<Row>($@"
+            /* The licensed and the hired are read side by side. */
+            var hasHire = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL THEN 0 ELSE 1 END") == 1;
+            var licensedTask = Db.QueryAsync<Row>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, CAST(du.LicensedSinceUtc AS DATE) AS Since, du.UserKey
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
@@ -74,8 +76,7 @@ FROM #c AS c
 LEFT JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), c.Since, 112))
 LEFT JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
 GROUP BY c.UserKey, c.Dept, c.Since;", Ctx.Args());
-            var hasHire = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL THEN 0 ELSE 1 END") == 1;
-            var hired = !hasHire ? [] : await Db.QueryAsync<Row>($@"
+            var hiredTask = !hasHire ? Task.FromResult(new List<Row>()) : Db.QueryAsync<Row>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, cl.EmployeeHireDate AS Since, du.UserKey
 INTO #h
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
@@ -86,6 +87,7 @@ FROM #h AS h
 LEFT JOIN dash.UserDay AS ud ON ud.UserKey = h.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), h.Since, 112))
 LEFT JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
 GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
+            var (licensed, hired) = await Queries(licensedTask, hiredTask);
 
             if (licensed.Count == 0 && hired.Count == 0) { Notice = "Nobody was licensed or hired in the period."; return; }
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
@@ -161,13 +163,11 @@ namespace CopilotInsights.Pages.Leadership
 
         protected override async Task BuildAsync()
         {
-            var v = await reports.ValueAsync(Ctx);
+            var (v, t, months) = await Queries(reports.ValueAsync(Ctx), HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx), reports.LicenseMonthsAsync(Ctx));
             var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
             var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
-            var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var months = await reports.LicenseMonthsAsync(Ctx);
             var whole = Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0;
             var licenseCost = Licensing.Price.ForLicenseMonths(months, price);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app",
@@ -331,12 +331,13 @@ namespace CopilotInsights.Pages.Agents
                 _ => ("Every agent", "The agents the workbook lists: the current ones. An agent since deleted is on Agents in use, under the audit log's name."),
             };
             if (await BuildListAsync(title, note)) return;
+            /* Each person's use of each agent from the totals the refresh keeps (ReportContext.PerItem): a person is one row
+               an agent, so the rows are its people. They leave out the "(none)" agent, which this list does not show. */
             var rows = await Db.QueryAsync<Row>($@"
-SELECT f.AgentKey, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END) AS People   -- people enabled today (3.1.3); interactions everyone's
+SELECT gi.Item AS AgentKey, SUM(CAST(gi.Interactions AS BIGINT)) AS Interactions, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People   -- people enabled today (3.1.3); interactions everyone's
 INTO #u
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY f.AgentKey;
+FROM {Ctx.PerItem('G')} AS gi {Ctx.Scope("gi.UserKey")} {ReportContext.EnabledJoin("gi.UserKey", left: true)}
+GROUP BY gi.Item;
 SELECT a.AgentKey, a.AgentName, a.AgentSource, a.Owner, CAST(CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Named, a.FirstSeenUtc,
        (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = au.LastDateKey) AS LastUsed,
        ISNULL(u.Interactions, 0) AS Interactions, ISNULL(u.People, 0) AS People
@@ -471,12 +472,10 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
         {
             var per = Math.Clamp(await S.Settings.IntAsync("ChampionsPerDepartment", 3), 1, 20);
             var rows = await Db.QueryAsync<Row>($@"
-SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
-       MAX(ud.AppsUsed) AS Apps, SUM(ud.MultiTurnSessions) AS MT, SUM(ud.Sessions) AS S
+SELECT pp.UserKey, pp.ActiveDays AS Days, CAST(pp.Interactions AS BIGINT) AS Interactions,
+       pp.MostApps AS Apps, pp.MultiTurnSessions AS MT, pp.Sessions AS S
 INTO #p
-FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-WHERE ud.DateKey BETWEEN @k0 AND @k1
-GROUP BY ud.UserKey;
+FROM {Ctx.PerPerson()} AS pp {Ctx.Scope("pp.UserKey")};   -- each person's sums over the period, from the totals the refresh keeps
 WITH scored AS
 (
     SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)') AS Dept, u.DisplayName, u.UserPrincipalName, u.JobTitle,
