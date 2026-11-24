@@ -138,7 +138,14 @@ ORDER BY e.Bucket;", c.Args());
     /// </summary>
     public async Task<List<TrendRow>> SumsTrendAsync(ReportContext c)
     {
-        var rows = await db.QueryAsync<TrendRow>($@"
+        /* Weekly, once the totals are built, the weeks are summed a week at a time (ReportContext.PointSums): carried
+           a person at a time as PerPoint has them, the same sums took twice the processor time at two years. */
+        var rows = c.Rollups && !c.Daily ? await db.QueryAsync<TrendRow>($@"
+SELECT x.Bucket, SUM(x.Interactions) AS Interactions, SUM(x.Prompts) AS Prompts, SUM(x.Sessions) AS Sessions, SUM(x.MultiTurn) AS MultiTurn,
+       SUM(x.Chat) AS Chat, SUM(x.Agent) AS Agent, SUM(x.Web) AS Web, SUM(x.Jailbreak) AS Jailbreak, SUM(x.Injection) AS Injection,
+       SUM(x.Blocked) AS Blocked, SUM(x.Labeled) AS Labeled
+FROM {c.PointSums()} AS x
+GROUP BY x.Bucket;", c.Args()) : await db.QueryAsync<TrendRow>($@"
 SELECT pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS Interactions, SUM(CAST(pp.Prompts AS BIGINT)) AS Prompts,
        SUM(CAST(pp.Sessions AS BIGINT)) AS Sessions, SUM(CAST(pp.MultiTurnSessions AS BIGINT)) AS MultiTurn,
        SUM(CAST(pp.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(pp.AgentInteractions AS BIGINT)) AS Agent,
