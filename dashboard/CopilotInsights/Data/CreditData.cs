@@ -58,28 +58,14 @@ public sealed class CreditData(Db db, Settings settings)
         var ratesTask = RatesAsync();
         var firstTask = OpsReports.FirstDayAsync(db);
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
-        /* One pass over the fact, to one row a person and agent, then grouped twice (by person, by agent): nothing of the
-           period copied out, as at 120M interactions that copy was the cost of the page. This replaced GROUPING SETS
-           with a distinct count of people, which aggregated the fact twice and spooled it (2.6 s against 0.2 s for the
-           demo's half million rows, the same rows); a person and agent being one row, its billed rows count the people.
-           Billed: an agent used by someone not licensed at the time (status 2; an unknown status is not taken for
-           unlicensed), or in a Copilot Studio channel. */
+        /* One row a person and agent, then grouped twice (by person, by agent). The rows are the credit counts the
+           refresh keeps per person and agent (ReportContext.PerCredit, by the rules it states: billed is an agent used by
+           someone not licensed at the time, or in a Copilot Studio channel), or the same worked out from the fact before
+           it has built them. A person and agent being one row, its billed rows count the people. */
         var all = await db.QueryAsync<Row>($@"
-SELECT fi.UserKey, fi.AgentKey,
-       COUNT_BIG(*) AS I, SUM(x.IsAgent) AS A, SUM(x.Billed) AS B, SUM(x.Billed * x.Work) AS BW, SUM(x.Billed * x.Calls) AS BA,
-       SUM(CAST(ISNULL(fi.AccessedResourceCount, 0) AS BIGINT)) AS R, SUM(CAST(ISNULL(fi.MessageCount, 1) AS BIGINT)) AS M,
-       MAX(x.Lic) AS Lic, MAX(x.Billed) AS AnyBilled
+SELECT p.UserKey, p.AgentKey, p.I, p.A, p.B, p.BW, p.BA, p.R, p.M, p.Lic, p.AnyBilled
 INTO #ua
-FROM bi.FactInteraction AS fi {c.Scope("fi.UserKey")}
-JOIN bi.DimAgent AS ag ON ag.AgentKey = fi.AgentKey
-JOIN bi.DimApp AS ap ON ap.AppKey = fi.AppKey
-CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS IsAgent,
-                    CASE WHEN fi.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS Lic,
-                    CASE WHEN ag.AgentSource <> N'(no agent)' AND (fi.LicenseStatusKey = 2 OR ap.App = N'Copilot Studio') THEN 1 ELSE 0 END AS Billed,
-                    CASE WHEN fi.AccessedResourceCount > 0 OR fi.UseKind IN (1, 3) THEN 1 ELSE 0 END AS Work,
-                    CAST(ISNULL(fi.CalledAnotherAgent, 0) AS INT) AS Calls) AS x
-WHERE fi.DateKey BETWEEN @k0 AND @k1
-GROUP BY fi.UserKey, fi.AgentKey;
+FROM {c.PerCredit()} AS p {c.Scope("p.UserKey")};
 SELECT 0 AS G, UserKey AS [Key], SUM(I) AS I, SUM(A) AS A, SUM(B) AS B, SUM(BW) AS BW, SUM(BA) AS BA, SUM(R) AS R, SUM(M) AS M,
        MAX(Lic) AS Lic, MAX(AnyBilled) AS People
 FROM #ua GROUP BY UserKey

@@ -339,16 +339,12 @@ namespace CopilotInsights.Pages.Agents
                 _ => ("Every agent", "The agents the workbook lists: the current ones. An agent since deleted is on Agents in use, under the audit log's name."),
             };
             if (await BuildListAsync(title, note)) return;
-            /* Each person's use of each agent from the totals the refresh keeps (ReportContext.PerItem): a person is one row
-               an agent, so the rows are its people. They leave out the "(none)" agent, which this list does not show. */
-            var rows = await Db.QueryAsync<Row>($@"
-SELECT gi.Item AS AgentKey, SUM(CAST(gi.Interactions AS BIGINT)) AS Interactions, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People   -- people enabled today (3.1.3); interactions everyone's
-INTO #u
-FROM {Ctx.PerItem('G')} AS gi {Ctx.Scope("gi.UserKey")} {ReportContext.EnabledJoin("gi.UserKey", left: true)}
-GROUP BY gi.Item;
+            /* Each agent's use in the period from the totals the refresh keeps, as the workbook's list reads it
+               (Workbook.AgentUseSql): it leaves out the "(none)" agent, which this list does not show either. */
+            var rows = await Db.QueryAsync<Row>($@"{Workbook.AgentUseSql(Ctx)}
 SELECT a.AgentKey, a.AgentName, a.AgentSource, a.Owner, CAST(CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Named, a.FirstSeenUtc,
        (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = au.LastDateKey) AS LastUsed,
-       ISNULL(u.Interactions, 0) AS Interactions, ISNULL(u.People, 0) AS People
+       ISNULL(u.N, 0) AS Interactions, ISNULL(u.People, 0) AS People
 FROM dash.Agent AS a
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = a.AgentKey
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = a.AgentKey

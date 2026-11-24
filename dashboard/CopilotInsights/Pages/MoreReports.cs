@@ -126,10 +126,12 @@ namespace CopilotInsights.Pages.Agents
         protected override async Task BuildAsync()
         {
             /* The trend and the agents called are read side by side. */
+            /* Both from the totals the refresh keeps: the interactions at each point (ReportContext.PerPoint), and those
+               that called another agent (flag 2 of PerItemPoint's flags). */
             var trTask = Db.QueryAsync<(DateTime Bucket, long Calls, long All)>($@"
-SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+WITH a AS (SELECT pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS AllI FROM {Ctx.PerPoint()} AS pp {Ctx.Scope("pp.UserKey")} GROUP BY pp.Bucket),
+c AS (SELECT fp.Bucket, SUM(CAST(fp.Interactions AS BIGINT)) AS Calls FROM {Ctx.PerItemPoint('F')} AS fp {Ctx.Scope("fp.UserKey")} WHERE fp.Item = 2 GROUP BY fp.Bucket)
+SELECT a.Bucket, ISNULL(c.Calls, 0), a.AllI FROM a LEFT JOIN c ON c.Bucket = a.Bucket;", Ctx.Args());
             var targetsTask = Db.QueryAsync<(string Target, long N, int People)>($@"
 SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END)   -- people enabled today (3.1.3)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} {ReportContext.EnabledJoin("f.UserKey", left: true)}

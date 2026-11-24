@@ -135,7 +135,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args());
            everyone but the disabled (they are the leavers, counted there); train and upgrade are of accounts enabled
            today, as Upgrade, train or revoke lists them (ActionsModel.Enabled). */
         async Task<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)> CountsAsync() => (await db.QueryAsync<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)>($@"
-WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey)},
+WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT COUNT(x.L), ISNULL(SUM(x.R), 0), ISNULL(SUM(x.T), 0), ISNULL(SUM(x.U), 0), ISNULL(SUM(x.S), 0)
 FROM (SELECT lic.UserKey AS L,
