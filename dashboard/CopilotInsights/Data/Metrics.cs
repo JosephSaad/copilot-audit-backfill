@@ -138,7 +138,14 @@ ORDER BY e.Bucket;", c.Args());
     /// </summary>
     public async Task<List<TrendRow>> SumsTrendAsync(ReportContext c)
     {
-        var rows = await db.QueryAsync<TrendRow>($@"
+        /* Weekly, once the totals are built, the weeks are summed a week at a time (ReportContext.PointSums): carried
+           a person at a time as PerPoint has them, the same sums took twice the processor time at two years. */
+        var rows = c.Rollups && !c.Daily ? await db.QueryAsync<TrendRow>($@"
+SELECT x.Bucket, SUM(x.Interactions) AS Interactions, SUM(x.Prompts) AS Prompts, SUM(x.Sessions) AS Sessions, SUM(x.MultiTurn) AS MultiTurn,
+       SUM(x.Chat) AS Chat, SUM(x.Agent) AS Agent, SUM(x.Web) AS Web, SUM(x.Jailbreak) AS Jailbreak, SUM(x.Injection) AS Injection,
+       SUM(x.Blocked) AS Blocked, SUM(x.Labeled) AS Labeled
+FROM {c.PointSums()} AS x
+GROUP BY x.Bucket;", c.Args()) : await db.QueryAsync<TrendRow>($@"
 SELECT pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS Interactions, SUM(CAST(pp.Prompts AS BIGINT)) AS Prompts,
        SUM(CAST(pp.Sessions AS BIGINT)) AS Sessions, SUM(CAST(pp.MultiTurnSessions AS BIGINT)) AS MultiTurn,
        SUM(CAST(pp.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(pp.AgentInteractions AS BIGINT)) AS Agent,
@@ -358,10 +365,15 @@ ORDER BY {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN 1 ELS
 WITH {UnitMembers(c, parent is not null)}
 /* A member is in one unit once, and has one row a point, so the active rows are the active people: no distinct count. */
 SELECT u.Unit, pp.Bucket, COUNT(CASE WHEN pp.Interactions > 0 THEN 1 END)
-FROM u INNER HASH JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
+FROM u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
 WHERE u.AccountEnabled = 1
-GROUP BY u.Unit, pp.Bucket;", c.Args(new { parent }));
+GROUP BY u.Unit, pp.Bucket
+OPTION (OPTIMIZE FOR UNKNOWN, USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE'));", c.Args(new { parent }));
     }
+
+    /* The members meet each person's points in a parallel plan, which joins them by hash. A hash join named in the
+       statement fixed the order of every join inside the points too (the weeks, the days and their dates), and the
+       plan took three times the processor time: 8 seconds for two years at the top. */
 
     /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labeled content, web grounding.</summary>
     public async Task<List<UnitPoint>> UnitSeriesAsync(ReportContext c)
@@ -372,8 +384,44 @@ WITH {UnitMembers(c, parent is not null)}
 SELECT u.Unit, pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(pp.Jailbreak AS BIGINT) + pp.PromptInjection + pp.BlockedResource) AS Flags,
        SUM(CAST(pp.LabeledContent AS BIGINT)) AS Labeled, SUM(CAST(pp.WebGrounded AS BIGINT)) AS Web
-FROM u INNER HASH JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
-GROUP BY u.Unit, pp.Bucket;", c.Args(new { parent }));
+FROM u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
+GROUP BY u.Unit, pp.Bucket
+OPTION (OPTIMIZE FOR UNKNOWN, USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE'));", c.Args(new { parent }));
+    }
+
+    /// <summary>
+    /// The units one level below (as <see cref="UnitsAsync"/>) with their names and people only: the members counted,
+    /// without anyone's sums. For a page whose units' use comes from <see cref="UnitSeriesAsync"/>, whose points add up to
+    /// the period: see <see cref="WithUse"/>.
+    /// </summary>
+    public async Task<List<UnitRow>> UnitPeopleAsync(ReportContext c)
+    {
+        var parent = c.Root ?? c.OrgTopUpn;
+        var rows = await db.QueryAsync<UnitRow>($@"
+WITH {UnitMembers(c, parent is not null)},
+g AS (SELECT u.Unit, COUNT(CASE WHEN u.AccountEnabled = 1 THEN 1 END) AS People FROM u GROUP BY u.Unit)
+SELECT g.Unit,
+       {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN N'Reporting directly' ELSE mp.DisplayName END")} AS Name,
+       {(parent is null ? "NULL" : "mp.Department")} AS Department, g.People
+FROM g
+{(parent is null ? "" : "LEFT JOIN dash.Person AS mp ON mp.Upn = g.Unit")}
+ORDER BY {(parent is null ? "g.Unit" : "CASE WHEN g.Unit = N'~direct' THEN 1 ELSE 0 END, Name")};", c.Args(new { parent }));
+        if (c.PrivacyMode && parent is not null) Unnamed(rows);
+        return rows;
+    }
+
+    /// <summary>
+    /// Each unit of <paramref name="units"/> (from <see cref="UnitPeopleAsync"/>) with its interactions, signals, labeled
+    /// content and web searches in the period: its points of <paramref name="series"/> added up, which are the period's
+    /// days, so the same as <see cref="UnitsAsync"/> reads from each person's period. The counts of people besides
+    /// People (licensed, active) are not filled.
+    /// </summary>
+    public static List<UnitRow> WithUse(IEnumerable<UnitRow> units, IEnumerable<UnitPoint> series)
+    {
+        var use = series.GroupBy(p => p.Unit).ToDictionary(g => g.Key, g => (I: g.Sum(p => p.Interactions), F: g.Sum(p => p.Flags), L: g.Sum(p => p.Labeled), W: g.Sum(p => p.Web)));
+        foreach (var u in units)
+            if (use.TryGetValue(u.Unit, out var x)) (u.Interactions, u.Flags, u.Labeled, u.Web) = (x.I, x.F, x.L, x.W);
+        return units.ToList();
     }
 
     public static UnitRow Combine(IReadOnlyList<UnitRow> rows, string name) => new()

@@ -22,7 +22,9 @@ public class LeadershipSpeedTests
         Assert.Contains("var join = hash ? \"LEFT HASH JOIN\" : \"LEFT JOIN\";", m);   // by hash over the period totals; a parallel plan otherwise
         Assert.Contains("{join} act AS a ON a.UserKey = u.UserKey", m);
         Assert.Contains("USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE')", m);
-        Assert.Contains("FROM u INNER HASH JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey", m);
+        /* Over each person's points the members are joined in a parallel plan, not by a named hash join that fixed every join order inside. */
+        Assert.DoesNotContain("INNER HASH JOIN", m);
+        Assert.Contains("FROM u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey", m);
         Assert.Contains("LEFT JOIN dash.Person AS mp ON mp.Upn = g.Unit", m);
         /* The members with a key and an account on the closure come from its part index alone. */
         Assert.Contains("WHERE oc.DescendantEnabled IS NOT NULL AND oc.DescendantKey IS NOT NULL\n      UNION ALL", m);
@@ -52,6 +54,21 @@ public class LeadershipSpeedTests
         Assert.Contains("static string PerPersonOf(ReportContext c) => c.WeeksAnswer ? c.PerPersonFromWeeks() : c.PerPerson();", m);
         Assert.Contains("{(c.WeeksAnswer ? \"p.Last7\" : \"CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END\")} AS Last7", m);
         Assert.Contains("LEFT JOIN sums AS su ON su.Bucket = e.Bucket", m);
+    }
+
+    [Fact]
+    public void Security_and_Governance_read_use_sums_and_unit_people_only()
+    {
+        var sec = Read("Pages", "Security", "Security.cs");
+        Assert.Contains("var trTask = m.SumsTrendAsync(Ctx);", sec);
+        Assert.Contains("var unitsTask = m.UnitPeopleAsync(Ctx);", sec);
+        Assert.Contains("var unitRows = Metrics.WithUse(await unitsTask, await seriesTask);", sec);
+        Assert.DoesNotContain("m.UnitsAsync(Ctx)", sec);
+        var gov = Read("Pages", "Governance", "Governance.cs");
+        Assert.Contains("var trTask = m.SumsTrendAsync(Ctx);", gov);
+        /* Each person's product sums are written once per product, not once per agent. */
+        Assert.Contains("GROUP BY u.UserKey, ap.Product;", gov);
+        Assert.Contains("GROUP BY u.UserKey, sp.Product;", gov);
     }
 
     [Fact]

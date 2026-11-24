@@ -31,4 +31,33 @@ public sealed partial class ReportContext
           WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (d.WeekEnding >= {Day("@k7")} OR d.WeekEnding IN {cut})) AS x
     GROUP BY x.UserKey)";
     }
+
+    /// <summary>The use sums of a trend point, named as <see cref="CopilotInsights.Data.TrendRow"/> names them, from dash.UserWeek's or dash.UserDay's columns under <paramref name="alias"/>.</summary>
+    static string PointSumColumns(string alias) =>
+        $@"SUM(CAST({alias}.Interactions AS BIGINT)) AS Interactions, SUM(CAST({alias}.Prompts AS BIGINT)) AS Prompts, SUM(CAST({alias}.Sessions AS BIGINT)) AS Sessions,
+             SUM(CAST({alias}.MultiTurnSessions AS BIGINT)) AS MultiTurn, SUM(CAST({alias}.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST({alias}.AgentInteractions AS BIGINT)) AS Agent,
+             SUM(CAST({alias}.WebGrounded AS BIGINT)) AS Web, SUM(CAST({alias}.Jailbreak AS BIGINT)) AS Jailbreak, SUM(CAST({alias}.PromptInjection AS BIGINT)) AS Injection,
+             SUM(CAST({alias}.BlockedResource AS BIGINT)) AS Blocked, SUM(CAST({alias}.LabeledContent AS BIGINT)) AS Labeled";
+
+    /// <summary>
+    /// The use sums at each weekly trend point, in scope, as a derived table: Bucket and the sums of
+    /// <see cref="PointSumColumns"/>, a point's rows to be added up by the caller. A week ending between the period's
+    /// sixth day and its last has all seven days in it and is dash.UserWeek's, summed a week at a time; the days of every
+    /// other week (the one or two the period cuts) are dash.UserDay's. The same days as <see cref="PerPoint"/>, without a
+    /// row for each person: for a trend that counts no one. Only once the totals are built and the trend is weekly.
+    /// </summary>
+    public string PointSums()
+    {
+        static string Day(string key) => $"DATEFROMPARTS({key} / 10000, {key} / 100 % 100, {key} % 100)";
+        var whole = $"BETWEEN DATEADD(DAY, 6, {Day("@k0")}) AND {Day("@k1")}";
+        return $@"(SELECT uw.WeekEnding AS Bucket, {PointSumColumns("uw")}
+      FROM dash.UserWeek AS uw {Scope("uw.UserKey")}
+      WHERE uw.WeekEnding {whole}
+      GROUP BY uw.WeekEnding
+      UNION ALL
+      SELECT d.WeekEnding, {PointSumColumns("ud")}
+      FROM dash.UserDay AS ud {Scope("ud.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+      WHERE ud.DateKey BETWEEN @k0 AND @k1 AND NOT (d.WeekEnding {whole})
+      GROUP BY d.WeekEnding)";
+    }
 }
