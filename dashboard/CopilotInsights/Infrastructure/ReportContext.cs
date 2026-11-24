@@ -164,7 +164,7 @@ public sealed record Bucket(DateTime Key, string Label, bool Partial);
 /// into) and the viewer's scope. Every query that touches people goes through
 /// Scope() or PersonScope(), so the security model is applied in one place.
 /// </summary>
-public sealed class ReportContext
+public sealed partial class ReportContext
 {
     /// <summary>The period choice that means every day with data, from the first record to the last complete day (3.1.3).</summary>
     public const int AllData = 0;
