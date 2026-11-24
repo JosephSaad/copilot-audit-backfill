@@ -181,7 +181,10 @@ public class Release272Tests
     public void A_license_month_costs_the_price_whole()
     {
         Assert.Equal(18m * 2_718, CopilotInsights.Pages.Licensing.Price.ForLicenseMonths(2_718, 18m));
-        Assert.Contains("ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price)", Source.Read("Pages", "Leadership", "BoardPack.cs"));
+        /* The board pack starts its reads side by side: the license months are read with the others and charged here. */
+        var board = Source.Read("Pages", "Leadership", "BoardPack.cs");
+        Assert.Contains("var monthsTask = reports.LicenseMonthsAsync(Ctx);", board);
+        Assert.Contains("ForLicenseMonths(await monthsTask, price)", board);
         Assert.Contains("Licensing.Price.ForLicenseMonths(months, price)", Source.Read("Pages", "OperationsReports.cs"));
         Assert.Contains("if (months.Count == 0) return 0;", Source.Read("Data", "OpsReports.cs"));
     }

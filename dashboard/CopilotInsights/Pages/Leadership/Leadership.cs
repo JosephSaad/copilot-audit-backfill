@@ -67,6 +67,10 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         await Task.WhenAll(unitsTask, trendTask);
         var units = await unitsTask;
         var trend = await trendTask;
+        /* Each unit's people at each point, looked up: the table's trends and the heat map read every unit at every
+           point, and a pass over all the trend's rows for each cell grew with units times points times rows. */
+        var active = trend.GroupBy(r => (r.Unit, r.Bucket)).ToDictionary(g => g.Key, g => g.Sum(r => r.Active));
+        int ActiveAt(string unit, DateTime bucket) => active.GetValueOrDefault((unit, bucket));
         var buckets = Buckets();
         var axis = Labels();
         var shown = FoldSmall(units, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
@@ -88,7 +92,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         };
         foreach (var u in shown)
         {
-            var series = buckets.Select(b => (double?)trend.Where(r => r.Unit == u.Unit && r.Bucket == b.Key).Sum(r => r.Active)).ToList();
+            var series = buckets.Select(b => (double?)ActiveAt(u.Unit, b.Key)).ToList();
             t.Rows.Add([
                 u.Drillable ? new Link(u.Name, Ctx.Url(Request.Path, org: u.Unit)) : u.Name, u.Department, u.People, u.Licensed, u.Active,
                 AdoptionAtMin(u.ActiveLicensed, u.Licensed), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
@@ -107,7 +111,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         for (var r = 0; r < big.Count; r++)
             for (var c = 0; c < buckets.Count; c++)
             {
-                var a = trend.Where(x => x.Unit == big[r].Unit && x.Bucket == buckets[c].Key).Sum(x => x.Active);
+                var a = ActiveAt(big[r].Unit, buckets[c].Key);
                 grid[r, c] = big[r].People > 0 ? a / (double)big[r].People : null;
             }
         Panels.Add(new("Share of people active",
@@ -126,23 +130,31 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var trTask = m.TrendAsync(Ctx);
         var totalsTask = m.TotalsAsync(Ctx);
-        /* Counted per agent and person first, then named: grouped on the names over the fact, 120 million
-           interactions took 13.7 s for 90 days; this way 1.6 s, the same rows. */
+        /* Each person's use of each agent and app is read from the nightly totals (Ctx.PerItem, Ctx.PerItemPoint), not
+           counted from the 160 million interactions: a few hundred thousand rows a period instead of a scan of the fact.
+           The agents are listed with their names first: joined straight to dash.Agent, a view, its names were worked
+           out row by row. An agent's people are counted on its own key, where each person has one row; a name that
+           several keys share counts each person once, from their rows of all of them. */
         var agentsTask = Db.QueryAsync<(string AgentName, long N, int People)>($@"
-WITH g AS (SELECT f.AgentKey, f.UserKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.AgentKey IN (SELECT AgentKey FROM dash.Agent WHERE AgentSource <> N'(no agent)')
-           GROUP BY f.AgentKey, f.UserKey)
-SELECT ag.AgentName, SUM(g.N), COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN g.UserKey END)   -- people: enabled accounts (3.1.3)
-FROM g JOIN dash.Agent AS ag ON ag.AgentKey = g.AgentKey
+SELECT ag.AgentKey, ag.AgentName, COUNT(*) OVER (PARTITION BY ag.AgentName) AS Keys INTO #ag FROM dash.Agent AS ag WHERE ag.AgentSource <> N'(no agent)';
+WITH g AS (SELECT it.Item, it.UserKey, it.Interactions FROM {Ctx.PerItem('G')} AS it {Ctx.Scope("it.UserKey")})
+SELECT ag.AgentName, SUM(x.N) AS N, SUM(x.People) AS People   -- people: enabled accounts (3.1.3)
+FROM (SELECT g.Item, SUM(CAST(g.Interactions AS BIGINT)) AS N, COUNT(CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN 1 END) AS People
+      FROM g {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("g.UserKey", left: true)}
+      WHERE g.Item IN (SELECT AgentKey FROM #ag WHERE Keys = 1)
+      GROUP BY g.Item) AS x
+JOIN #ag AS ag ON ag.AgentKey = x.Item
+GROUP BY ag.AgentName
+UNION ALL
+SELECT ag.AgentName, SUM(CAST(g.Interactions AS BIGINT)), COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN g.UserKey END)
+FROM g JOIN #ag AS ag ON ag.AgentKey = g.Item AND ag.Keys > 1
 {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("g.UserKey", left: true)}
-GROUP BY ag.AgentName ORDER BY 2 DESC;", Ctx.Args());
+GROUP BY ag.AgentName
+ORDER BY 2 DESC;", Ctx.Args());
         var rows = await Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
-WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.AppKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY {Ctx.BucketSql("d")}, f.AppKey)
+WITH g AS (SELECT pt.Bucket, pt.Item AS AppKey, SUM(CAST(pt.Interactions AS BIGINT)) AS N
+           FROM {Ctx.PerItemPoint('A')} AS pt {Ctx.Scope("pt.UserKey")}
+           GROUP BY pt.Bucket, pt.Item)
 SELECT g.Bucket, COALESCE(vn.Name, a.App), SUM(g.N)
 FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name, as Apps shows it

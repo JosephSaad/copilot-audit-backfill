@@ -20,25 +20,38 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         /* The Scorecard was this page's figures against the period before, by unit, on a page of its own: it is folded in
            here, and /leadership/scorecard arrives here. */
         var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
+        /* Every read the page makes is started here, side by side, each on its own connection, and awaited where it is
+           used: one after another, the trend, the targets, the value, the license months, the pool, the action counts and
+           the non-human accounts added their times to the headline's. Those against the period before start as soon as
+           the first day with data says there is a full one. */
         var splitTask = Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
         var firstTask = OpsReports.FirstDayAsync(Db);
         var nowTask = metrics.TotalsAsync(Ctx);
         var u1Task = metrics.UnitsAsync(Ctx);
-        await Task.WhenAll(splitTask, firstTask, nowTask, u1Task);
+        var trTask = metrics.TrendAsync(Ctx);
+        var targetsTask = reports.TargetsAsync(Ctx);
+        var valueTask = reports.ValueAsync(Ctx);
+        var monthsTask = reports.LicenseMonthsAsync(Ctx);
+        /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
+           Licensing role. Every viewer of the board pack had it, whatever their part of the organization. */
+        var poolTask = Viewer.OrgWide || Viewer.Has(Roles.Licensing) ? ops.PoolAsync() : null;
+        var countsTask = reports.ActionCountsAsync(Ctx);
+        var nonHumanTask = CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args());
+        /* Set against the period before only where the data covers all of it (see OpsReports.Covers): the board read
+           "+3997% on the period before" at 180 days, against the two days of data before them. */
+        var first = await firstTask;
+        var full = OpsReports.Covers(prev, first);
+        var beforeTask = full ? metrics.TotalsAsync(prev) : null;
+        var u0Task = full ? metrics.UnitsAsync(prev) : null;
+        var rpTask = full ? metrics.TrendAsync(prev) : null;
+        await Task.WhenAll(new Task?[] { splitTask, nowTask, u1Task, beforeTask, u0Task }.OfType<Task>());
         var split = await splitTask;
         /* The Scorecard's parts (the Premium split and each unit against the period before), turned off in Admin › Reports
            shown by its address (HiddenReports.Parts). */
         var scorecard = !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/leadership/scorecard");
         if (!split)
             Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
-        /* Set against the period before only where the data covers all of it (see OpsReports.Covers): the board read
-           "+3997% on the period before" at 180 days, against the two days of data before them. */
-        var first = await firstTask;
-        var full = OpsReports.Covers(prev, first);
         var t = await nowTask;
-        var beforeTask = full ? metrics.TotalsAsync(prev) : null;
-        var u0Task = full ? metrics.UnitsAsync(prev) : null;
-        await Task.WhenAll(new Task?[] { beforeTask, u0Task }.OfType<Task>());
         var p = beforeTask is null ? null : await beforeTask;
         string Change(double now, double? before) => before is not double b ? OpsReports.NoFullPeriodBefore(first)
             : b == 0 ? "none in the period before" : $"{now / b - 1:+0%;-0%;0%} on the {Ctx.Days} days before";
@@ -64,14 +77,14 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<p class=\"print-only\">Copilot Insights board pack: {E(Ctx.ScopeLabel)}, {E(Ctx.PeriodLabel)}. Printed {DateTime.Now:d MMM yyyy HH:mm}.</p>"),
             "The navigation, filters and buttons are left off the printout.", "half no-print"));
 
-        var tr = await metrics.TrendAsync(Ctx);
+        var tr = await trTask;
         Panels.Add(new("People using Copilot", Chart.Line(Labels(), [
             new Series("With a Premium license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
             new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
             TrendNote + " Dashed rules mark events (Admin › Classifications and events)."));
 
         /* The targets for the part of the organization printed, not every target (see OpsReports.Visible). */
-        var targets = await reports.TargetsAsync(Ctx);
+        var targets = await targetsTask;
         if (targets.Count > 0)
         {
             var tt = new Table { Headers = ["Target", "For", "Now", "Should be by now", "Due", "Status"] };
@@ -82,12 +95,12 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             Panels.Add(new("Targets", tt.Render(), null, "half"));
         }
 
-        var v = await reports.ValueAsync(Ctx);
+        var v = await valueTask;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
-        var cost = Licensing.Price.ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price);   // Whole calendar months held
+        var cost = Licensing.Price.ForLicenseMonths(await monthsTask, price);   // Whole calendar months held
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
@@ -97,10 +110,8 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin › Targets and assumptions). " +
             "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
-        /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
-           Licensing role. Every viewer of the board pack had it, whatever their part of the organization. */
-        var pool = Viewer.OrgWide || Viewer.Has(Roles.Licensing) ? (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList() : [];
-        var counts = await reports.ActionCountsAsync(Ctx);
+        var pool = poolTask is null ? [] : (await poolTask).Where(x => x.IsCopilot).ToList();
+        var counts = await countsTask;
         var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
         var tenant = Ctx.Root is null ? "" : " (the whole tenant)";
         if (pool.Count > 0) { lt.Rows.Add(["Bought" + tenant, pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned" + tenant, pool.Sum(x => x.Consumed)]); }
@@ -110,7 +121,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
         Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
 
-        var rp = full ? await metrics.TrendAsync(prev) : null;
+        var rp = rpTask is null ? null : await rpTask;
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
         /* The security signals are the Security section's and labeled content the Compliance section's, as on the
            data API: every viewer of the board pack had them, whatever their roles. */
@@ -123,7 +134,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         if (Viewer.Has(Roles.Compliance))
             rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
         /* A policy breach, counted today: there is no earlier figure to set beside it. */
-        rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
+        rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await nonHumanTask).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance." +
             (Viewer.Has(Roles.Security) ? "" : " The security signals are shown to people with the Security role.") +
             (Viewer.Has(Roles.Compliance) ? "" : " Labeled content is shown to people with the Compliance role.") +

@@ -25,11 +25,14 @@ static class Segments
                   WHEN {days} >= CEILING(@w * 0.2) AND {days} >= 2 THEN N'Regular'
                   WHEN {days} >= 2 THEN N'Occasional' WHEN {days} = 1 THEN N'One-off' ELSE N'Not started' END";
 
-    /// <summary>Everyone licensed today or active in the period, with their active days: people, so enabled accounts only (3.1.3).</summary>
+    /// <summary>
+    /// Everyone licensed today or active in the period, with their active days: people, so enabled accounts only (3.1.3).
+    /// Each person's days and sums are the nightly totals' (Ctx.PerPerson): one row a person, where every person's days
+    /// of the period were summed on each first visit, 2 to 18 seconds at two years.
+    /// </summary>
     public static string People(ReportContext c) => $@"
-act AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I,
-               SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
-        FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey),
+act AS (SELECT pp.UserKey, pp.ActiveDays AS D, pp.Interactions AS I, pp.Sessions AS S, pp.MultiTurnSessions AS MT, pp.LastActiveKey AS LastKey
+        FROM {c.PerPerson()} AS pp),
 pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S, 0) AS S, ISNULL(a.MT, 0) AS MT, a.LastKey,
                {Sql("ISNULL(a.D, 0)")} AS Segment
         FROM bi.DimUser AS du {c.Scope("du.UserKey")}
@@ -80,13 +83,13 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(
 FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ctx.Args(new { w }));
+        /* Who used which app in the period, from the nightly totals (Ctx.PerItem): one row a person and app, where
+           the 160 million interactions were grouped by person on each first visit. */
         var breadthTask = Db.QueryAsync<(int Apps, int N)>($@"
-WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
+WITH u AS (SELECT it.UserKey, COUNT(*) AS Apps FROM {Ctx.PerItem('A')} AS it {Ctx.Scope("it.UserKey")} GROUP BY it.UserKey)
 SELECT CASE WHEN u.Apps >= 5 THEN 5 ELSE u.Apps END, COUNT(*) FROM u {ReportContext.EnabledJoin("u.UserKey")} GROUP BY CASE WHEN u.Apps >= 5 THEN 5 ELSE u.Apps END ORDER BY 1;", Ctx.Args());
         var appsTask = Db.QueryAsync<(string App, int People)>($@"
-WITH g AS (SELECT f.AppKey, f.UserKey FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey)   -- 2.7.4: counted per key, then named
+WITH g AS (SELECT it.Item AS AppKey, it.UserKey FROM {Ctx.PerItem('A')} AS it {Ctx.Scope("it.UserKey")})   -- 2.7.4: counted per key, then named
 SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT g.UserKey) FROM g {ReportContext.EnabledJoin("g.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.App, vn.Name;", Ctx.Args());
