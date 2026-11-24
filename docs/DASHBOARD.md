@@ -245,9 +245,13 @@ Anything refused is logged as a warning, and the viewer is treated as not in the
 
 ### Beta reports and success stories (3.1.6)
 
-**Beta reports.** An administrator can mark a report Beta in Admin › Reports shown: it is then shown only to full administrators and to the people given a preview of it (Admin › Access, the Preview grant), with a *Beta* badge, inside the sections they see already. For everyone else it is gone, as a report turned off is. Unticking Beta shows it to everyone with its section.
+**Beta reports.** An administrator can mark a report Beta in Admin › Reports shown: it is then shown only to full administrators and to the people holding the Preview role (Admin › Access, *Other roles*; from 3.2.0 it opens every beta report), with a *Beta* badge, inside the sections they see already. For everyone else it is gone, as a report turned off is. Unticking Beta shows it to everyone with its section.
 
 **Success stories.** Everyone the dashboard lets in can share what Copilot did for them (menu: *Success stories*), change it or withdraw it until a curator approves it, and see what became of it. Curators (the Stories role) approve or decline each story and tick the ones the weekly Copilot report quotes in *In their words*. A story names its person only where they agreed; otherwise their department, or "a colleague". [WEEKLY-REPORT.md](WEEKLY-REPORT.md) and [OPERATIONS.md](OPERATIONS.md#email-alerts-and-digests) say more.
+
+### Report subscriptions (3.2.0)
+
+**Email me this report**, at the top of a report, sends it to you by email on a schedule you set: daily (every weekday) for a period of up to 30 days, or weekly or monthly for any period, at a time you choose on the hour or half hour. *My subscriptions* (in the menu under *Start*) lists yours: change, pause, stop, or **Send me one now** to see how it looks. The email holds the report's headline figures and its charts, with their legend, events and notes, and a button that opens the report with the same period and filters. Its tables and lists are never emailed, and the reports that are lists of named people cannot be subscribed to (54 of the 77 reports can). It goes only to you, at your address from the directory, and it is built at each send with your access as it is then: if you can no longer open the report, nothing is sent and the subscription pauses saying why. If the night's refresh is late, the email waits for it until midday, then goes with a line saying how old its figures are.
 
 ## Periods
 

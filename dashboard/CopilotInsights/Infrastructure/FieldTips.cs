@@ -64,6 +64,11 @@ public static partial class FieldTips
         ["previewPage"] = "The beta reports (Admin › Reports shown) this person or group may open, inside the sections they see already. None ticked: no preview. Granting again replaces the reports ticked.",
         ["/admin/reports|beta"] = "Beta: only administrators and the people given a preview of it (Admin › Access) see this report, with a Beta badge. Untick it to show the report to everyone with its section.",
         /* Success stories. */
+        ["/subscriptions|days"] = "The period the email covers, counted back from the newest complete day at each send: the report's own period choices.",
+        ["/subscriptions|frequency"] = "Daily is every weekday (Monday to Friday), for a period of up to 30 days. Weekly and monthly suit any period.",
+        ["/subscriptions|dayOfWeek"] = "The day a weekly email comes. Not used for daily or monthly.",
+        ["/subscriptions|dayOfMonth"] = "The day a monthly email comes, 1 to 28, so every month has it. Not used for daily or weekly.",
+        ["/subscriptions|time"] = "When the email goes, in the dashboard's time zone, on the hour or half hour. If the night's refresh is late, it waits for it until the time set on Admin › Alerts and digests.",
         ["StoriesPerReport"] = "How many success stories the weekly report quotes, of those ticked on the Success stories page, oldest approved first: 0 to 10. 0 leaves them out. Default 3.",
         ["StoriesReminderTo"] = "Email addresses, separated by ;, that get one reminder the day before the weekly report when stories wait for review or none is ticked. Empty: no reminder.",
         ["/stories|quote"] = "What Copilot did for you, in your own words: what you asked, what it gave you, what it saved or made better. Up to 2,000 characters.",

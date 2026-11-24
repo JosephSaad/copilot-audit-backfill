@@ -68,6 +68,23 @@
   document.querySelectorAll('select[data-navigate]').forEach(function (s) {
     s.addEventListener('change', function () { if (s.value) location.href = s.value; });
   });
+  // A report subscription (My subscriptions): daily only for a period of up to 30 days, and only the day box the
+  // frequency uses is shown. Without script every box shows and the server checks the same.
+  document.querySelectorAll('form[data-subscribe]').forEach(function (f) {
+    var days = f.querySelector('select[name=days]'), freq = f.querySelector('select[name=frequency]');
+    var dow = f.querySelector('select[name=dayOfWeek]'), dom = f.querySelector('select[name=dayOfMonth]');
+    if (!days || !freq) return;
+    function sync() {
+      var d = parseInt(days.value, 10), daily = d > 0 && d <= 30;
+      var opt = freq.querySelector('option[value=Daily]');
+      if (opt) { opt.disabled = !daily; if (!daily && freq.value === 'Daily') freq.value = 'Weekly'; }
+      if (dow && dow.closest('label')) dow.closest('label').hidden = freq.value !== 'Weekly';
+      if (dom && dom.closest('label')) dom.closest('label').hidden = freq.value !== 'Monthly';
+    }
+    days.addEventListener('change', sync);
+    freq.addEventListener('change', sync);
+    sync();
+  });
   // A box that takes a person (PersonBox): nothing is asked until three letters are typed, then, a quarter of a second
   // after the typing stops, the names whose first or last name begins with them are offered. Choosing one fills in the
   // sign-in. A sign-in typed in full needs no search.

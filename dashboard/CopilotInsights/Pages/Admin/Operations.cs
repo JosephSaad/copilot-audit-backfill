@@ -307,6 +307,23 @@ IF OBJECT_ID(N'audit.ReportGroupDay', N'U') IS NOT NULL AND HAS_PERMS_BY_NAME(N'
             "Success stories quoted: how many of the stories curators ticked on the Success stories page the report quotes in In their words (0 to 10; 0 leaves them out). " +
             "Remind the curators at: addresses, separated by ;, that get one email the day before the report when stories wait for review or none is ticked (empty: no reminder).", "half"));
 
+        /* Report subscriptions (3.2.0): each person's own reports by email (My subscriptions). */
+        var reportSubs = await Db.QueryAsync<(int People, int Active, int Paused)>(@"
+IF OBJECT_ID(N'dash.ReportSubscription', N'U') IS NULL SELECT 0, 0, 0
+ELSE SELECT COUNT(DISTINCT Upn), SUM(CASE WHEN Paused = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN Paused = 1 THEN 1 ELSE 0 END) FROM dash.ReportSubscription WHERE Deleted = 0;");
+        var (subPeople, subActive, subPaused) = reportSubs.FirstOrDefault();
+        Panels.Add(new("Report subscriptions", new HtmlString(Form("subscriptions",
+            Select("ReportSubscriptions", "People may subscribe to reports", [("1", "On"), ("0", "Off: nothing is sent")], V("ReportSubscriptions") is "0" ? "0" : "1") +
+            Input("SubscriptionsPerPerson", "Most per person", V("SubscriptionsPerPerson") is { Length: > 0 } pp ? pp : "20", 4, "number") +
+            Input("SubscriptionEarliest", $"Earliest time ({zone.StandardName})", V("SubscriptionEarliest") is { Length: > 0 } se ? se : "07:30", 6) +
+            Input("SubscriptionWaitUntil", "Wait for the refresh until", V("SubscriptionWaitUntil") is { Length: > 0 } sw ? sw : "12:00", 6) + Button("Save")) +
+            $"<p class=\"sub\">{subPeople:#,0} {(subPeople == 1 ? "person has" : "people have")} {subActive:#,0} active subscription{(subActive == 1 ? "" : "s")}" + (subPaused > 0 ? $" and {subPaused:#,0} paused" : "") +
+            ". A full administrator sees each one, and can pause or stop it, on <a href=\"/subscriptions\">My subscriptions</a>.</p>"),
+            "People subscribe to a report from its page (Email me this report) and choose the period, how often and when: daily on weekdays for up to 30 days, weekly or monthly for any period. " +
+            "Each email is built at its time with the person's access then, and holds the report's headline figures and charts, never its lists; it goes to their own address from the directory, through the email set on Admin › Email, logged there as Subscription. " +
+            "Earliest time: the first time people may choose, after the morning pre-cache. Wait for the refresh until: an email due before the night's refresh has ended waits for it until then, and then goes saying how old its figures are. " +
+            "Off sends nothing and keeps every subscription. Set the dashboard's address on Admin › Email so the emails link to their report.", "half"));
+
         /* Managers who asked not to get the digest: kept by administrators, now that the dashboard has no personal pages. */
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
 SELECT pref.Upn, p.DisplayName, pref.UpdatedUtc FROM dash.DigestPreference AS pref LEFT JOIN dash.Person AS p ON p.Upn = pref.Upn
@@ -416,6 +433,25 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
                 ["WeeklyReportGroupCount"] = WeeklyReportGroupCount,
                 ["StoriesPerReport"] = (StoriesPerReport ?? 3).ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["StoriesReminderTo"] = remind,
+            }, showValues: true));
+    });
+
+    public Task<IActionResult> OnPostSubscriptionsAsync(string? ReportSubscriptions, int? SubscriptionsPerPerson, string? SubscriptionEarliest, string? SubscriptionWaitUntil) => AdminChangeAsync(async () =>
+    {
+        if (ReportSubscriptions is not ("0" or "1")) throw new ArgumentException("choose on or off.");
+        if (SubscriptionsPerPerson is not (>= 1 and <= 100)) throw new ArgumentException("most per person is a whole number from 1 to 100.");
+        var earliest = CopilotInsights.Data.Subscriptions.ParseTime(SubscriptionEarliest, TimeSpan.MinValue);
+        if (earliest == TimeSpan.MinValue || earliest.Minutes is not (0 or 30) || earliest > CopilotInsights.Data.Subscriptions.Latest)
+            throw new ArgumentException("the earliest time is HH:mm, on the hour or half hour, no later than 22:00.");
+        var wait = CopilotInsights.Data.Subscriptions.ParseTime(SubscriptionWaitUntil, TimeSpan.MinValue);
+        if (wait == TimeSpan.MinValue) throw new ArgumentException("wait for the refresh until is a time, HH:mm.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName,
+            new Dictionary<string, string?>
+            {
+                ["ReportSubscriptions"] = ReportSubscriptions,
+                ["SubscriptionsPerPerson"] = SubscriptionsPerPerson.Value.ToString(CultureInfo.InvariantCulture),
+                ["SubscriptionEarliest"] = CopilotInsights.Data.Subscriptions.TimeText(earliest),
+                ["SubscriptionWaitUntil"] = CopilotInsights.Data.Subscriptions.TimeText(wait),
             }, showValues: true));
     });
 

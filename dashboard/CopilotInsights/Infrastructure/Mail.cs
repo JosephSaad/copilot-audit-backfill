@@ -172,7 +172,15 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     /// another try from one that is not. A stop that cancels the send leaves it unsent: once the message is on
     /// its way it is no longer cancelled (SendCoreAsync).
     /// </summary>
-    public async Task<(string Status, string? Error)> DeliverAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default)
+    public Task<(string Status, string? Error)> DeliverAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default) =>
+        DeliverAsync(kind, to, subject, html, text, null, ct);
+
+    /// <summary>
+    /// The same, with images the HTML shows inline (cid:<i>id</i>), as a report subscription's charts: carried in the
+    /// message, so a mail app shows them without fetching anything.
+    /// </summary>
+    public async Task<(string Status, string? Error)> DeliverAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text,
+        IReadOnlyList<(string Id, byte[] Png)>? images, CancellationToken ct = default)
     {
         string? error;
         string status;
@@ -190,7 +198,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
                 using var said = new MemoryStream();
                 try
                 {
-                    await SendCoreAsync(cfg, to, subject, html, text, ct, said); status = "Sent"; error = null;
+                    await SendCoreAsync(cfg, to, subject, html, text, images, ct, said); status = "Sent"; error = null;
                     if (kind == "Test") detail = SmtpTranscript.Compose(cfg, Said(said), null);
                 }
                 /* A timeout is an OperationCanceledException as well: it is a failed send, not the site stopping. */
@@ -219,14 +227,20 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     /// <summary>The protocol log so far, as text; empty when nothing was said (the server was never reached).</summary>
     static string Said(MemoryStream said) => System.Text.Encoding.UTF8.GetString(said.GetBuffer(), 0, (int)said.Length);
 
-    async Task SendCoreAsync(MailConfig cfg, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct, Stream said)
+    async Task SendCoreAsync(MailConfig cfg, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, IReadOnlyList<(string Id, byte[] Png)>? images, CancellationToken ct, Stream said)
     {
         var msg = new MimeMessage();
         msg.From.Add(MailboxAddress.Parse(cfg.From!));
         if (cfg.ReplyTo is not null) msg.ReplyTo.Add(MailboxAddress.Parse(cfg.ReplyTo));
         foreach (var a in to) msg.To.Add(a);
         msg.Subject = subject;
-        msg.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
+        var body = new BodyBuilder { HtmlBody = html, TextBody = text };
+        foreach (var (id, png) in images ?? [])
+        {
+            var part = body.LinkedResources.Add(id + ".png", png, new ContentType("image", "png"));
+            part.ContentId = id;
+        }
+        msg.Body = body.ToMessageBody();
 
         /* The library writes each line of the conversation to the stream, with what it knows to be a secret already hidden. */
         using var client = new SmtpClient(new MailKit.ProtocolLogger(said, leaveOpen: true)) { Timeout = 60_000 };
