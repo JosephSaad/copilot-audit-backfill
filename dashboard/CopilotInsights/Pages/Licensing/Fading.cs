@@ -54,8 +54,15 @@ public sealed class FadingModel(PageServices s) : InsightsPage(s)
         /* PD, PI: days and interactions in the 60 days before the last 30 (so halved for a 30-day rate); RD, RI, RP: the
            last 30, with RP the days of Premium use. Fading: at least MinDaysBefore days a 30 before, some use still, and
            the last 30 days' days of use down by the chosen share or more. */
-        var rows = await Db.QueryAsync<Row>($@"
-WITH a AS (SELECT ud.UserKey,
+        /* The 60 days before are the 90 days less the last 30: both sums the refresh keeps per person, when it has them. */
+        var activity = Ctx.RolledDays.Contains(90) && Ctx.RolledDays.Contains(30)
+            ? $@"a AS (SELECT p90.UserKey,
+                  p90.ActiveDays - ISNULL(p30.ActiveDays, 0) AS PD, ISNULL(p30.ActiveDays, 0) AS RD,
+                  CAST(p90.Interactions AS BIGINT) - ISNULL(p30.Interactions, 0) AS PI, CAST(ISNULL(p30.Interactions, 0) AS BIGINT) AS RI,
+                  ISNULL(p30.PremiumDays, 0) AS RP, p90.LastActiveKey AS LastKey
+           FROM {Ctx.PerPerson(90, "@k90")} AS p90 {Ctx.Scope("p90.UserKey")}
+           LEFT JOIN {Ctx.PerPerson(30, "@k30")} AS p30 ON p30.UserKey = p90.UserKey)"
+            : $@"a AS (SELECT ud.UserKey,
                   COUNT(CASE WHEN ud.DateKey < @k30 AND ud.Interactions > 0 THEN 1 END) AS PD,
                   COUNT(CASE WHEN ud.DateKey >= @k30 AND ud.Interactions > 0 THEN 1 END) AS RD,
                   SUM(CASE WHEN ud.DateKey < @k30 THEN CAST(ud.Interactions AS BIGINT) ELSE 0 END) AS PI,
@@ -64,7 +71,9 @@ WITH a AS (SELECT ud.UserKey,
                   MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
            FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
            WHERE ud.DateKey BETWEEN @k90 AND @k1
-           GROUP BY ud.UserKey),
+           GROUP BY ud.UserKey)";
+        var rows = await Db.QueryAsync<Row>($@"
+WITH {activity},
 x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, a.PD, a.RD, a.PI, a.RI, a.RP, dl.[Date] AS LastUsed
       FROM a
       JOIN bi.FactLicensedDay AS ld ON ld.UserKey = a.UserKey AND ld.DateKey = @k1

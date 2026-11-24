@@ -65,7 +65,8 @@ WITH l AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Departmen
            {(entra is null ? "" : "LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = du.UserPrincipalName")}
            WHERE ld.DateKey = @k1 AND ISNULL(du.AccountEnabled, 1) = 1 AND ({a} IS NOT NULL OR {e} IS NOT NULL)),
 x AS (SELECT l.*, CASE WHEN l.LeaveUtc < SYSUTCDATETIME() THEN 1 ELSE 0 END AS Past,
-             (SELECT MAX(ud2.DateKey) FROM dash.UserDay AS ud2 WHERE ud2.UserKey = l.UserKey AND ud2.Interactions > 0) AS LastKey
+             ({(Ctx.Rollups ? "SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = l.UserKey"   // the last day of use, kept by the refresh
+                            : "SELECT MAX(ud2.DateKey) FROM dash.UserDay AS ud2 WHERE ud2.UserKey = l.UserKey AND ud2.Interactions > 0")}) AS LastKey
       FROM l WHERE l.LeaveUtc < DATEADD(DAY, @ahead, SYSUTCDATETIME()))";
     }
 
