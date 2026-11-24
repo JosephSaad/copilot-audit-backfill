@@ -161,21 +161,24 @@ namespace CopilotInsights.Pages.Enablement
 
         protected override async Task BuildAsync()
         {
-            /* The three reads do not depend on each other: side by side. */
-            var sessionsTask = Db.QueryAsync<(int Bucket, long N)>($@"
-SELECT CASE WHEN fs.PromptCount >= 10 THEN 10 ELSE fs.PromptCount END, COUNT_BIG(*)
+            /* The sessions are read once, counted by prompts and by length together (66 rows at most), and each chart sums
+               the other bucket away: as two reads side by side, the two scans of bi.FactSession took 3.3 seconds at two
+               years, as long as either alone on a busy server. The sessions and the trend do not depend on each other:
+               side by side. */
+            var sessionsTask = Db.QueryAsync<(int Prompts, int Span, long N)>($@"
+SELECT x.P, x.S, COUNT_BIG(*)
 FROM bi.FactSession AS fs {Ctx.Scope("fs.UserKey")}
-WHERE fs.DateKey BETWEEN @k0 AND @k1 GROUP BY CASE WHEN fs.PromptCount >= 10 THEN 10 ELSE fs.PromptCount END;", Ctx.Args());
-            var spansTask = Db.QueryAsync<(int Bucket, long N)>($@"
-SELECT CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END, COUNT_BIG(*)
-FROM bi.FactSession AS fs {Ctx.Scope("fs.UserKey")}
+CROSS APPLY (SELECT CASE WHEN fs.PromptCount >= 10 THEN 10 ELSE fs.PromptCount END AS P,
+                    CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END AS S) AS x
 WHERE fs.DateKey BETWEEN @k0 AND @k1
-GROUP BY CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END;", Ctx.Args());
+GROUP BY x.P, x.S;", Ctx.Args());
             var trTask = Db.QueryAsync<(DateTime Bucket, long Messages, long Prompts)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.MessageCount AS BIGINT)), SUM(CAST(f.PromptCount AS BIGINT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-            var (sessions, spans, tr) = await Queries(sessionsTask, spansTask, trTask);
+            var (cells, tr) = await Queries(sessionsTask, trTask);
+            var sessions = cells.GroupBy(c => c.Prompts).Select(g => (Bucket: g.Key, N: g.Sum(c => c.N))).ToList();
+            var spans = cells.GroupBy(c => c.Span).Select(g => (Bucket: g.Key, N: g.Sum(c => c.N))).ToList();
             long total = sessions.Sum(x => x.N);
             Kpis.Add(new("One-prompt sessions", Pct(Ratio(sessions.Where(x => x.Bucket <= 1).Sum(x => x.N), total)), "of sessions: asked once and left"));
             Kpis.Add(new("Five prompts or more", Pct(Ratio(sessions.Where(x => x.Bucket >= 5).Sum(x => x.N), total)), "of sessions: a longer back-and-forth"));
