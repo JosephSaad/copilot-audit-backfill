@@ -41,6 +41,19 @@ public class LeadershipSpeedTests
     }
 
     [Fact]
+    public void The_period_before_is_summed_from_its_weeks_and_the_trend_sums_apart_from_its_people()
+    {
+        var rc = Read("Infrastructure", "ReportContext.Leadership.cs");
+        Assert.Contains("public bool WeeksAnswer => Rollups && !RolledDays.Contains(Choice) && Days > 30;", rc);
+        Assert.Contains("uw.WeekEnding < {Day(\"@k7\")}", rc);   // the last 7 days always come from the days
+        Assert.Contains("(d.WeekEnding >= {Day(\"@k7\")} OR d.WeekEnding IN {cut})", rc);
+        var m = Read("Data", "Metrics.cs");
+        Assert.Contains("static string PerPersonOf(ReportContext c) => c.WeeksAnswer ? c.PerPersonFromWeeks() : c.PerPerson();", m);
+        Assert.Contains("{(c.WeeksAnswer ? \"p.Last7\" : \"CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END\")} AS Last7", m);
+        Assert.Contains("LEFT JOIN sums AS su ON su.Bucket = e.Bucket", m);
+    }
+
+    [Fact]
     public void Overview_counts_the_adopted_with_the_license_holders()
     {
         var m = Read("Data", "Metrics.cs");

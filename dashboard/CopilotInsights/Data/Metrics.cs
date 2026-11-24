@@ -99,27 +99,32 @@ per AS (SELECT pp.* FROM {c.PerPoint(withHeld: weekly)} AS pp {c.Scope("pp.UserK
 held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")}{cutOnly}),
 /* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
-/* People are accounts enabled today (3.1.3); the sums still count everyone's use. Both in one pass over the points. */
+/* People are accounts enabled today (3.1.3); the sums still count everyone's use. The people are counted from the
+   three columns they need, met with the accounts and the license holders; the sums are added up on their own, a point
+   at a time, without that join: carried through it, the twelve sums of millions of person-weeks cost a third of the
+   statement's processor time. */
 people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
                   COUNT(CASE WHEN per.LicensedUse > 0 AND {heldTest} AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
-                  COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveUnlicensed,
-                  SUM(CAST(per.Interactions AS BIGINT)) AS Interactions, SUM(CAST(per.Prompts AS BIGINT)) AS Prompts,
-                  SUM(CAST(per.Sessions AS BIGINT)) AS Sessions, SUM(CAST(per.MultiTurnSessions AS BIGINT)) AS MultiTurn,
-                  SUM(CAST(per.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(per.AgentInteractions AS BIGINT)) AS Agent,
-                  SUM(CAST(per.WebGrounded AS BIGINT)) AS Web, SUM(CAST(per.Jailbreak AS BIGINT)) AS Jailbreak,
-                  SUM(CAST(per.PromptInjection AS BIGINT)) AS Injection, SUM(CAST(per.BlockedResource AS BIGINT)) AS Blocked,
-                  SUM(CAST(per.LabeledContent AS BIGINT)) AS Labeled
+                  COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveUnlicensed
            FROM per {ReportContext.EnabledJoin("per.UserKey", left: true)}
            LEFT JOIN held AS le ON le.Bucket = per.Bucket AND le.UserKey = per.UserKey
            GROUP BY per.Bucket),
+sums AS (SELECT per.Bucket, SUM(CAST(per.Interactions AS BIGINT)) AS Interactions, SUM(CAST(per.Prompts AS BIGINT)) AS Prompts,
+                SUM(CAST(per.Sessions AS BIGINT)) AS Sessions, SUM(CAST(per.MultiTurnSessions AS BIGINT)) AS MultiTurn,
+                SUM(CAST(per.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(per.AgentInteractions AS BIGINT)) AS Agent,
+                SUM(CAST(per.WebGrounded AS BIGINT)) AS Web, SUM(CAST(per.Jailbreak AS BIGINT)) AS Jailbreak,
+                SUM(CAST(per.PromptInjection AS BIGINT)) AS Injection, SUM(CAST(per.BlockedResource AS BIGINT)) AS Blocked,
+                SUM(CAST(per.LabeledContent AS BIGINT)) AS Labeled
+         FROM per GROUP BY per.Bucket),
 lic AS ({licSql})
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
-       ISNULL(p.Interactions, 0) AS Interactions, ISNULL(p.Prompts, 0) AS Prompts, ISNULL(p.Sessions, 0) AS Sessions,
-       ISNULL(p.MultiTurn, 0) AS MultiTurn, ISNULL(p.Chat, 0) AS Chat, ISNULL(p.Agent, 0) AS Agent, ISNULL(p.Web, 0) AS Web,
-       ISNULL(p.Jailbreak, 0) AS Jailbreak, ISNULL(p.Injection, 0) AS Injection, ISNULL(p.Blocked, 0) AS Blocked,
-       ISNULL(p.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed{(adopted ? ", ISNULL(l.Adopted, 0) AS Adopted" : "")}
+       ISNULL(su.Interactions, 0) AS Interactions, ISNULL(su.Prompts, 0) AS Prompts, ISNULL(su.Sessions, 0) AS Sessions,
+       ISNULL(su.MultiTurn, 0) AS MultiTurn, ISNULL(su.Chat, 0) AS Chat, ISNULL(su.Agent, 0) AS Agent, ISNULL(su.Web, 0) AS Web,
+       ISNULL(su.Jailbreak, 0) AS Jailbreak, ISNULL(su.Injection, 0) AS Injection, ISNULL(su.Blocked, 0) AS Blocked,
+       ISNULL(su.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed{(adopted ? ", ISNULL(l.Adopted, 0) AS Adopted" : "")}
 FROM ends AS e
 LEFT JOIN people AS p ON p.Bucket = e.Bucket
+LEFT JOIN sums AS su ON su.Bucket = e.Bucket
 LEFT JOIN lic AS l ON l.Bucket = e.Bucket
 ORDER BY e.Bucket;", c.Args());
         /* One row per trend point, in order, even where nothing happened. */
@@ -221,8 +226,8 @@ WITH u AS (
        last 7 days: their last day of use is one of them. */
     SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.PremiumUse AS PU, CAST(p.Prompts AS BIGINT) AS P,
            p.Sessions AS S, p.MultiTurnSessions AS MT, p.ActiveDays AS D,
-           CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END AS Last7
-    FROM {c.PerPerson()} AS p {c.Scope("p.UserKey")})
+           {(c.WeeksAnswer ? "p.Last7" : "CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END")} AS Last7
+    FROM {PerPersonOf(c)} AS p {c.Scope("p.UserKey")})
 /* One pass over u (2.4.2): as nine subqueries, each re-aggregated dash.UserDay. */
 /* People counts are of accounts enabled today (3.1.3, IsEnabled); interactions, prompts and sessions are everyone's. */
 SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.AccountEnabled = 1) AS People,
@@ -243,6 +248,10 @@ SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.A
        COUNT(CASE WHEN u.MT > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS MultiTurnUsers
 FROM u LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 {ReportContext.EnabledJoin("u.UserKey", left: true)};", c.Args())).Single();
+
+    /* Each person's sums over the period: the refresh's period totals where it keeps them, else for a period longer than
+       a month (the period before, on Board pack) its whole weeks and the days around them, not every day summed. */
+    static string PerPersonOf(ReportContext c) => c.WeeksAnswer ? c.PerPersonFromWeeks() : c.PerPerson();
 
     /* SQL for the enabled people in scope who used Copilot on any day at all. The refresh keeps each person's first day
        of use over every day (dash.UserActivity), so it is a read of one row a person; before it is built, every day of
@@ -293,7 +302,7 @@ WITH {UnitMembers(c, parent is not null)},
 act AS (SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.PremiumUse AS PU, p.ActiveDays AS D,
                p.Sessions AS S, p.MultiTurnSessions AS MT, p.Jailbreak + p.PromptInjection + p.BlockedResource AS F,
                p.LabeledContent AS LB, p.WebGrounded AS W
-        FROM {c.PerPerson()} AS p),
+        FROM {PerPersonOf(c)} AS p),
 g AS (
 SELECT u.Unit,
        COUNT(CASE WHEN u.AccountEnabled = 1 THEN 1 END) AS People,
