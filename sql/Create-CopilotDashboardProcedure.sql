@@ -131,7 +131,8 @@ BEGIN
     DECLARE @topDepth INT = (SELECT OrgDepth FROM #dir WHERE Upn = @top);
 
     BEGIN TRANSACTION;
-    DELETE FROM dash.OrgClosure;
+    /* Truncated where the caller may: deleting 1.5 million pairs through their indexes took half a minute. */
+    IF HAS_PERMS_BY_NAME(N'dash.OrgClosure', N'OBJECT', N'ALTER') = 1 TRUNCATE TABLE dash.OrgClosure; ELSE DELETE FROM dash.OrgClosure;
     /* With each person's bi.DimUser key and whether their account is enabled, which the pages read with the pairs. */
     INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth, DescendantKey, DescendantEnabled)
     SELECT c.AncestorUpn, c.DescendantUpn, c.Depth, u.UserKey, p.AccountEnabled
@@ -431,6 +432,10 @@ BEGIN
        built whole. */
     DECLARE @maxKey INT = (SELECT MAX(DateKey) FROM dash.UserDay);
     DECLARE @minKey INT = (SELECT MIN(DateKey) FROM dash.UserDay);
+    /* The last days the period totals end on, recorded once they are all built (setting DashTotalsEnds): the pages read
+       that, where looking for each period's rows in the two columnstores cost them a second a request. Cleared while
+       they are rebuilt, so a refresh stopped part way leaves the pages summing the days. */
+    UPDATE dash.Setting SET Value = NULL, UpdatedBy = N'dash.usp_RefreshDashboard', UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'DashTotalsEnds';
 
     /* The week @fromKey falls in: the per app and agent weeks are rebuilt from it. */
     DECLARE @weekFrom DATE = NULL, @weekFromKey INT = NULL;
@@ -575,13 +580,22 @@ BEGIN
     DECLARE @mayTruncate BIT = CASE WHEN HAS_PERMS_BY_NAME(N'dash.UserWeek', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
 
     BEGIN TRANSACTION;
-    IF @mayTruncate = 1 TRUNCATE TABLE dash.UserWeek; ELSE DELETE FROM dash.UserWeek;
+    /* Written whole, its columnstore is set aside and built again after, in one pass: kept up row by row, 12 million
+       weeks took a minute and a half. */
+    IF @mayTruncate = 1
+    BEGIN
+        ALTER INDEX NCCI_DashUserWeek ON dash.UserWeek DISABLE;
+        TRUNCATE TABLE dash.UserWeek;
+    END;
+    ELSE DELETE FROM dash.UserWeek;
     INSERT INTO dash.UserWeek WITH (TABLOCK)
         (WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
          Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldAtEnd)
     SELECT WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
            Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldAtEnd
     FROM #week;
+    IF @mayTruncate = 1
+        ALTER INDEX NCCI_DashUserWeek ON dash.UserWeek REBUILD;
     COMMIT TRANSACTION;
 
     BEGIN TRANSACTION;
@@ -639,34 +653,18 @@ BEGIN
     SELECT Kind, SiteKey, UserKey, LastKey, PrevKey, @maxKey FROM #siteperson;
     COMMIT TRANSACTION;
 
-    /* Loaded in parallel, which a columnstore takes a large load fastest by. The threads of such a load have
-       deadlocked on each other (dash.SitePerson's, when it was a columnstore): should SQL Server pick this load as the
-       victim, it is loaded again on one thread. */
-    DECLARE @periodTry INT = 0;
-    WHILE 1 = 1
-    BEGIN
-        BEGIN TRY
-            BEGIN TRANSACTION;
-            IF @mayTruncate = 1 TRUNCATE TABLE dash.UserItemPeriod; ELSE DELETE FROM dash.UserItemPeriod;
-            IF @periodTry = 0
-                INSERT INTO dash.UserItemPeriod WITH (TABLOCK) (EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web)
-                SELECT EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web FROM #itemperiod;
-            ELSE
-                INSERT INTO dash.UserItemPeriod WITH (TABLOCK) (EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web)
-                SELECT EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web FROM #itemperiod
-                OPTION (MAXDOP 1);
-            COMMIT TRANSACTION;
-            BREAK;
-        END TRY
-        BEGIN CATCH
-            IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-            IF ERROR_NUMBER() <> 1205 OR @periodTry > 0 THROW;
-            SET @periodTry = 1;
-            RAISERROR('  The load of dash.UserItemPeriod was chosen as a deadlock victim: loading it again on one thread.', 0, 1) WITH NOWAIT;
-        END CATCH;
-    END;
+    /* On one thread: loaded in parallel, the threads of this load deadlocked on each other every night at 160 million
+       interactions, and the attempt cost five minutes before the load on one thread, which takes two. */
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.UserItemPeriod; ELSE DELETE FROM dash.UserItemPeriod;
+    INSERT INTO dash.UserItemPeriod WITH (TABLOCK) (EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web)
+    SELECT EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web FROM #itemperiod
+    OPTION (MAXDOP 1);
+    COMMIT TRANSACTION;
 
-    SET @periodTry = 0;
+    /* Loaded in parallel, which a columnstore takes a large load fastest by. Should SQL Server pick this load as a
+       deadlock victim among its own threads, it is loaded again on one thread. */
+    DECLARE @periodTry INT = 0;
     WHILE 1 = 1
     BEGIN
         BEGIN TRY
@@ -689,6 +687,13 @@ BEGIN
             RAISERROR('  The load of dash.CreditUsePeriod was chosen as a deadlock victim: loading it again on one thread.', 0, 1) WITH NOWAIT;
         END CATCH;
     END;
+
+    DECLARE @ends NVARCHAR(40) = CONCAT(@maxKey, N',', (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @maxKey));
+    MERGE dash.Setting AS t
+    USING (SELECT 'DashTotalsEnds' AS Name, @ends AS Value) AS s ON t.Name = s.Name
+    WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedBy = N'dash.usp_RefreshDashboard', UpdatedUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
+        VALUES (s.Name, s.Value, N'The last days the dashboard''s period totals end on. Written by each refresh once they are built.', N'dash.usp_RefreshDashboard');
 
     /* ---- 4. The columnstores over what this run wrote ------------------------ */
 

@@ -706,14 +706,7 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
             IEnumerable<(int Which, int Days, string? Kinds)> rows;
             using (QueryCache.Use())
                 rows = await db.QueryAsync<(int Which, int Days, string? Kinds)>(@"
-SELECT 1, p.Days, NULL FROM (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
-WHERE EXISTS (SELECT 1 FROM dash.UserPeriod AS up WHERE up.EndKey = @endKey AND up.Days = p.Days)
-UNION ALL
-SELECT 2, p.Days, NULL FROM (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
-WHERE EXISTS (SELECT 1 FROM dash.UserItemPeriod AS ip WHERE ip.EndKey = @endKey AND ip.Days = p.Days)
-UNION ALL
-SELECT 3, p.Days, NULL FROM (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
-WHERE EXISTS (SELECT 1 FROM dash.CreditUsePeriod AS cp WHERE cp.EndKey = @endKey AND cp.Days = p.Days)
+SELECT 1, 0, (SELECT Value FROM dash.Setting WHERE Name = 'DashTotalsEnds')
 UNION ALL
 SELECT 4, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.CreditUseDay)
 UNION ALL
@@ -723,8 +716,13 @@ SELECT 5, 0, (SELECT Value FROM dash.Setting WHERE Name = 'DashItemKinds')
 UNION ALL
 SELECT 0, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.UserActivity) AND EXISTS (SELECT 1 FROM dash.UserItemDay);", new { endKey });
             var list = rows.ToList();
-            HashSet<int> Of(int which) => list.Where(r => r.Which == which).Select(r => r.Days).ToHashSet();
-            return new(list.Any(r => r.Which == 0), Of(1), Of(2), list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), Of(3), list.Any(r => r.Which == 6));
+            /* The refresh records the two last days it built every period for, in dash.UserPeriod, dash.UserItemPeriod and
+               dash.CreditUsePeriod alike, once all three are built (setting DashTotalsEnds). Looking for each period's
+               rows in the two columnstores instead cost every request a second at 160 million interactions. */
+            var ends = (list.FirstOrDefault(r => r.Which == 1).Kinds ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            IReadOnlySet<int> periods = ends.Contains(endKey.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                ? ReportContext.DayChoices.ToHashSet() : new HashSet<int>();
+            return new(list.Any(r => r.Which == 0), periods, periods, list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), periods, list.Any(r => r.Which == 6));
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Totals.None; }
     }
