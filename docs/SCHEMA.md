@@ -25,7 +25,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -3198,10 +3198,13 @@ Indexes and constraints:
 | 1 | `AncestorUpn` | nvarchar(256) | **no** | **PK** |  |
 | 2 | `DescendantUpn` | nvarchar(256) | **no** | **PK** |  |
 | 3 | `Depth` | tinyint | **no** |  | 0 = the person themselves |
+| 4 | `DescendantKey` | int | yes |  | the person's bi.DimUser key, NULL when they have none (3.1.4) |
+| 5 | `DescendantEnabled` | bit | yes |  | whether the person's account is enabled, from dash.Person (3.1.4) |
 
 Indexes and constraints:
 
 - `PK_DashOrgClosure`: primary key, nonclustered (AncestorUpn, DescendantUpn)
+- `IX_DashOrgClosure_Part`: nonclustered (AncestorUpn, Depth) including DescendantKey, DescendantEnabled (3.1.4)
 
 ### dash.UserDay
 
@@ -3292,6 +3295,189 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashAgentUse`: primary key, clustered (AgentKey)
+
+### dash.UserWeek
+
+*Table.* dash.UserDay summed per person per Saturday-to-Friday week (3.1.4): the weekly trends count each person once a week from here. Kept by dash.usp_RefreshDashboard from the week its refresh starts in.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `WeekEnding` | date | **no** | **PK** | bi.DimDate.WeekEnding: the Friday ending the week |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `ActiveDays` | tinyint | **no** |  | days of the week with an interaction |
+| 4 | `Interactions` | int | **no** |  |  |
+| 5 | `Prompts` | int | **no** |  |  |
+| 6 | `AgentInteractions` | int | **no** |  |  |
+| 7 | `WebGrounded` | int | **no** |  |  |
+| 8 | `ChatInteractions` | int | **no** |  |  |
+| 9 | `LicensedUse` | int | **no** |  |  |
+| 10 | `PremiumUse` | int | **no** |  |  |
+| 11 | `Jailbreak` | int | **no** |  |  |
+| 12 | `PromptInjection` | int | **no** |  |  |
+| 13 | `BlockedResource` | int | **no** |  |  |
+| 14 | `LabeledContent` | int | **no** |  |  |
+| 15 | `Sessions` | int | **no** |  |  |
+| 16 | `MultiTurnSessions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserWeek`: primary key, clustered (WeekEnding, UserKey)
+- `NCCI_DashUserWeek`: nonclustered columnstore (every column)
+
+### dash.UserPeriod
+
+*Table.* Each person's sums over each period a page offers, 7 days to All data (Days 0), ending on the last two days the data can end on (3.1.4): the pages read a person's period here instead of summing their days. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EndKey` | int | **no** | **PK** | the period's last day |
+| 2 | `Days` | smallint | **no** | **PK** | the period chosen: 7, 14, 30, 90, 180, 365 or 730, or 0 for All data |
+| 3 | `UserKey` | int | **no** | **PK** |  |
+| 4 | `ActiveDays` | smallint | **no** |  | days with an interaction |
+| 5 | `PremiumDays` | smallint | **no** |  | days with Premium use |
+| 6 | `LastActiveKey` | int | yes |  | the last day with an interaction |
+| 7 | `MostApps` | tinyint | **no** |  | the most apps used in one day |
+| 8 | `Interactions` | int | **no** |  |  |
+| 9 | `Prompts` | int | **no** |  |  |
+| 10 | `AgentInteractions` | int | **no** |  |  |
+| 11 | `WebGrounded` | int | **no** |  |  |
+| 12 | `ChatInteractions` | int | **no** |  |  |
+| 13 | `LicensedUse` | int | **no** |  |  |
+| 14 | `PremiumUse` | int | **no** |  |  |
+| 15 | `Jailbreak` | int | **no** |  |  |
+| 16 | `PromptInjection` | int | **no** |  |  |
+| 17 | `BlockedResource` | int | **no** |  |  |
+| 18 | `LabeledContent` | int | **no** |  |  |
+| 19 | `Sessions` | int | **no** |  |  |
+| 20 | `MultiTurnSessions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserPeriod`: primary key, clustered (EndKey, Days, UserKey)
+
+### dash.AdoptionDay
+
+*Table.* Each person on each day they had used Copilot with a license on that day or one of the 27 before it (3.1.4). Kept by dash.usp_RefreshDashboard from the day its refresh starts on.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** |  |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+
+Indexes and constraints:
+
+- `PK_DashAdoptionDay`: primary key, clustered (DateKey, UserKey)
+- `NCCI_DashAdoptionDay`: nonclustered columnstore (DateKey, UserKey)
+
+### dash.UserActivity
+
+*Table.* Each person's first and last day of use, over every day (3.1.4). Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `UserKey` | int | **no** | **PK** |  |
+| 2 | `FirstActiveKey` | int | yes |  | the first day with an interaction; NULL when a person has rows but none |
+| 3 | `LastActiveKey` | int | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserActivity`: primary key, clustered (UserKey)
+
+### dash.UserItemDay
+
+*Table.* Each person's use of each app (Kind A, Item = bi.DimApp.AppKey) or agent (Kind G, Item = bi.DimAgent.AgentKey, never the "(none)" agent) per day (3.1.4), for the pages that count people per app or agent. Kept by dash.usp_RefreshDashboard as dash.UserDay is, from the same day.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** |  |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `Kind` | char(1) | **no** | **PK** | A: an app, G: an agent |
+| 4 | `Item` | int | **no** | **PK** | the app's or the agent's key |
+| 5 | `Interactions` | int | **no** |  |  |
+| 6 | `Prompts` | int | **no** |  |  |
+| 7 | `Resources` | int | **no** |  | the resources its interactions read |
+| 8 | `Web` | int | **no** |  | its interactions that searched the web |
+
+Indexes and constraints:
+
+- `PK_DashUserItemDay`: primary key, clustered (DateKey, Kind, Item, UserKey)
+- `NCCI_DashUserItemDay`: nonclustered columnstore (every column)
+
+### dash.UserItemWeek
+
+*Table.* dash.UserItemDay per person, app or agent and Saturday-to-Friday week (3.1.4), as dash.UserWeek. Kept from the week its refresh starts in.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `WeekEnding` | date | **no** | **PK** | the Friday ending the week |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `Kind` | char(1) | **no** | **PK** |  |
+| 4 | `Item` | int | **no** | **PK** |  |
+| 5 | `ActiveDays` | tinyint | **no** |  | days of the week with an interaction in it |
+| 6 | `Interactions` | int | **no** |  |  |
+| 7 | `Prompts` | int | **no** |  |  |
+| 8 | `Resources` | int | **no** |  |  |
+| 9 | `Web` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserItemWeek`: primary key, clustered (WeekEnding, Kind, Item, UserKey)
+- `NCCI_DashUserItemWeek`: nonclustered columnstore (every column)
+
+### dash.UserItemPeriod
+
+*Table.* dash.UserItemDay summed over each period a page offers (3.1.4), as dash.UserPeriod. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EndKey` | int | **no** |  | the period's last day |
+| 2 | `Days` | smallint | **no** |  | as dash.UserPeriod's: 7 to 730, or 0 for All data |
+| 3 | `Kind` | char(1) | **no** |  |  |
+| 4 | `Item` | int | **no** |  |  |
+| 5 | `UserKey` | int | **no** |  |  |
+| 6 | `ActiveDays` | smallint | **no** |  | days with an interaction in it |
+| 7 | `LastActiveKey` | int | **no** |  | the last of them |
+| 8 | `Interactions` | int | **no** |  |  |
+| 9 | `Prompts` | int | **no** |  |  |
+| 10 | `Resources` | int | **no** |  |  |
+| 11 | `Web` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `CCI_DashUserItemPeriod`: clustered columnstore
+
+### dash.SitePerson
+
+*Table.* Each person and each site they read labeled content from (Kind S) or were blocked at (B), with the last day they did and the last before the data's last day (3.1.4): whether they reached it in a page's period is one comparison. Rebuilt whole by each refresh, from dash.ResourceDay.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Kind` | char(1) | **no** | **PK** | S: labeled content read there, B: blocked there |
+| 2 | `SiteKey` | int | **no** | **PK** | bi.DimSite |
+| 3 | `UserKey` | int | **no** | **PK** |  |
+| 4 | `LastKey` | int | **no** |  | the last day they did |
+| 5 | `PrevKey` | int | yes |  | the last day they did before AsOfKey; NULL when only on it |
+| 6 | `AsOfKey` | int | **no** |  | the data's last day when it was built |
+
+Indexes and constraints:
+
+- `PK_DashSitePerson`: primary key, clustered (Kind, SiteKey, UserKey)
 
 ### dash.RefreshRun
 

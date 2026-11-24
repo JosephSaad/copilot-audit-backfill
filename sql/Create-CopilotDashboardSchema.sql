@@ -776,18 +776,19 @@ IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
     when they drill in; a whole-organization view with no drill-in does not
     call it at all. The keys are the ones the refresh wrote on the closure, read
     from one index (IX_DashOrgClosure_Part), where each was looked up in
-    bi.DimUser by sign-in. A row written without its key (by another tool, or
-    for a person bi gained after the refresh) is still looked up by sign-in.
+    bi.DimUser by sign-in: 24 ms for a part of 70,000 people at 210,000, where
+    the lookup took 0.7 s, and a fallback to it for rows without a key made the
+    plan worse than either. The refresh writes every row's key; the bi refresh
+    that adds a person runs just before it.
 */
 EXEC (N'
 CREATE OR ALTER FUNCTION dash.fnScopeUsers (@RootUpn NVARCHAR(256))
 RETURNS TABLE
 AS
 RETURN
-SELECT COALESCE(c.DescendantKey, u.UserKey) AS UserKey
+SELECT c.DescendantKey AS UserKey
 FROM dash.OrgClosure AS c
-LEFT JOIN bi.DimUser AS u ON c.DescendantKey IS NULL AND u.UserPrincipalName = c.DescendantUpn
-WHERE c.AncestorUpn = @RootUpn AND COALESCE(c.DescendantKey, u.UserKey) IS NOT NULL;');
+WHERE c.AncestorUpn = @RootUpn AND c.DescendantKey IS NOT NULL;');
 
 /*
     The agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per

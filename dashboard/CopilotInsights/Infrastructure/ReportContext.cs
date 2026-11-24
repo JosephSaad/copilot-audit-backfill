@@ -482,10 +482,12 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
     /// PeopleBelow + 1, which counts disabled accounts too, so a part of three people and five leavers was shown on its
     /// own where every other minimum counts only the people still here. A seek on the closure's key, which leads with
     /// the ancestor. Whether each person's account is enabled is on the closure itself (IX_DashOrgClosure_Part), written
-    /// by the refresh; a row written without it (by another tool) is looked up in dash.Person.
+    /// by the refresh with the pair: the list of parts on every page took 1 to 3 seconds at 210,000 people looking each
+    /// person up in dash.Person, and 0.1 s read from the closure. A fallback to the lookup for rows without it made the
+    /// plan slower than the lookup alone.
     /// </summary>
     public static string EnabledInPartSql(string upnExpr) =>
-        $"(SELECT COUNT(*) FROM dash.OrgClosure AS ec WHERE ec.AncestorUpn = {upnExpr} AND COALESCE(ec.DescendantEnabled, (SELECT ep.AccountEnabled FROM dash.Person AS ep WHERE ep.Upn = ec.DescendantUpn)) = 1)";
+        $"(SELECT COUNT(*) FROM dash.OrgClosure AS ec WHERE ec.AncestorUpn = {upnExpr} AND ec.DescendantEnabled = 1)";
 
     /// <param name="forPage">
     /// A page a person is looking at: a part of the organization that is not in the directory falls back to the whole
