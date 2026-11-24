@@ -38,11 +38,15 @@ public sealed class CreditsModel(PageServices s, CreditData creditData) : Insigh
         /* Each agent's owner and everyone who used it, billed or not: the estimate counts only the people billed. From
            each person's use of each agent the refresh keeps; the agents are those dash.Agent does not mark "(no agent)".
            Independent of the estimate: read side by side with it. */
-        var (v, everyone) = await Queries(creditData.BuildAsync(Ctx), Db.QueryAsync<Row>($@"
-SELECT ag.AgentKey, ag.Owner, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People   -- enabled accounts
-FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")}
-JOIN dash.Agent AS ag ON ag.AgentKey = u.Item
-{ReportContext.EnabledJoin("u.UserKey", left: true)}
+        var (v, everyone) = await Queries(creditData.TotalsAsync(Ctx), Db.QueryAsync<Row>($@"
+/* Counted per agent before the join to dash.Agent, a view of four tables, as on Agents in use: joined first, every
+   person's row was looked up in it one by one. */
+WITH g AS (SELECT u.Item, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People   -- enabled accounts
+           FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")}
+           {ReportContext.EnabledJoin("u.UserKey", left: true)}
+           GROUP BY u.Item)
+SELECT ag.AgentKey, ag.Owner, SUM(g.People) AS People
+FROM g JOIN dash.Agent AS ag ON ag.AgentKey = g.Item
 WHERE ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300));
         var cur = v.Currency;
@@ -52,12 +56,13 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300));
         var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
         Kpis.Add(new("Agents charging credits", Num(charging.Count), $"of {Num(v.Agents.Count)} used: billed use by people without a license, or in a Copilot Studio channel"));
         /* Totalled from people, as Credit use totals it, which the figure opens: summed by agent it came out a few
-           credits apart, an agent's billed use being split by person, and each part estimated, the other way round. */
-        var month = v.People.Aggregate((Credits: 0m, Cost: 0m), (s, p) => (s.Credits + p.Month.Credits, s.Cost + p.Month.Cost));
+           credits apart, an agent's billed use being split by person, and each part estimated, the other way round.
+           CreditData.TotalsAsync adds up each person's estimate, as Credit use does, without reading their names. */
+        var month = (v.Credits, v.Cost);
         Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(month.Credits)),
             $"{CopilotInsights.Data.CostRules.Money(Math.Round(month.Cost), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use"),
             Why: await WhyAsync(CopilotInsights.Data.CreditRules.Formula(v.Rates, cur), "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
-        Kpis.Add(new("People billed", Num(v.People.Count(p => p.Use.Billed > 0 && p.Use.WithAgent > 0)), "used an agent that bills"));
+        Kpis.Add(new("People billed", Num(v.PeopleBilled), "used an agent that bills"));
 
         var ownerName = await NamesAsync(v.Agents.Select(a => more.TryGetValue(a.AgentKey, out var m) ? m.Owner : null));
         string? Owner(CreditAgent a) => more.TryGetValue(a.AgentKey, out var m) ? m.Owner : null;

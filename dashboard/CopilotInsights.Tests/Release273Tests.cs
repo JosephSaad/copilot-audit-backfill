@@ -71,7 +71,8 @@ public class Release273Tests
         Assert.Contains("Href: Open(\"/security/flags\", extra: \"kind=jailbreak&status=any\")", security);
         Assert.Contains("Href: Open(\"/security/flags\", extra: \"kind=injection&status=any\")", security);
         /* Agents costing credits totals from people, as Credit use does: by agent it was a few credits apart at 90 days. */
-        Assert.Contains("var month = v.People.Aggregate(", Read("dashboard", "CopilotInsights", "Pages", "Agents", "Credits.cs"));
+        Assert.Contains("var month = (v.Credits, v.Cost);", Read("dashboard", "CopilotInsights", "Pages", "Agents", "Credits.cs"));
+        Assert.Contains("credits += month.Credits; cost += month.Cost;", Read("dashboard", "CopilotInsights", "Data", "CreditData.cs"));
         /* The check that found these runs against a live dashboard. */
         Assert.True(File.Exists(Path.Combine(Root(), "tools", "dev", "ui", "Test-FigureLinks.ps1")));
     }
