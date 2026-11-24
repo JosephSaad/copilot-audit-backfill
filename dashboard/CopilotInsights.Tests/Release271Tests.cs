@@ -31,9 +31,10 @@ public class Release271Tests
         /* They disagreed by hundreds of seats: today's seats less revocations and leavers, against a forecast with 10%. */
         var optimize = Source.Read("Pages", "Forecasting", "Forecasting.cs");
         var budget = Source.Read("Pages", "Forecasting", "Planning.cs");
-        Assert.Contains("var size = await Renewal.SizeAsync(Db, S.Settings, Ctx, rows);", optimize);
+        Assert.Contains("var (rows, size) = await Renewal.WithDepartmentsAsync(Db, S.Settings, Ctx);", optimize);
+        Assert.Contains("(await WithDepartmentsAsync(db, settings, c, rows)).Size", optimize);
         Assert.DoesNotContain("* 1.10)", optimize);
-        Assert.Contains("var size = await Renewal.SizeAsync(Db, S.Settings, whole);", budget);
+        Assert.Contains("Renewal.SizeAsync(Db, S.Settings, whole)", budget);
         Assert.Contains("var keep = Math.Max(0, size.Target - suiteActive);", budget);
         Assert.DoesNotContain("Seats the use supports", budget);
         Assert.Contains("await settings.StringAsync(\"SpareSeatPercent\")", optimize);

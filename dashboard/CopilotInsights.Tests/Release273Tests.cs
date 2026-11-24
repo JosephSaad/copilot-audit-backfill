@@ -57,7 +57,7 @@ public class Release273Tests
     {
         /* Adoption's link went from a share that started to the list of those who had not; it is now the list's own count. */
         var adoption = Read("dashboard", "CopilotInsights", "Pages", "Adoption", "Adoption.cs");
-        Assert.Contains("var notStarted = await Db.ScalarAsync<int>($\"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};\", Ctx.Args());", adoption);
+        Assert.Contains("Db.ScalarAsync<int>($\"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};\", Ctx.Args())", adoption);
         Assert.Contains("{Who(Ctx)}", adoption);
         /* Sensitive content's people are Access to labeled content's: labeled content, or blocked from it. */
         var compliance = Read("dashboard", "CopilotInsights", "Pages", "Compliance", "Compliance.cs");

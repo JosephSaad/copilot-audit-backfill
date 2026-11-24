@@ -623,6 +623,12 @@ In the lab, one night's refresh of a database with 120 million interactions and 
 | The three together | 42 min 24 s | 5 min 24 s |
 | License SKU changes, in the license step (44,405 events) | none: worked out at each read | 2 to 9 seconds |
 
+From 3.1.4 the dashboard refresh (`dash.usp_RefreshDashboard`) also keeps the totals the pages read: each person's sums
+per period, per week, per app, agent, use case, license type and model, the Copilot Credit counts, and who held a license
+on each day. In the lab, with two years of 160 million interactions on 8 processors, a nightly dashboard refresh took
+about 14 minutes (825 s), and the first one after the upgrade, which builds them whole, about 35 minutes. The step names
+the refresh in the nightly log as before; Admin › Health shows when it last ended.
+
 To ask for help with a slow night, send the output of the first tool with `-LogPath`, and the `read` result of the third if a recording was made. Neither holds the data: they hold counts, times, the text of the SQL statements and the names of tables and procedures.
 
 ## More than one tenant

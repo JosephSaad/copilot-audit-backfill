@@ -864,4 +864,40 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /// <summary>What a breakdown says under it when groups were folded: how many, and why.</summary>
     protected string FoldNote(int folded, string noun, string? plural = null) =>
         folded == 0 ? "" : $"{Count(folded, "smaller " + noun, "smaller " + (plural ?? noun + "s"))} {Are(folded)} combined, so no row describes fewer than {Ctx.MinGroupSize} people.";
+
+    /* ---- Reading side by side -----------------------------------------------------------------------------------
+       A page's queries that do not need each other's answers can start together and be awaited together: the page
+       then takes about as long as its slowest, not their sum. Each query opens its own connection (Db); the query
+       cache's switch flows with the tasks, and the request's memo is shared under a lock (RequestMemo). Only the reads
+       run side by side: the page is built from their answers in order. */
+
+    protected static async Task<(T1, T2)> Queries<T1, T2>(Task<T1> a, Task<T2> b)
+    {
+        await Task.WhenAll(a, b);
+        return (a.Result, b.Result);
+    }
+
+    protected static async Task<(T1, T2, T3)> Queries<T1, T2, T3>(Task<T1> a, Task<T2> b, Task<T3> c)
+    {
+        await Task.WhenAll(a, b, c);
+        return (a.Result, b.Result, c.Result);
+    }
+
+    protected static async Task<(T1, T2, T3, T4)> Queries<T1, T2, T3, T4>(Task<T1> a, Task<T2> b, Task<T3> c, Task<T4> d)
+    {
+        await Task.WhenAll(a, b, c, d);
+        return (a.Result, b.Result, c.Result, d.Result);
+    }
+
+    protected static async Task<(T1, T2, T3, T4, T5)> Queries<T1, T2, T3, T4, T5>(Task<T1> a, Task<T2> b, Task<T3> c, Task<T4> d, Task<T5> e)
+    {
+        await Task.WhenAll(a, b, c, d, e);
+        return (a.Result, b.Result, c.Result, d.Result, e.Result);
+    }
+
+    protected static async Task<(T1, T2, T3, T4, T5, T6)> Queries<T1, T2, T3, T4, T5, T6>(Task<T1> a, Task<T2> b, Task<T3> c, Task<T4> d, Task<T5> e, Task<T6> f)
+    {
+        await Task.WhenAll(a, b, c, d, e, f);
+        return (a.Result, b.Result, c.Result, d.Result, e.Result, f.Result);
+    }
 }

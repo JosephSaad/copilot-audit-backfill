@@ -51,7 +51,7 @@ public sealed class SwapModel(PageServices s) : InsightsPage(s)
 
     /// <summary>Every idle license and every person wanting one, each numbered within their unit; pairs share a number.</summary>
     async Task<string> SidesSqlAsync(string within, int k30) => $@"
-WITH {await ActionsModel.ActivitySqlAsync(Db, k30, Ctx.EndKey)},
+WITH {await ActionsModel.ActivitySqlAsync(Db, Ctx, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1),
 g AS (SELECT {Within[within].Sql} AS Unit, du.UserKey, du.DisplayName, du.UserPrincipalName, du.LicensedSinceUtc, ISNULL(a.D, 0) AS D,
              ROW_NUMBER() OVER (PARTITION BY {Within[within].Sql} ORDER BY ISNULL(a.D, 0), ISNULL(a.I, 0), du.UserPrincipalName) AS N
@@ -75,7 +75,9 @@ t AS (SELECT {Within[within].Sql} AS Unit, du.UserKey, du.DisplayName, du.UserPr
 SELECT COALESCE(g.Unit, t.Unit) AS Unit, g.DisplayName AS GiveName, g.UserPrincipalName AS GiveUpn, g.D AS GiveDays, dl.[Date] AS GiveLast, g.LicensedSinceUtc AS GiveSince,
        t.DisplayName AS TakeName, t.UserPrincipalName AS TakeUpn, t.D AS TakeDays, t.I AS TakeInteractions, t.ManagerName AS TakeManager
 FROM g FULL JOIN t ON t.Unit = g.Unit AND t.N = g.N
-OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE g.UserKey IS NOT NULL AND t.UserKey IS NOT NULL AND ud.UserKey = g.UserKey AND ud.Interactions > 0) AS x
+OUTER APPLY ({(Ctx.Rollups
+    ? "SELECT ua.LastActiveKey AS LastKey FROM dash.UserActivity AS ua WHERE g.UserKey IS NOT NULL AND t.UserKey IS NOT NULL AND ua.UserKey = g.UserKey"   // the last day of use, kept by the refresh
+    : "SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE g.UserKey IS NOT NULL AND t.UserKey IS NOT NULL AND ud.UserKey = g.UserKey AND ud.Interactions > 0")}) AS x
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), timeout: 300);
 

@@ -71,36 +71,48 @@ public sealed class Metrics(Db db)
 {
     public async Task<List<TrendRow>> TrendAsync(ReportContext c)
     {
+        /* Each person's sums at each point come from the totals the refresh keeps (ReportContext.PerPoint): a week is one
+           row, not seven days added up, and a person is one row a point, so the people are counted without a distinct. */
+        /* Once the refresh keeps who held a license at each whole week's end (dash.UserWeek.HeldAtEnd) and each day's
+           holders for the whole organization (dash.HeldDay), the license days are met only for the points those do not
+           answer: a day, or a week the period cuts. At two years they were 15 million license rows a visit. */
+        var weekly = c.Held && c.Rollups && !c.Daily;
+        var orgHeld = c.Held && c.Root is null;
+        var cutOnly = weekly ? " WHERE e.Bucket IN (SELECT w.WeekEnding FROM bi.DimDate AS w WHERE w.DateKey BETWEEN @k0 AND @k1 GROUP BY w.WeekEnding HAVING COUNT(*) < 7)" : "";
+        var heldTest = weekly ? "COALESCE(per.Held, CASE WHEN le.UserKey IS NOT NULL THEN 1 ELSE 0 END) = 1" : "le.UserKey IS NOT NULL";
+        var licSql = orgHeld
+            ? "SELECT e.Bucket, h.HeldEnabled AS Licensed FROM ends AS e JOIN dash.HeldDay AS h ON h.DateKey = e.EndKey"
+            : $"SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket";
         var rows = await db.QueryAsync<TrendRow>($@"
 WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
 ends AS (SELECT Bucket, MAX(DateKey) AS EndKey FROM b GROUP BY Bucket),
-ud AS (SELECT b.Bucket, ud.* FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} JOIN b ON b.DateKey = ud.DateKey),
-per AS (SELECT Bucket, UserKey, SUM(Interactions) AS I, SUM(LicensedUse) AS L FROM ud GROUP BY Bucket, UserKey),
+per AS (SELECT pp.* FROM {c.PerPoint(withHeld: weekly)} AS pp {c.Scope("pp.UserKey")}),
+/* Who holds a license at the end of each point: the licenses of those days alone, met on the point and the person,
+   so they can be matched to the people in one pass rather than looked up a person at a time. */
+held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")}{cutOnly}),
 /* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
-/* People are accounts enabled today (3.1.3); the sums below still count everyone's use. */
-people AS (SELECT per.Bucket, COUNT(CASE WHEN per.I > 0 THEN 1 END) AS Active,
-                  COUNT(CASE WHEN per.L > 0 AND le.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
-                  COUNT(CASE WHEN per.I > 0 AND per.L = 0 THEN 1 END) AS ActiveUnlicensed
-           FROM per {ReportContext.EnabledJoin("per.UserKey")} JOIN ends AS e ON e.Bucket = per.Bucket
-           LEFT JOIN bi.FactLicensedDay AS le ON le.DateKey = e.EndKey AND le.UserKey = per.UserKey
+/* People are accounts enabled today (3.1.3); the sums still count everyone's use. Both in one pass over the points. */
+people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
+                  COUNT(CASE WHEN per.LicensedUse > 0 AND {heldTest} AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
+                  COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveUnlicensed,
+                  SUM(CAST(per.Interactions AS BIGINT)) AS Interactions, SUM(CAST(per.Prompts AS BIGINT)) AS Prompts,
+                  SUM(CAST(per.Sessions AS BIGINT)) AS Sessions, SUM(CAST(per.MultiTurnSessions AS BIGINT)) AS MultiTurn,
+                  SUM(CAST(per.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(per.AgentInteractions AS BIGINT)) AS Agent,
+                  SUM(CAST(per.WebGrounded AS BIGINT)) AS Web, SUM(CAST(per.Jailbreak AS BIGINT)) AS Jailbreak,
+                  SUM(CAST(per.PromptInjection AS BIGINT)) AS Injection, SUM(CAST(per.BlockedResource AS BIGINT)) AS Blocked,
+                  SUM(CAST(per.LabeledContent AS BIGINT)) AS Labeled
+           FROM per {ReportContext.EnabledJoin("per.UserKey", left: true)}
+           LEFT JOIN held AS le ON le.Bucket = per.Bucket AND le.UserKey = per.UserKey
            GROUP BY per.Bucket),
-sums AS (SELECT Bucket, SUM(CAST(Interactions AS BIGINT)) AS Interactions, SUM(CAST(Prompts AS BIGINT)) AS Prompts,
-                SUM(CAST(Sessions AS BIGINT)) AS Sessions, SUM(CAST(MultiTurnSessions AS BIGINT)) AS MultiTurn,
-                SUM(CAST(ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(AgentInteractions AS BIGINT)) AS Agent,
-                SUM(CAST(WebGrounded AS BIGINT)) AS Web, SUM(CAST(Jailbreak AS BIGINT)) AS Jailbreak,
-                SUM(CAST(PromptInjection AS BIGINT)) AS Injection, SUM(CAST(BlockedResource AS BIGINT)) AS Blocked,
-                SUM(CAST(LabeledContent AS BIGINT)) AS Labeled
-         FROM ud GROUP BY Bucket),
-lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket)
+lic AS ({licSql})
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
-       ISNULL(s.Interactions, 0) AS Interactions, ISNULL(s.Prompts, 0) AS Prompts, ISNULL(s.Sessions, 0) AS Sessions,
-       ISNULL(s.MultiTurn, 0) AS MultiTurn, ISNULL(s.Chat, 0) AS Chat, ISNULL(s.Agent, 0) AS Agent, ISNULL(s.Web, 0) AS Web,
-       ISNULL(s.Jailbreak, 0) AS Jailbreak, ISNULL(s.Injection, 0) AS Injection, ISNULL(s.Blocked, 0) AS Blocked,
-       ISNULL(s.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed
+       ISNULL(p.Interactions, 0) AS Interactions, ISNULL(p.Prompts, 0) AS Prompts, ISNULL(p.Sessions, 0) AS Sessions,
+       ISNULL(p.MultiTurn, 0) AS MultiTurn, ISNULL(p.Chat, 0) AS Chat, ISNULL(p.Agent, 0) AS Agent, ISNULL(p.Web, 0) AS Web,
+       ISNULL(p.Jailbreak, 0) AS Jailbreak, ISNULL(p.Injection, 0) AS Injection, ISNULL(p.Blocked, 0) AS Blocked,
+       ISNULL(p.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed
 FROM ends AS e
 LEFT JOIN people AS p ON p.Bucket = e.Bucket
-LEFT JOIN sums AS s ON s.Bucket = e.Bucket
 LEFT JOIN lic AS l ON l.Bucket = e.Bucket
 ORDER BY e.Bucket;", c.Args());
         /* One row per trend point, in order, even where nothing happened. */
@@ -117,6 +129,29 @@ ORDER BY e.Bucket;", c.Args());
     /// </summary>
     public async Task<Dictionary<DateTime, int>> AdoptedAsync(ReportContext c)
     {
+        /* The refresh keeps who was adopted on each day (dash.AdoptionDay: licensed use that day or in the 27 before,
+           worked out by the same rule as below over every day), so a point is a seek on its last day. */
+        /* For the whole organization, each day's adopted holders are kept as a count (dash.HeldDay). */
+        if (c.Rollups && c.Held && c.Root is null)
+            return (await db.QueryAsync<(DateTime Bucket, int Adopted)>($@"
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
+ends AS (SELECT b.Bucket, MAX(b.DateKey) AS EndKey FROM b GROUP BY b.Bucket)
+SELECT e.Bucket, h.AdoptedEnabled AS Adopted
+FROM ends AS e
+JOIN dash.HeldDay AS h ON h.DateKey = e.EndKey
+WHERE h.AdoptedEnabled > 0;", c.Args())).ToDictionary(r => r.Bucket, r => r.Adopted);
+        if (c.Rollups)
+            return (await db.QueryAsync<(DateTime Bucket, int Adopted)>($@"
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
+ends AS (SELECT b.Bucket, MAX(b.DateKey) AS EndKey FROM b GROUP BY b.Bucket)
+SELECT e.Bucket, COUNT(*) AS Adopted
+FROM ends AS e
+JOIN dash.AdoptionDay AS ad ON ad.DateKey = e.EndKey
+{c.Scope("ad.UserKey")}
+JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey AND ld.UserKey = ad.UserKey
+{ReportContext.EnabledJoin("ad.UserKey")}
+GROUP BY e.Bucket;", c.Args())).ToDictionary(r => r.Bucket, r => r.Adopted);
+
         /* Each day of use keeps a person adopted until their next one, or for 28 days: so a person is counted at a
            point by one row, and the points are met by equality, not by a range (4 seconds a year at 70,000 people
            against 20 the plain way). */
@@ -142,12 +177,12 @@ GROUP BY e.Bucket;", c.Args(new { kw = ReportContext.Key(c.Start.AddDays(1 - Ado
     public async Task<Totals> TotalsAsync(ReportContext c) =>
         (await db.QueryAsync<Totals>($@"
 WITH u AS (
-    SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(ud.PremiumUse) AS PU, SUM(CAST(ud.Prompts AS BIGINT)) AS P,
-           SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
-           MAX(CASE WHEN ud.DateKey >= @k7 AND ud.Interactions > 0 THEN 1 ELSE 0 END) AS Last7
-    FROM dash.UserDay AS ud {c.Scope("ud.UserKey")}
-    WHERE ud.DateKey BETWEEN @k0 AND @k1
-    GROUP BY ud.UserKey)
+    /* Each person's sums over the period, from the totals the refresh keeps (ReportContext.PerPerson). Active in the
+       last 7 days: their last day of use is one of them. */
+    SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.PremiumUse AS PU, CAST(p.Prompts AS BIGINT) AS P,
+           p.Sessions AS S, p.MultiTurnSessions AS MT, p.ActiveDays AS D,
+           CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END AS Last7
+    FROM {c.PerPerson()} AS p {c.Scope("p.UserKey")})
 /* One pass over u (2.4.2): as nine subqueries, each re-aggregated dash.UserDay. */
 /* People counts are of accounts enabled today (3.1.3, IsEnabled); interactions, prompts and sessions are everyone's. */
 SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.AccountEnabled = 1) AS People,
@@ -158,8 +193,7 @@ SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.A
        COUNT(CASE WHEN u.I > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
        COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
        COUNT(CASE WHEN u.L > 0 AND u.PU > 0 AND ld.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS PremiumLicensed,
-       (SELECT COUNT(*) FROM (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS ev
-        {ReportContext.EnabledJoin("ev.UserKey")}) AS EverActive,
+       {EverActive(c)} AS EverActive,
        ISNULL(SUM(CAST(u.I AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(u.P), 0) AS Prompts,
        ISNULL(SUM(CAST(u.S AS BIGINT)), 0) AS Sessions,
@@ -170,16 +204,32 @@ SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.A
 FROM u LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 {ReportContext.EnabledJoin("u.UserKey", left: true)};", c.Args())).Single();
 
+    /* SQL for the enabled people in scope who used Copilot on any day at all. The refresh keeps each person's first day
+       of use over every day (dash.UserActivity), so it is a read of one row a person; before it is built, every day of
+       dash.UserDay is read for it. */
+    static string EverActive(ReportContext c) => c.Rollups
+        ? $@"(SELECT COUNT(*) FROM dash.UserActivity AS ev {c.Scope("ev.UserKey")} {ReportContext.EnabledJoin("ev.UserKey")}
+        WHERE ev.FirstActiveKey IS NOT NULL)"
+        : $@"(SELECT COUNT(*) FROM (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS ev
+        {ReportContext.EnabledJoin("ev.UserKey")})";
+
     /* The members of each unit one level below the root (or the top): a manager with everyone under them,
        people reporting straight to the root as one "direct team"; divisions when there is no top. */
     static string UnitMembers(ReportContext c, bool haveParent) => haveParent ? @"
 kids AS (SELECT p.Upn, CASE WHEN p.PeopleBelow > 0 THEN p.Upn ELSE N'~direct' END AS Unit FROM dash.Person AS p WHERE p.ManagerUpn = @parent
          UNION ALL SELECT @parent, N'~direct'),
-m AS (SELECT k.Unit, oc.DescendantUpn AS Upn FROM kids AS k
+m AS (SELECT k.Unit, oc.DescendantUpn AS Upn, oc.DescendantKey, oc.DescendantEnabled FROM kids AS k
       JOIN dash.OrgClosure AS oc ON oc.AncestorUpn = k.Upn AND (k.Unit <> N'~direct' OR oc.Depth = 0)),
-u AS (SELECT m.Unit, pp.AccountEnabled, du.UserKey FROM m
-      JOIN dash.Person AS pp ON pp.Upn = m.Upn
-      LEFT JOIN bi.DimUser AS du ON du.UserPrincipalName = m.Upn)" : $@"
+/* Each member's account and bi.DimUser key are on the closure, written by the refresh from dash.Person and bi.DimUser:
+   matching 210,000 sign-ins to both by name took seconds. A row written without them (by another tool), or a person
+   the closure found no key for, is looked up by sign-in as before; a member who is not in dash.Person is left out, as
+   the join to it did. */
+u AS (SELECT m.Unit, CASE WHEN m.DescendantEnabled IS NOT NULL THEN m.DescendantEnabled ELSE pe.AccountEnabled END AS AccountEnabled,
+             CASE WHEN m.DescendantKey IS NOT NULL THEN m.DescendantKey ELSE dk.UserKey END AS UserKey
+      FROM m
+      OUTER APPLY (SELECT 1 AS Found, pp.AccountEnabled FROM dash.Person AS pp WHERE m.DescendantEnabled IS NULL AND pp.Upn = m.Upn) AS pe
+      OUTER APPLY (SELECT du.UserKey FROM bi.DimUser AS du WHERE m.DescendantKey IS NULL AND du.UserPrincipalName = m.Upn) AS dk
+      WHERE m.DescendantEnabled IS NOT NULL OR pe.Found = 1)" : $@"
 u AS (SELECT ISNULL(NULLIF(du.Division, N''), N'(no division)') AS Unit, du.AccountEnabled, du.UserKey
       FROM bi.DimUser AS du {c.Scope("du.UserKey")} WHERE du.DirectoryStatus = N'Found')";
 
@@ -197,10 +247,10 @@ SELECT u.Unit, u.AccountEnabled, u.UserKey INTO #u FROM u;
         var parent = c.Root ?? c.OrgTopUpn;
         var sql = $@"
 {UnitMembersInto(c, parent is not null)}
-WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(ud.PremiumUse) AS PU, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
-                    SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F,
-                    SUM(ud.LabeledContent) AS LB, SUM(ud.WebGrounded) AS W
-             FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+WITH act AS (SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.PremiumUse AS PU, p.ActiveDays AS D,
+                    p.Sessions AS S, p.MultiTurnSessions AS MT, p.Jailbreak + p.PromptInjection + p.BlockedResource AS F,
+                    p.LabeledContent AS LB, p.WebGrounded AS W
+             FROM {c.PerPerson()} AS p)
 SELECT u.Unit,
        {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN N'Reporting directly' ELSE MAX(mp.DisplayName) END")} AS Name,
        {(parent is null ? "NULL" : "MAX(mp.Department)")} AS Department,
@@ -245,12 +295,11 @@ ORDER BY {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN 1 ELS
         var parent = c.Root ?? c.OrgTopUpn;
         return await db.QueryAsync<(string, DateTime, int)>($@"
 {UnitMembersInto(c, parent is not null)}
-WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
-SELECT u.Unit, b.Bucket, COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END)
-FROM #u AS u JOIN dash.UserDay AS ud ON ud.UserKey = u.UserKey
-JOIN b ON b.DateKey = ud.DateKey
+/* A member is in one unit once, and has one row a point, so the active rows are the active people: no distinct count. */
+SELECT u.Unit, pp.Bucket, COUNT(CASE WHEN pp.Interactions > 0 THEN 1 END)
+FROM #u AS u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
 WHERE u.AccountEnabled = 1
-GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
+GROUP BY u.Unit, pp.Bucket;", c.Args(new { parent }));
     }
 
     /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labeled content, web grounding.</summary>
@@ -259,13 +308,11 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
         var parent = c.Root ?? c.OrgTopUpn;
         return await db.QueryAsync<UnitPoint>($@"
 {UnitMembersInto(c, parent is not null)}
-WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
-SELECT u.Unit, b.Bucket, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
-       SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS Flags,
-       SUM(CAST(ud.LabeledContent AS BIGINT)) AS Labeled, SUM(CAST(ud.WebGrounded AS BIGINT)) AS Web
-FROM #u AS u JOIN dash.UserDay AS ud ON ud.UserKey = u.UserKey
-JOIN b ON b.DateKey = ud.DateKey
-GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
+SELECT u.Unit, pp.Bucket, SUM(CAST(pp.Interactions AS BIGINT)) AS Interactions,
+       SUM(CAST(pp.Jailbreak AS BIGINT) + pp.PromptInjection + pp.BlockedResource) AS Flags,
+       SUM(CAST(pp.LabeledContent AS BIGINT)) AS Labeled, SUM(CAST(pp.WebGrounded AS BIGINT)) AS Web
+FROM #u AS u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
+GROUP BY u.Unit, pp.Bucket;", c.Args(new { parent }));
     }
 
     public static UnitRow Combine(IReadOnlyList<UnitRow> rows, string name) => new()
@@ -283,9 +330,8 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
     {
         var expr = Attributes[attribute];
         return await db.QueryAsync<GroupRow>($@"
-WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
-                    SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
-             FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+WITH act AS (SELECT p.UserKey, p.Interactions AS I, p.LicensedUse AS L, p.ActiveDays AS D, p.Sessions AS S, p.MultiTurnSessions AS MT
+             FROM {c.PerPerson()} AS p)
 SELECT {expr} AS Name, COUNT(CASE WHEN du.AccountEnabled = 1 THEN 1 END) AS People,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND du.AccountEnabled = 1 THEN 1 END) AS Licensed,
        COUNT(CASE WHEN a.I > 0 AND du.AccountEnabled = 1 THEN 1 END) AS Active,

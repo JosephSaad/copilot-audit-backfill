@@ -34,7 +34,7 @@ FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
 WHERE ld.DateKey = @k1
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args(new { idle = Ctx.InactiveDays }));
+  AND NOT {CopilotInsights.Pages.Forecasting.Renewal.UsedSince(Ctx, "ld.UserKey")};", Ctx.Args(new { idle = Ctx.InactiveDays }));
         var changesTask = Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
@@ -169,7 +169,9 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, du.C
        dl.[Date] AS LastUsed, COUNT(*) OVER () AS TotalRows
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
-OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0) AS x
+OUTER APPLY ({(Ctx.Rollups
+    ? "SELECT ua.LastActiveKey AS LastKey FROM dash.UserActivity AS ua WHERE ua.UserKey = ld.UserKey"   // each person's last day of use, kept by the refresh
+    : "SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0")}) AS x
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
@@ -225,22 +227,32 @@ public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
         ["days"] = "Most days active", ["use"] = "Most interactions", ["name"] = "Name", ["dept"] = "Department",
     };
 
-    const string Unlicensed = @"
-a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D
-      FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey
-      HAVING SUM(ud.Interactions) > 0 AND SUM(ud.LicensedUse) = 0)";
+    /* The people who used Copilot in the period with no licensed use, from each person's sums over it. */
+    string Unlicensed => $@"
+a AS (SELECT p.UserKey, p.Interactions AS I, p.ActiveDays AS D FROM {Ctx.PerPerson()} AS p
+      WHERE p.Interactions > 0 AND p.LicensedUse = 0)";
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendAsync(Ctx);
-        var depts = await Db.QueryAsync<(string Dept, int People, int Users, int Heavy)>($@"
+        /* The reads below do not depend on each other, each on its own connection: started together. */
+        var (tr, depts, recorded) = await Queries(m.TrendAsync(Ctx),
+            Db.QueryAsync<(string Dept, int People, int Users, int Heavy)>($@"
 WITH {Unlicensed}
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*),
        COUNT(a.UserKey), COUNT(CASE WHEN a.D >= @heavy THEN 1 END)
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey
 WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 AND du.CopilotLicenseToday <> N'Licensed'
-GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { heavy = Heavy }));
+GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { heavy = Heavy })),
+            /* Each person's interactions by the license type recorded in them (ReportContext.PerItem, kind L: one row a
+               person a type), then the enabled among them. Read from every record of the period, it took 16 seconds of
+               processor at All data and 160 million interactions. */
+            Db.QueryAsync<(string LicenseType, int People, long N)>($@"
+SELECT l.LicenseType, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END), SUM(CAST(g.Interactions AS BIGINT))
+FROM {Ctx.PerItem('L')} AS g {Ctx.Scope("g.UserKey")}
+JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = g.Item
+{ReportContext.EnabledJoin("g.UserKey", left: true)}
+GROUP BY l.LicenseType;", Ctx.Args()));
         var users = depts.Sum(d => d.Users);
         var heavy = depts.Sum(d => d.Heavy);
         Kpis.Add(new("Unlicensed Copilot Chat users", Num(users), "enabled accounts with no license that used Copilot Chat in the period"));
@@ -256,13 +268,6 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             Chart.Bars(byDept.Select(d => new Bar(d.Dept, d.Heavy, Note: $"{d.Users:#,0} used it; {d.Heavy:#,0} on {Heavy}+ days; {d.People:#,0} unlicensed people", Slot: 2)).ToList(), Fmt.Count, "Heavy unlicensed users by department"),
             $"Unlicensed people who used Copilot Chat on {Heavy} days or more in the period, by department.", "half"));
 
-        var recorded = await Db.QueryAsync<(string LicenseType, int People, long N)>($@"
-SELECT l.LicenseType, COUNT(DISTINCT CASE WHEN {ReportContext.IsEnabled()} THEN f.UserKey END), COUNT_BIG(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = f.LicenseTypeKey
-{ReportContext.EnabledJoin("f.UserKey", left: true)}
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY l.LicenseType;", Ctx.Args());
         Panels.Add(new("License type Copilot recorded",
             Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded license type"),
             "People with an enabled account, by the license type Copilot wrote into each of their interaction records: Premium for a Microsoft 365 Copilot license, Starter for Copilot Chat. This is Copilot's view at the moment of use, and can differ from the license history. A person who used both appears under each. The interaction counts on hover include disabled and departed accounts.", "half"));

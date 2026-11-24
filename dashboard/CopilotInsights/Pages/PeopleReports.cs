@@ -47,8 +47,8 @@ namespace CopilotInsights.Pages.Security
             var rows = await Db.QueryAsync<Row>($@"
 WITH g AS (SELECT du.UserKey, {Domain} AS Domain, {ok} AS Ok, CASE WHEN du.AccountEnabled = 1 THEN 1 ELSE 0 END AS En
            FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
-a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabeledContent) AS L
-      FROM dash.UserDay AS ud JOIN g ON g.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+a AS (SELECT pp.UserKey, pp.Interactions AS I, pp.Jailbreak + pp.PromptInjection + pp.BlockedResource AS F, pp.LabeledContent AS L
+      FROM {Ctx.PerPerson()} AS pp JOIN g ON g.UserKey = pp.UserKey)   -- each guest's sums over the period, from the totals the refresh keeps
 /* Guests are counted only with the account enabled today (3.1.3); their interactions and signals are everyone's. */
 SELECT g.Domain, COUNT(CASE WHEN g.En = 1 THEN 1 END) AS People, COUNT(CASE WHEN a.I > 0 AND g.En = 1 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed,
@@ -81,8 +81,8 @@ GROUP BY g.Domain;", Ctx.Args());
                 ["signals"] = "a.F DESC, a.I DESC, du.UserPrincipalName", ["recent"] = "a.LastKey DESC, du.UserPrincipalName",
             }, "most");
             var people = await Db.QueryAsync<(string Upn, string? Name, string Domain, long I, long F, DateTime? Last, int Total)>($@"
-WITH a AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS F, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+WITH a AS (SELECT pp.UserKey, CAST(pp.Interactions AS BIGINT) AS I, CAST(pp.Jailbreak AS BIGINT) + pp.PromptInjection + pp.BlockedResource AS F, pp.LastActiveKey AS LastKey
+           FROM {Ctx.PerPerson()} AS pp)
 SELECT du.UserPrincipalName, du.DisplayName, {Domain}, a.I, a.F, dl.[Date], COUNT(*) OVER ()
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} JOIN a ON a.UserKey = du.UserKey AND a.I > 0
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = a.LastKey
@@ -251,10 +251,11 @@ namespace CopilotInsights.Pages.Workforce
         {
             if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job families are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
             var rules = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.JobFamilyRule;");
+            /* Each person's use over the period is the refresh's sum of it (dash.UserPeriod), where every person's days
+               were summed and the part of the organization taken after. */
             var rows = await Db.QueryAsync<GroupRow>($@"
-WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
-                    SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
-             FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey),
+WITH act AS (SELECT pp.UserKey, pp.Interactions AS I, pp.LicensedUse AS L, pp.ActiveDays AS D, pp.Sessions AS S, pp.MultiTurnSessions AS MT
+             FROM {Ctx.PerPerson()} AS pp),   -- each person's sums over the period, from the totals the refresh keeps
 /* Everyone with use is in a family, so the families' use adds up to the total (3.1.3); only accounts enabled today
    count among the people, as in Metrics.ByAttributeAsync. */
 fam AS (SELECT du.UserKey, ISNULL(r.Family, N'(no family)') AS Family, CASE WHEN du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 THEN 1 ELSE 0 END AS En

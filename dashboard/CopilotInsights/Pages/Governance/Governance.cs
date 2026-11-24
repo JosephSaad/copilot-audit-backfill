@@ -11,41 +11,43 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* Seven independent reads, four of them over the fact: started together, awaited where used. */
+        /* Seven independent reads: started together, awaited where used. */
         var trTask = m.TrendAsync(Ctx);
         var unitsTask = m.UnitsAsync(Ctx);
-        /* Counted per model key first, then named: dash.fnValueName in the GROUP BY over the fact ran once a row. */
-        var modelsTask = Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
+        /* The model mix and the controls from each person's interactions per model and per flag the refresh keeps
+           (kinds M and F), counted per trend point and model key, then named. Every interaction has a model key, so the
+           models' interactions are all of them; a key the model list lacks counts in the controls, not in the mix. */
+        var modelsTask = Db.QueryAsync<(DateTime Bucket, string? Model, long N)>($@"
 WITH g AS (
-    SELECT {Ctx.BucketSql("d")} AS Bucket, f.ModelKey, COUNT_BIG(*) AS N
-    FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-    JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-    WHERE f.DateKey BETWEEN @k0 AND @k1
-    GROUP BY {Ctx.BucketSql("d")}, f.ModelKey)
-SELECT g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END, SUM(g.N)
-FROM g JOIN bi.DimModel AS mo ON mo.ModelKey = g.ModelKey
+    SELECT u.Bucket, u.Item AS ModelKey, SUM(CAST(u.Interactions AS BIGINT)) AS N
+    FROM {Ctx.PerItemPoint('M')} AS u {Ctx.Scope("u.UserKey")}
+    GROUP BY u.Bucket, u.Item)
+SELECT g.Bucket, CASE WHEN mo.ModelKey IS NULL THEN NULL WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END, SUM(g.N)
+FROM g LEFT JOIN bi.DimModel AS mo ON mo.ModelKey = g.ModelKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 16 AND vn.Value = mo.ModelName
-GROUP BY g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END;", Ctx.Args());
+GROUP BY g.Bucket, CASE WHEN mo.ModelKey IS NULL THEN NULL WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END;", Ctx.Args());
+        /* Flag 1: memory updated, 2: called another agent, 3: data-loss check deferred. */
+        var flagsTask = Db.QueryAsync<(DateTime Bucket, int Flag, long N)>($@"
+SELECT u.Bucket, u.Item, SUM(CAST(u.Interactions AS BIGINT))
+FROM {Ctx.PerItemPoint('F')} AS u {Ctx.Scope("u.UserKey")}
+GROUP BY u.Bucket, u.Item;", Ctx.Args());
+        /* The agents used at each point, from each person's use of each agent the refresh keeps. */
         var agentsTask = Db.QueryAsync<(DateTime Bucket, string Source, int N)>($@"
-SELECT {Ctx.BucketSql("d")}, a.AgentSource, COUNT(DISTINCT f.AgentKey)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agent)'
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")}, a.AgentSource;", Ctx.Args());
-        var controlsTask = Db.QueryAsync<(DateTime Bucket, long N, long Memory, long AgentCalls, long Dlp)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+SELECT u.Bucket, a.AgentSource, COUNT(DISTINCT u.Item)
+FROM {Ctx.PerItemPoint('G')} AS u {Ctx.Scope("u.UserKey")}
+JOIN bi.DimAgent AS a ON a.AgentKey = u.Item AND a.AgentSource <> N'(no agent)'
+GROUP BY u.Bucket, a.AgentSource;", Ctx.Args());
         var productsTask = ProductsAsync();
         var bornTask = Db.QueryAsync<(string Source, int N, int New)>(@"
 SELECT a.AgentSource, COUNT(*), COUNT(CASE WHEN a.FirstSeenUtc >= @d0 THEN 1 END)
 FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < DATEADD(DAY, 1, @d1)
 GROUP BY a.AgentSource;", Ctx.Args());
-        await Task.WhenAll(trTask, unitsTask, modelsTask, agentsTask, controlsTask, productsTask, bornTask);
+        await Task.WhenAll(trTask, unitsTask, modelsTask, flagsTask, agentsTask, productsTask, bornTask);
         var tr = await trTask;
         long all = tr.Sum(w => w.Interactions);
-        var models = await modelsTask;
+        var points = await modelsTask;
+        var flagged = (await flagsTask).ToDictionary(x => (x.Bucket, x.Flag), x => x.N);
+        var models = points.Where(x => x.Model is not null).Select(x => (x.Bucket, Model: x.Model!, x.N)).ToList();
         var agents = await agentsTask;
         var buckets = Buckets();
 
@@ -54,7 +56,9 @@ GROUP BY a.AgentSource;", Ctx.Args());
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
         Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count()), "different models named in the period's audit records"));
         /* Memory updates, calls to another agent and deferred data-loss checks at each point; their totals are the period's. */
-        var controls = await controlsTask;
+        var controls = points.GroupBy(x => x.Bucket)
+            .Select(g => (Bucket: g.Key, N: g.Sum(x => x.N), Memory: flagged.GetValueOrDefault((g.Key, 1)),
+                          AgentCalls: flagged.GetValueOrDefault((g.Key, 2)), Dlp: flagged.GetValueOrDefault((g.Key, 3)))).ToList();
         var flags = (N: controls.Sum(x => x.N), Memory: controls.Sum(x => x.Memory), AgentCalls: controls.Sum(x => x.AgentCalls), Dlp: controls.Sum(x => x.Dlp));
         Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
         Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "of interactions in which an agent handed work to another agent (Agents › Agent hand-offs)"));
@@ -109,26 +113,52 @@ GROUP BY a.AgentSource;", Ctx.Args());
 
     /* Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
        Copilot, Copilot in Fabric and Power BI, Edge, Copilot Studio's agents, and Microsoft 365 Copilot for the rest. */
-    /* Counted per person, app and agent first, then classified: the LIKEs ran once an interaction. */
+    /* An interaction's product is its app's where the app names one (Security, Fabric and Power BI, Edge and Bing),
+       else its agent's (Copilot Studio's, or another), else Microsoft 365 Copilot. Worked out per person from the
+       totals the refresh keeps per person and app, and per person and agent: an agent's interactions in an app that
+       names its own product are taken off the agent's, from the fact, and only when such an app was used; what is left
+       of a person's interactions is Microsoft 365 Copilot. The same counts as classifying each interaction. */
+    /// <summary>Whether the refresh keeps each person's use cases (kind U): read from the fact otherwise, the gate below costs more than it saves.</summary>
+    bool UseCases => Ctx.Rollups && Ctx.ItemKinds.Contains('U');
+
     Task<List<(string Product, long N, int People)>> ProductsAsync() => Db.QueryAsync<(string Product, long N, int People)>($@"
-WITH g AS (
-    SELECT f.UserKey, f.AppKey, f.AgentKey, COUNT_BIG(*) AS N
+SELECT a.AppKey, p.Product INTO #sp
+FROM bi.DimApp AS a
+CROSS APPLY (SELECT CASE WHEN a.App LIKE N'%Security%' THEN N'Security Copilot'
+                         WHEN a.App LIKE N'%Fabric%' OR a.App LIKE N'%PowerBI%' OR a.App LIKE N'%Power BI%' THEN N'Copilot in Fabric and Power BI'
+                         /* Microsoft records Copilot in the Edge browser as AppHost Bing. */
+                         WHEN a.App LIKE N'%Edge%' OR a.App = N'Bing' THEN N'Copilot in Edge and Bing' END AS Product) AS p
+WHERE p.Product IS NOT NULL;
+SELECT ag.AgentKey, p.Product INTO #ap
+FROM bi.DimAgent AS ag
+CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'Copilot Studio' THEN N'Copilot Studio agents'
+                         WHEN ag.AgentSource IS NOT NULL AND ag.AgentSource <> N'(no agent)' THEN N'Other agents' END AS Product) AS p
+WHERE p.Product IS NOT NULL;
+SELECT u.UserKey, sp.Product, CAST(u.Interactions AS BIGINT) AS N INTO #x
+FROM {Ctx.PerItem('A')} AS u {Ctx.Scope("u.UserKey")} JOIN #sp AS sp ON sp.AppKey = u.Item;
+DECLARE @apps BIT = CASE WHEN EXISTS (SELECT 1 FROM #x) THEN 1 ELSE 0 END;
+INSERT INTO #x (UserKey, Product, N)
+SELECT u.UserKey, ap.Product, CAST(u.Interactions AS BIGINT)
+FROM {Ctx.PerItem('G')} AS u {Ctx.Scope("u.UserKey")} JOIN #ap AS ap ON ap.AgentKey = u.Item;
+IF @apps = 1{(UseCases ? $@"
+   /* Only when an agent answered in such an app: a use case is the app times 4, plus 2 for web search, plus 1 for an
+      agent; below 4 it was not set, and then the fact is read to be sure. */
+   AND EXISTS (SELECT 1 FROM {Ctx.PerItem('U')} AS uc WHERE uc.Item < 4 OR (uc.Item % 2 = 1 AND uc.Item / 4 IN (SELECT sp.AppKey FROM #sp AS sp)))" : "")}
+    INSERT INTO #x (UserKey, Product, N)
+    SELECT f.UserKey, ap.Product, -COUNT_BIG(*)
     FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+    JOIN #sp AS sp ON sp.AppKey = f.AppKey JOIN #ap AS ap ON ap.AgentKey = f.AgentKey
     WHERE f.DateKey BETWEEN @k0 AND @k1
-    GROUP BY f.UserKey, f.AppKey, f.AgentKey),
-f AS (
-    SELECT g.UserKey, g.N,
-           CASE WHEN a.App LIKE N'%Security%' THEN N'Security Copilot'
-                WHEN a.App LIKE N'%Fabric%' OR a.App LIKE N'%PowerBI%' OR a.App LIKE N'%Power BI%' THEN N'Copilot in Fabric and Power BI'
-                /* Microsoft records Copilot in the Edge browser as AppHost Bing. */
-                WHEN a.App LIKE N'%Edge%' OR a.App = N'Bing' THEN N'Copilot in Edge and Bing'
-                WHEN ag.AgentSource = N'Copilot Studio' THEN N'Copilot Studio agents'
-                WHEN ag.AgentSource IS NOT NULL AND ag.AgentSource <> N'(no agent)' THEN N'Other agents'
-                ELSE N'Microsoft 365 Copilot' END AS Product
-    FROM g
-    JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
-    LEFT JOIN bi.DimAgent AS ag ON ag.AgentKey = g.AgentKey)
-/* People are accounts enabled today (3.1.3); the interactions are everyone's. */
-SELECT f.Product, SUM(f.N), COUNT(DISTINCT CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN f.UserKey END)
-FROM f {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("f.UserKey", left: true)} GROUP BY f.Product ORDER BY SUM(f.N) DESC;", Ctx.Args());
+    GROUP BY f.UserKey, ap.Product;
+WITH p AS (SELECT x.UserKey, x.Product, SUM(x.N) AS N FROM #x AS x GROUP BY x.UserKey, x.Product),
+r AS (
+    SELECT p.UserKey, p.Product, p.N FROM p WHERE p.N > 0
+    UNION ALL
+    SELECT pp.UserKey, N'Microsoft 365 Copilot', CAST(pp.Interactions AS BIGINT) - ISNULL(o.N, 0)
+    FROM {Ctx.PerPerson()} AS pp {Ctx.Scope("pp.UserKey")}
+    LEFT JOIN (SELECT p.UserKey, SUM(p.N) AS N FROM p GROUP BY p.UserKey) AS o ON o.UserKey = pp.UserKey
+    WHERE CAST(pp.Interactions AS BIGINT) - ISNULL(o.N, 0) > 0)
+/* People are accounts enabled today; the interactions are everyone's. A person is in each product once. */
+SELECT r.Product, SUM(r.N), COUNT(CASE WHEN {CopilotInsights.Infrastructure.ReportContext.IsEnabled()} THEN 1 END)
+FROM r {CopilotInsights.Infrastructure.ReportContext.EnabledJoin("r.UserKey", left: true)} GROUP BY r.Product ORDER BY SUM(r.N) DESC;", Ctx.Args());
 }

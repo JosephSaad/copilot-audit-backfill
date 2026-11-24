@@ -10,8 +10,10 @@ These tools are for whoever builds a release. They are not deployed and nothing 
 
 | `schema/build_docx.py` | Writes the Word versions of the two reporting guides, `REPORTING.docx` and `REPORTING-REFERENCE.docx`, from their Markdown in a folder given (the release workflow's), or `docs/`. Needs `python-docx`. |
 | `schema/Build-ReportingReference.ps1` | Writes the full reporting reference to `-OutFile`: the guide in [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md), the column reference copied from `docs/SCHEMA.md`, and the full text of the scripts that create and fill the schema. The release workflow runs it and attaches the result. `-Check` writes nothing and exits 1 when the committed guide carries generated text. |
+| `speed/Measure-PageSpeed.ps1` | Opens every page in `Nav.cs` at every period (7 days to two years, and All data) and for each scope given (`-Org`: the whole organization, or a manager's sign-in name), plus the first pick a page links to (an agent, an app), and records each visit's time. Writes `pages.csv`, `summary.md` (each page at its slowest, every visit over `-Bar` seconds, the visits that failed) and, with `-SqlServer` and `-Database`, `queries.csv` (the statements that took longest). For first visits, run the dashboard with `Insights__QueryCacheMinutes=0`. |
+| `scale/Add-ScaleHistory.ps1` | Lab only, never for a database that holds real records (`-LabDatabase` says so): adds an older year to the synthetic stress database by copying each day 52 weeks back as a rollout, so the two-year and All data periods read two years, then rebuilds the dashboard's daily totals over every day. The header of `Add-ScaleHistory.sql` says how the rows are made. |
 
-The first two are also run by hand: CI has no dashboard or Edge to audit, and no installed database to read. The third needs neither, and CI runs its check (`tests/Test-ReportingReference.ps1`).
+The first two are also run by hand: CI has no dashboard or Edge to audit, and no installed database to read. The third needs neither, and CI runs its check (`tests/Test-ReportingReference.ps1`). The speed and scale tools are run by hand against the stress database.
 
 ## UI audit
 

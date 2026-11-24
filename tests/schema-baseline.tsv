@@ -1,4 +1,4 @@
-# release 3.1.3
+# release 3.1.4
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1112,6 +1112,8 @@ C	copilot	dash.AccessProfileRole	U	3	OrgWide	bit	0	D
 C	copilot	dash.AccessProfileRole	U	4	Pages	nvarchar(1000)	1	
 C	copilot	dash.AccessProfileRole	U	5	Sections	nvarchar(1000)	1	
 C	copilot	dash.AccessProfileRole	U	6	NamedPeople	bit	0	D
+C	copilot	dash.AdoptionDay	U	1	DateKey	int	0	
+C	copilot	dash.AdoptionDay	U	2	UserKey	int	0	
 C	copilot	dash.Agent	V	1	AgentKey	int	0	
 C	copilot	dash.Agent	V	10	InProduction	bit	1	
 C	copilot	dash.Agent	V	2	AgentId	nvarchar(400)	0	
@@ -1254,6 +1256,31 @@ C	copilot	dash.CreditRoute	U	6	FinancialOwner	nvarchar(256)	1
 C	copilot	dash.CreditRoute	U	7	BillingPolicy	nvarchar(200)	1	
 C	copilot	dash.CreditRoute	U	8	EffectiveFrom	date	0	
 C	copilot	dash.CreditRoute	U	9	EffectiveTo	date	1	
+C	copilot	dash.CreditUseDay	U	1	DateKey	int	0	
+C	copilot	dash.CreditUseDay	U	10	M	bigint	0	
+C	copilot	dash.CreditUseDay	U	11	Lic	tinyint	0	
+C	copilot	dash.CreditUseDay	U	12	AnyBilled	tinyint	0	
+C	copilot	dash.CreditUseDay	U	2	UserKey	int	0	
+C	copilot	dash.CreditUseDay	U	3	AgentKey	int	0	
+C	copilot	dash.CreditUseDay	U	4	I	int	0	
+C	copilot	dash.CreditUseDay	U	5	A	int	0	
+C	copilot	dash.CreditUseDay	U	6	B	int	0	
+C	copilot	dash.CreditUseDay	U	7	BW	int	0	
+C	copilot	dash.CreditUseDay	U	8	BA	int	0	
+C	copilot	dash.CreditUseDay	U	9	R	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	1	EndKey	int	0	
+C	copilot	dash.CreditUsePeriod	U	10	R	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	11	M	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	12	Lic	tinyint	0	
+C	copilot	dash.CreditUsePeriod	U	13	AnyBilled	tinyint	0	
+C	copilot	dash.CreditUsePeriod	U	2	Days	smallint	0	
+C	copilot	dash.CreditUsePeriod	U	3	UserKey	int	0	
+C	copilot	dash.CreditUsePeriod	U	4	AgentKey	int	0	
+C	copilot	dash.CreditUsePeriod	U	5	I	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	6	A	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	7	B	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	8	BW	bigint	0	
+C	copilot	dash.CreditUsePeriod	U	9	BA	bigint	0	
 C	copilot	dash.DigestPreference	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.DigestPreference	U	2	ManagerDigestOptOut	bit	0	D
 C	copilot	dash.DigestPreference	U	3	PersonalDigest	bit	0	D
@@ -1298,6 +1325,10 @@ C	copilot	dash.FlaggedInteraction	U	6	AgentKey	int	0
 C	copilot	dash.FlaggedInteraction	U	7	JailbreakDetected	bit	0	
 C	copilot	dash.FlaggedInteraction	U	8	PromptInjectionDetected	bit	0	
 C	copilot	dash.FlaggedInteraction	U	9	HasBlockedResource	bit	0	
+C	copilot	dash.HeldDay	U	1	DateKey	int	0	
+C	copilot	dash.HeldDay	U	2	Held	int	0	
+C	copilot	dash.HeldDay	U	3	HeldEnabled	int	0	
+C	copilot	dash.HeldDay	U	4	AdoptedEnabled	int	0	
 C	copilot	dash.JobFamilyRule	U	1	RuleId	int	0	I
 C	copilot	dash.JobFamilyRule	U	2	Pattern	nvarchar(200)	0	
 C	copilot	dash.JobFamilyRule	U	3	Family	nvarchar(100)	0	
@@ -1336,6 +1367,8 @@ C	copilot	dash.NotificationLog	U	8	Detail	nvarchar(max)	1
 C	copilot	dash.OrgClosure	U	1	AncestorUpn	nvarchar(256)	0	
 C	copilot	dash.OrgClosure	U	2	DescendantUpn	nvarchar(256)	0	
 C	copilot	dash.OrgClosure	U	3	Depth	tinyint	0	
+C	copilot	dash.OrgClosure	U	4	DescendantKey	int	1	
+C	copilot	dash.OrgClosure	U	5	DescendantEnabled	bit	1	
 C	copilot	dash.Person	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.Person	U	10	ObjectId	uniqueidentifier	1	
 C	copilot	dash.Person	U	2	DisplayName	nvarchar(256)	1	
@@ -1436,6 +1469,12 @@ C	copilot	dash.Setting	U	2	Value	nvarchar(400)	1
 C	copilot	dash.Setting	U	3	Description	nvarchar(400)	1	
 C	copilot	dash.Setting	U	4	UpdatedBy	nvarchar(256)	1	
 C	copilot	dash.Setting	U	5	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SitePerson	U	1	Kind	char(1)	0	
+C	copilot	dash.SitePerson	U	2	SiteKey	int	0	
+C	copilot	dash.SitePerson	U	3	UserKey	int	0	
+C	copilot	dash.SitePerson	U	4	LastKey	int	0	
+C	copilot	dash.SitePerson	U	5	PrevKey	int	1	
+C	copilot	dash.SitePerson	U	6	AsOfKey	int	0	
 C	copilot	dash.SkuName	U	1	SkuPartNumber	nvarchar(100)	0	
 C	copilot	dash.SkuName	U	2	ProductName	nvarchar(200)	0	
 C	copilot	dash.SkuName	U	3	UpdatedBy	nvarchar(256)	1	
@@ -1492,6 +1531,9 @@ C	copilot	dash.UseCaseRule	U	5	UseCase	nvarchar(100)	0
 C	copilot	dash.UseCaseRule	U	6	Priority	int	0	D
 C	copilot	dash.UseCaseRule	U	7	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.UseCaseRule	U	8	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.UserActivity	U	1	UserKey	int	0	
+C	copilot	dash.UserActivity	U	2	FirstActiveKey	int	1	
+C	copilot	dash.UserActivity	U	3	LastActiveKey	int	1	
 C	copilot	dash.UserDay	U	1	DateKey	int	0	
 C	copilot	dash.UserDay	U	10	Jailbreak	int	0	
 C	copilot	dash.UserDay	U	11	PromptInjection	int	0	
@@ -1508,6 +1550,72 @@ C	copilot	dash.UserDay	U	6	AgentInteractions	int	0
 C	copilot	dash.UserDay	U	7	WebGrounded	int	0	
 C	copilot	dash.UserDay	U	8	ChatInteractions	int	0	
 C	copilot	dash.UserDay	U	9	LicensedUse	int	0	
+C	copilot	dash.UserItemDay	U	1	DateKey	int	0	
+C	copilot	dash.UserItemDay	U	2	UserKey	int	0	
+C	copilot	dash.UserItemDay	U	3	Kind	char(1)	0	
+C	copilot	dash.UserItemDay	U	4	Item	int	0	
+C	copilot	dash.UserItemDay	U	5	Interactions	int	0	
+C	copilot	dash.UserItemDay	U	6	Prompts	int	0	
+C	copilot	dash.UserItemDay	U	7	Resources	int	0	
+C	copilot	dash.UserItemDay	U	8	Web	int	0	
+C	copilot	dash.UserItemPeriod	U	1	EndKey	int	0	
+C	copilot	dash.UserItemPeriod	U	10	Resources	int	0	
+C	copilot	dash.UserItemPeriod	U	11	Web	int	0	
+C	copilot	dash.UserItemPeriod	U	2	Days	smallint	0	
+C	copilot	dash.UserItemPeriod	U	3	Kind	char(1)	0	
+C	copilot	dash.UserItemPeriod	U	4	Item	int	0	
+C	copilot	dash.UserItemPeriod	U	5	UserKey	int	0	
+C	copilot	dash.UserItemPeriod	U	6	ActiveDays	smallint	0	
+C	copilot	dash.UserItemPeriod	U	7	LastActiveKey	int	0	
+C	copilot	dash.UserItemPeriod	U	8	Interactions	int	0	
+C	copilot	dash.UserItemPeriod	U	9	Prompts	int	0	
+C	copilot	dash.UserItemWeek	U	1	WeekEnding	date	0	
+C	copilot	dash.UserItemWeek	U	2	UserKey	int	0	
+C	copilot	dash.UserItemWeek	U	3	Kind	char(1)	0	
+C	copilot	dash.UserItemWeek	U	4	Item	int	0	
+C	copilot	dash.UserItemWeek	U	5	ActiveDays	tinyint	0	
+C	copilot	dash.UserItemWeek	U	6	Interactions	int	0	
+C	copilot	dash.UserItemWeek	U	7	Prompts	int	0	
+C	copilot	dash.UserItemWeek	U	8	Resources	int	0	
+C	copilot	dash.UserItemWeek	U	9	Web	int	0	
+C	copilot	dash.UserPeriod	U	1	EndKey	int	0	
+C	copilot	dash.UserPeriod	U	10	AgentInteractions	int	0	
+C	copilot	dash.UserPeriod	U	11	WebGrounded	int	0	
+C	copilot	dash.UserPeriod	U	12	ChatInteractions	int	0	
+C	copilot	dash.UserPeriod	U	13	LicensedUse	int	0	
+C	copilot	dash.UserPeriod	U	14	PremiumUse	int	0	
+C	copilot	dash.UserPeriod	U	15	Jailbreak	int	0	
+C	copilot	dash.UserPeriod	U	16	PromptInjection	int	0	
+C	copilot	dash.UserPeriod	U	17	BlockedResource	int	0	
+C	copilot	dash.UserPeriod	U	18	LabeledContent	int	0	
+C	copilot	dash.UserPeriod	U	19	Sessions	int	0	
+C	copilot	dash.UserPeriod	U	2	Days	smallint	0	
+C	copilot	dash.UserPeriod	U	20	MultiTurnSessions	int	0	
+C	copilot	dash.UserPeriod	U	21	HeldUse	int	0	D
+C	copilot	dash.UserPeriod	U	3	UserKey	int	0	
+C	copilot	dash.UserPeriod	U	4	ActiveDays	smallint	0	
+C	copilot	dash.UserPeriod	U	5	PremiumDays	smallint	0	
+C	copilot	dash.UserPeriod	U	6	LastActiveKey	int	1	
+C	copilot	dash.UserPeriod	U	7	MostApps	tinyint	0	
+C	copilot	dash.UserPeriod	U	8	Interactions	int	0	
+C	copilot	dash.UserPeriod	U	9	Prompts	int	0	
+C	copilot	dash.UserWeek	U	1	WeekEnding	date	0	
+C	copilot	dash.UserWeek	U	10	PremiumUse	int	0	
+C	copilot	dash.UserWeek	U	11	Jailbreak	int	0	
+C	copilot	dash.UserWeek	U	12	PromptInjection	int	0	
+C	copilot	dash.UserWeek	U	13	BlockedResource	int	0	
+C	copilot	dash.UserWeek	U	14	LabeledContent	int	0	
+C	copilot	dash.UserWeek	U	15	Sessions	int	0	
+C	copilot	dash.UserWeek	U	16	MultiTurnSessions	int	0	
+C	copilot	dash.UserWeek	U	17	HeldAtEnd	bit	0	D
+C	copilot	dash.UserWeek	U	2	UserKey	int	0	
+C	copilot	dash.UserWeek	U	3	ActiveDays	tinyint	0	
+C	copilot	dash.UserWeek	U	4	Interactions	int	0	
+C	copilot	dash.UserWeek	U	5	Prompts	int	0	
+C	copilot	dash.UserWeek	U	6	AgentInteractions	int	0	
+C	copilot	dash.UserWeek	U	7	WebGrounded	int	0	
+C	copilot	dash.UserWeek	U	8	ChatInteractions	int	0	
+C	copilot	dash.UserWeek	U	9	LicensedUse	int	0	
 C	copilot	dash.ValueName	U	1	ColumnId	smallint	0	
 C	copilot	dash.ValueName	U	2	Value	nvarchar(400)	0	
 C	copilot	dash.ValueName	U	3	Name	nvarchar(200)	0	
@@ -1517,7 +1625,7 @@ C	copilot	dash.ValueName	U	6	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.fnReservationMember	IF	1	ReservationId	int	0	
 C	copilot	dash.fnReservationMember	IF	2	UserKey	int	0	
 C	copilot	dash.fnReservationMember	IF	3	Upn	nvarchar(512)	0	
-C	copilot	dash.fnScopeUsers	IF	1	UserKey	int	0	
+C	copilot	dash.fnScopeUsers	IF	1	UserKey	int	1	
 C	license	audit.AgentEvent	U	1	RecordId	varchar(64)	0	
 C	license	audit.AgentEvent	U	10	ResultStatus	nvarchar(50)	1	
 C	license	audit.AgentEvent	U	11	UpdateDetails	nvarchar(4000)	1	
@@ -2031,6 +2139,7 @@ O	copilot	bi.usp_RefreshBi	P
 O	copilot	bi.usp_WeeklyCopilotReport	P
 O	copilot	dash.AccessProfile	U
 O	copilot	dash.AccessProfileRole	U
+O	copilot	dash.AdoptionDay	U
 O	copilot	dash.Agent	V
 O	copilot	dash.AgentAlias	U
 O	copilot	dash.AgentChildLink	U
@@ -2047,12 +2156,15 @@ O	copilot	dash.CostSuite	U
 O	copilot	dash.CreditChargeSnapshot	U
 O	copilot	dash.CreditCommitment	U
 O	copilot	dash.CreditRoute	U
+O	copilot	dash.CreditUseDay	U
+O	copilot	dash.CreditUsePeriod	U
 O	copilot	dash.DigestPreference	U
 O	copilot	dash.DigestSend	U
 O	copilot	dash.EventMarker	U
 O	copilot	dash.Extract	U
 O	copilot	dash.FlagCase	U
 O	copilot	dash.FlaggedInteraction	U
+O	copilot	dash.HeldDay	U
 O	copilot	dash.JobFamilyRule	U
 O	copilot	dash.LicenseAction	U
 O	copilot	dash.LicenseContract	U
@@ -2073,6 +2185,7 @@ O	copilot	dash.SavedView	U
 O	copilot	dash.Secret	U
 O	copilot	dash.SensitivityLabel	U
 O	copilot	dash.Setting	U
+O	copilot	dash.SitePerson	U
 O	copilot	dash.SkuName	U
 O	copilot	dash.Subscription	U
 O	copilot	dash.Target	U
@@ -2080,7 +2193,13 @@ O	copilot	dash.TechnologyAllocation	U
 O	copilot	dash.TimeSaving	U
 O	copilot	dash.TrainingAttendance	U
 O	copilot	dash.UseCaseRule	U
+O	copilot	dash.UserActivity	U
 O	copilot	dash.UserDay	U
+O	copilot	dash.UserItemDay	U
+O	copilot	dash.UserItemPeriod	U
+O	copilot	dash.UserItemWeek	U
+O	copilot	dash.UserPeriod	U
+O	copilot	dash.UserWeek	U
 O	copilot	dash.ValueName	U
 O	copilot	dash.fnReservationMember	IF
 O	copilot	dash.fnScopeUsers	IF

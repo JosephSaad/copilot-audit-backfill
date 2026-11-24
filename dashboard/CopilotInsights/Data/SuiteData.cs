@@ -66,7 +66,7 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
             && await db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.PowerPlatformUserActivity WHERE Product = 'Power BI') THEN 1 ELSE 0 END;") == 1;
 
         var k30 = ReportContext.Key(c.End.AddDays(-29));
-        var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey);
+        var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30);
         var rows = await db.QueryAsync<Rec>($@"
 WITH {activity},
 sh AS (SELECT u.UserPrincipalName AS Upn, cs.SkuPattern

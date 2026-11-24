@@ -50,7 +50,14 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     {
         Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, LastRecord = c.LastRecord, Root = c.Root, RootName = c.RootName, PathBase = c.PathBase,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
+        Rollups = c.Rollups, RolledDays = RolledFor(c, end), RolledItemDays = RolledItemsFor(c, end),
+        CreditDays = c.CreditDays, RolledCreditDays = end == c.End ? c.RolledCreditDays : new HashSet<int>(), ItemKinds = c.ItemKinds, Held = c.Held,
     };
+
+    /* The totals the refresh keeps by week, by day of adoption and over every day (Rollups) answer any window; the ones
+       kept per period answer only a window ending on the day they end on, which is the context's own last day. */
+    static IReadOnlySet<int> RolledFor(ReportContext c, DateTime end) => end == c.End ? c.RolledDays : new HashSet<int>();
+    static IReadOnlySet<int> RolledItemsFor(ReportContext c, DateTime end) => end == c.End ? c.RolledItemDays : new HashSet<int>();
 
     /// <summary>
     /// The whole organization over the last 30 days to <paramref name="c"/>'s end, for the tenant's own figures: the
@@ -63,6 +70,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     {
         Viewer = c.Viewer, Days = 30, Start = c.End.AddDays(-29), End = c.End, LastRecord = c.LastRecord, Root = null, PathBase = c.PathBase,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
+        Rollups = c.Rollups, RolledDays = c.RolledDays, RolledItemDays = c.RolledItemDays, CreditDays = c.CreditDays, RolledCreditDays = c.RolledCreditDays, ItemKinds = c.ItemKinds, Held = c.Held,
     };
 
     /* ---- The days the data covers ------------------------------------------------------------ */
@@ -139,12 +147,12 @@ SELECT oc.DescendantUpn FROM dash.OrgClosure AS oc
 WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash.Target AS t WHERE t.RootUpn IS NOT NULL);", new { root = now.Root }))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var rows = Visible(all, now.Root, now.Viewer.OrgWide, under);
+        /* Each target's figures are read side by side: they do not depend on each other. */
+        await Task.WhenAll(rows.Where(r => !TooSmall(r, now.MinGroupSize, now.Viewer.Upn)).Select(r => ProgressAsync(r, now)));
         foreach (var r in rows)
         {
             if (TooSmall(r, now.MinGroupSize, now.Viewer.Upn))
                 r.Status = $"Fewer than {now.MinGroupSize} people: not shown";
-            else
-                await ProgressAsync(r, now);
             if (now.PrivacyMode && r.RootUpn is not null && !string.Equals(r.RootUpn, now.Viewer.Upn, StringComparison.OrdinalIgnoreCase))
                 (r.RootName, r.RootUpn) = (string.IsNullOrWhiteSpace(r.RootDepartment) ? "A part of the organization" : $"A part of {r.RootDepartment}", null);
         }
@@ -158,10 +166,13 @@ WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash
         {
             Viewer = now.Viewer, Days = 30, Start = now.End.AddDays(-29), End = now.End, LastRecord = now.LastRecord, Root = r.RootUpn, PathBase = now.PathBase,
             MinGroupSize = now.MinGroupSize, InactiveDays = now.InactiveDays, OrgTopUpn = now.OrgTopUpn, PrivacyMode = now.PrivacyMode,
+            Rollups = now.Rollups, RolledDays = now.RolledDays, RolledItemDays = now.RolledItemDays, CreditDays = now.CreditDays, RolledCreditDays = now.RolledCreditDays, ItemKinds = now.ItemKinds, Held = now.Held,
         };
-        r.Current = MetricOf(r.Metric, await metrics.TotalsAsync(scoped));
         var baseEnd = r.StartDate.Date.AddDays(-1);
-        r.Baseline = baseEnd >= now.End.AddDays(-400) && baseEnd <= now.End ? MetricOf(r.Metric, await metrics.TotalsAsync(Window(scoped, baseEnd, 30))) : null;
+        var currentTask = metrics.TotalsAsync(scoped);
+        var baselineTask = baseEnd >= now.End.AddDays(-400) && baseEnd <= now.End ? metrics.TotalsAsync(Window(scoped, baseEnd, 30)) : null;
+        r.Current = MetricOf(r.Metric, await currentTask);
+        r.Baseline = baselineTask is null ? null : MetricOf(r.Metric, await baselineTask);
         var span = (r.DueDate - r.StartDate).TotalDays;
         var gone = Math.Clamp((now.End - r.StartDate).TotalDays / span, 0, 1);
         var from = r.Baseline ?? 0;
@@ -179,26 +190,29 @@ WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash
     {
         var hourly = decimal.TryParse(await settings.StringAsync("HourlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var h) ? h : 72m;
         var dflt = decimal.TryParse(await settings.StringAsync("MinutesSavedDefault"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var m) ? m : 6m;
-        var rows = await db.QueryAsync<(string App, string Dept, long N, decimal Minutes)>($@"
-SELECT a.App, ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT_BIG(*), ISNULL(ts.Minutes, @dflt)
-FROM bi.FactInteraction AS f {c.Scope("f.UserKey")}
-JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
+        /* Each person's interactions with each app in the period, from the totals the refresh keeps (ReportContext.PerItem):
+           every interaction is with one app, so they are the interactions, without reading the facts. The two queries
+           are read side by side. */
+        var rowsTask = db.QueryAsync<(string App, string Dept, long N, decimal Minutes)>($@"
+SELECT a.App, ISNULL(NULLIF(u.Department, N''), N'(no department)'), SUM(CAST(ia.Interactions AS BIGINT)), ISNULL(ts.Minutes, @dflt)
+FROM {c.PerItem('A')} AS ia {c.Scope("ia.UserKey")}
+JOIN bi.DimApp AS a ON a.AppKey = ia.Item
+JOIN bi.DimUser AS u ON u.UserKey = ia.UserKey
 LEFT JOIN dash.TimeSaving AS ts ON ts.App = a.App
-WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY a.App, ISNULL(NULLIF(u.Department, N''), N'(no department)'), ts.Minutes;", c.Args(new { dflt }));
+        /* People per department, so a group too small to hide one person can be folded: accounts enabled today (3.1.3).
+           The hours and their value are everyone's. */
+        var peopleTask = db.QueryAsync<(string Dept, int People)>($@"
+SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN ia.UserKey END)
+FROM {c.PerItem('A')} AS ia {c.Scope("ia.UserKey")} JOIN bi.DimUser AS u ON u.UserKey = ia.UserKey
+GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args());
+        var rows = await rowsTask;
         ValueRow Roll(IGrouping<string, (string App, string Dept, long N, decimal Minutes)> g)
         {
             var hours = g.Sum(x => x.N * (double)x.Minutes) / 60;
             return new(g.Key, g.Sum(x => x.N), hours, (decimal)hours * hourly);
         }
-        /* People per department, so a group too small to hide one person can be folded: accounts enabled today (3.1.3).
-           The hours and their value above are everyone's. */
-        var people = (await db.QueryAsync<(string Dept, int People)>($@"
-SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT CASE WHEN u.AccountEnabled = 1 THEN f.UserKey END)
-FROM bi.FactInteraction AS f {c.Scope("f.UserKey")} JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToDictionary(x => x.Dept, x => x.People);
+        var people = (await peopleTask).ToDictionary(x => x.Dept, x => x.People);
         return (rows.GroupBy(r => r.App).Select(Roll).OrderByDescending(r => r.Hours).ToList(),
                 rows.GroupBy(r => r.Dept).Select(g => Roll(g) with { People = people.GetValueOrDefault(g.Key) }).OrderByDescending(r => r.Hours).ToList(), hourly, dflt);
     }
@@ -225,8 +239,12 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToD
     {
         var months = Pages.Licensing.Price.MonthsCharged(c.Start, c.End);
         if (months.Count == 0) return 0;   // under a month: no whole month to charge
+        /* The months charged follow one another, so they are one range of days: a seek on the table's key. As the months
+           themselves (DateKey / 100 IN ...), every row of every day was read to find them. */
+        var (m0, m1) = (months.Min(), months.Max());
         return await db.ScalarAsync<long>($@"SELECT COUNT_BIG(*) FROM (SELECT ld.UserKey, ld.DateKey / 100 AS M FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")}
-WHERE ld.DateKey / 100 IN @months GROUP BY ld.UserKey, ld.DateKey / 100) AS x;", c.Args(new { months }));
+WHERE ld.DateKey BETWEEN @mk0 AND @mk1 AND ld.DateKey / 100 IN @months GROUP BY ld.UserKey, ld.DateKey / 100) AS x;",
+            c.Args(new { months, mk0 = m0 * 100 + 1, mk1 = m1 * 100 + 31 }));
     }
 
     /* ---- License recommendations, counted ----------------------------------------------------- */
@@ -234,14 +252,21 @@ WHERE ld.DateKey / 100 IN @months GROUP BY ld.UserKey, ld.DateKey / 100) AS x;",
     public async Task<Dictionary<string, int>> ActionCountsAsync(ReportContext c)
     {
         var k30 = ReportContext.Key(c.End.AddDays(-29));
-        var result = new Dictionary<string, int>();
-        foreach (var (kind, def) in Pages.Forecasting.ActionsModel.Kinds)
-            result[kind] = await db.ScalarAsync<int>($@"
-WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey)},
+        var kinds = Pages.Forecasting.ActionsModel.Kinds.ToList();
+        /* Every kind counted in one pass over the people and their 30 days: a count a kind read the days once for each. A
+           person the rules give two kinds is counted in each, as before. */
+        var picks = string.Join("\n    UNION ALL ", kinds.Select((k, i) =>
+            $"SELECT {i} WHERE {k.Value.Where} AND {Pages.Forecasting.ActionsModel.Enabled(k.Key)}"));
+        var counts = (await db.QueryAsync<(int Kind, int N)>($@"
+WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
-SELECT COUNT(*) FROM bi.DimUser AS du {c.Scope("du.UserKey")}
+SELECT k.Kind, COUNT(*) FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey
-WHERE {def.Where} AND {Pages.Forecasting.ActionsModel.Enabled(kind)};", new { k30, k1 = c.EndKey, d1 = c.End, root = c.Root });
+CROSS APPLY (
+    {picks}) AS k (Kind)
+GROUP BY k.Kind;", new { k30, k1 = c.EndKey, d1 = c.End, root = c.Root })).ToDictionary(x => x.Kind, x => x.N);
+        var result = new Dictionary<string, int>();
+        for (var i = 0; i < kinds.Count; i++) result[kinds[i].Key] = counts.GetValueOrDefault(i);
         return result;
     }
 

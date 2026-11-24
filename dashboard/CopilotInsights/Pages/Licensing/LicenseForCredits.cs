@@ -47,8 +47,12 @@ public sealed class LicenseForCreditsModel(PageServices s, CreditData creditData
         /* Unlicensed throughout the window, as Credit use counts them: someone licensed part of it is not billed for that part. */
         var billed = v.People.Where(p => !p.Licensed && p.Use.Billed > 0 && p.Month.Cost >= min).ToList();
         if (billed.Count == 0) return ([], price, v.Currency);
+        /* Days used in the period: from each person's sums over it where the refresh keeps them, else counted from their days. */
+        var days = Ctx.RolledDays.Contains(Ctx.Choice)
+            ? $"(SELECT p.ActiveDays FROM {Ctx.PerPerson()} AS p WHERE p.UserKey = du.UserKey)"
+            : "(SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0)";
         var who = (await Db.QueryAsync<Who>($@"
-SELECT du.UserKey, du.ManagerName, (SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0) AS Days
+SELECT du.UserKey, du.ManagerName, ISNULL({days}, 0) AS Days
 FROM bi.DimUser AS du
 WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
   AND du.AccountEnabled = 1   -- 3.1.3: enabled today; a departed person (no AccountEnabled) is not listed

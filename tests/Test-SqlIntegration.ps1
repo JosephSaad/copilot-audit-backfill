@@ -2842,6 +2842,90 @@ Assert-That ([long] $ds2.Days_ -eq [long] $ds.Days_ -and [long] $ds2.DaySessions
 Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
 Assert-That ([long] (& $daySync).Days_ -eq [long] $ds.Days_) 'and running it twice changes nothing'
 
+# The totals the pages read instead of summing the days, each checked against the same figure worked out here from
+# the rows under it, after the incremental refreshes above (so their windowed rewrites are what is checked). Each
+# count is of rows in one and not the other, both ways: 0 means the two are the same.
+$totalsCheck = @"
+DECLARE @max INT = (SELECT MAX(DateKey) FROM dash.UserDay), @min INT = (SELECT MIN(DateKey) FROM dash.UserDay);
+DECLARE @k7 INT = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -6, CONVERT(DATE, CONVERT(CHAR(8), @max))), 112));
+DECLARE @noAgent INT = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = N'(none)');
+WITH p7 AS (SELECT UserKey, COUNT(CASE WHEN Interactions > 0 THEN 1 END) AS A, SUM(Interactions) AS I, SUM(Prompts) AS P, SUM(Sessions) AS S, SUM(LicensedUse) AS L
+            FROM dash.UserDay WHERE DateKey BETWEEN @k7 AND @max GROUP BY UserKey),
+     t7 AS (SELECT UserKey, CAST(ActiveDays AS INT) AS A, Interactions AS I, Prompts AS P, Sessions AS S, LicensedUse AS L FROM dash.UserPeriod WHERE EndKey = @max AND Days = 7),
+     pall AS (SELECT UserKey, SUM(Interactions) AS I, MAX(CASE WHEN Interactions > 0 THEN DateKey END) AS LastK FROM dash.UserDay GROUP BY UserKey),
+     tall AS (SELECT UserKey, Interactions AS I, LastActiveKey AS LastK FROM dash.UserPeriod WHERE EndKey = @max AND Days = 0),
+     wk AS (SELECT d.WeekEnding, ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Sessions) AS S FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey GROUP BY d.WeekEnding, ud.UserKey),
+     twk AS (SELECT WeekEnding, UserKey, Interactions AS I, Sessions AS S FROM dash.UserWeek),
+     it AS (SELECT DateKey, UserKey, 'A' AS Kind, AppKey AS Item, COUNT(*) AS I FROM bi.FactInteraction GROUP BY DateKey, UserKey, AppKey
+            UNION ALL SELECT DateKey, UserKey, 'G', AgentKey, COUNT(*) FROM bi.FactInteraction WHERE AgentKey <> ISNULL(@noAgent, -1) GROUP BY DateKey, UserKey, AgentKey
+            UNION ALL SELECT DateKey, UserKey, 'U', UseCaseKey, COUNT(*) FROM bi.FactInteraction WHERE UseCaseKey IS NOT NULL GROUP BY DateKey, UserKey, UseCaseKey
+            UNION ALL SELECT DateKey, UserKey, 'L', LicenseTypeKey, COUNT(*) FROM bi.FactInteraction WHERE LicenseTypeKey IS NOT NULL GROUP BY DateKey, UserKey, LicenseTypeKey
+            UNION ALL SELECT DateKey, UserKey, 'M', ModelKey, COUNT(*) FROM bi.FactInteraction WHERE ModelKey IS NOT NULL GROUP BY DateKey, UserKey, ModelKey
+            UNION ALL SELECT DateKey, UserKey, 'F', 1, COUNT(*) FROM bi.FactInteraction WHERE MemoryUpdated = 1 GROUP BY DateKey, UserKey
+            UNION ALL SELECT DateKey, UserKey, 'F', 2, COUNT(*) FROM bi.FactInteraction WHERE CalledAnotherAgent = 1 GROUP BY DateKey, UserKey
+            UNION ALL SELECT DateKey, UserKey, 'F', 3, COUNT(*) FROM bi.FactInteraction WHERE DlpEvaluationDeferred = 1 GROUP BY DateKey, UserKey),
+     cr AS (SELECT f.UserKey, f.AgentKey, COUNT_BIG(*) AS I,
+                   SUM(CASE WHEN ag.AgentSource <> N'(no agent)' AND (f.LicenseStatusKey = 2 OR ap.App = N'Copilot Studio') THEN 1 ELSE 0 END) AS B,
+                   MAX(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END) AS Lic
+            FROM bi.FactInteraction AS f JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey JOIN bi.DimApp AS ap ON ap.AppKey = f.AppKey
+            GROUP BY f.UserKey, f.AgentKey),
+     tcr AS (SELECT UserKey, AgentKey, I, B, CAST(Lic AS INT) AS Lic FROM dash.CreditUsePeriod WHERE EndKey = @max AND Days = 0),
+     hu AS (SELECT ud.UserKey, SUM(CASE WHEN ld.UserKey IS NOT NULL THEN ud.Interactions ELSE 0 END) AS H
+            FROM dash.UserDay AS ud LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = ud.DateKey AND ld.UserKey = ud.UserKey GROUP BY ud.UserKey),
+     thu AS (SELECT UserKey, HeldUse AS H FROM dash.UserPeriod WHERE EndKey = @max AND Days = 0),
+     he AS (SELECT w.WeekEnding, w.UserKey, CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS H
+            FROM (SELECT DISTINCT d.WeekEnding, ud.UserKey FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey) AS w
+            LEFT JOIN bi.DimDate AS f ON f.[Date] = w.WeekEnding LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = f.DateKey AND ld.UserKey = w.UserKey),
+     the AS (SELECT WeekEnding, UserKey, CAST(HeldAtEnd AS INT) AS H FROM dash.UserWeek),
+     hd AS (SELECT ld.DateKey, COUNT(*) AS Held, COUNT(en.UserKey) AS HeldEnabled, COUNT(CASE WHEN en.UserKey IS NOT NULL AND ad.UserKey IS NOT NULL THEN 1 END) AS Adopted
+            FROM bi.FactLicensedDay AS ld LEFT JOIN bi.DimUser AS en ON en.UserKey = ld.UserKey AND en.AccountEnabled = 1
+            LEFT JOIN dash.AdoptionDay AS ad ON ad.DateKey = ld.DateKey AND ad.UserKey = ld.UserKey GROUP BY ld.DateKey),
+     tit AS (SELECT DateKey, UserKey, Kind, Item, Interactions AS I FROM dash.UserItemDay),
+     itw AS (SELECT d.WeekEnding, it.UserKey, it.Kind, it.Item, SUM(it.I) AS I, COUNT(*) AS A FROM it JOIN bi.DimDate AS d ON d.DateKey = it.DateKey GROUP BY d.WeekEnding, it.UserKey, it.Kind, it.Item),
+     titw AS (SELECT WeekEnding, UserKey, Kind, Item, Interactions AS I, CAST(ActiveDays AS INT) AS A FROM dash.UserItemWeek),
+     itp AS (SELECT UserKey, Kind, Item, SUM(I) AS I, COUNT(*) AS A, MAX(DateKey) AS LastK FROM it GROUP BY UserKey, Kind, Item),
+     titp AS (SELECT UserKey, Kind, Item, Interactions AS I, CAST(ActiveDays AS INT) AS A, LastActiveKey AS LastK FROM dash.UserItemPeriod WHERE EndKey = @max AND Days = 0),
+     used AS (SELECT DISTINCT ud.UserKey, d.[Date] FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE ud.LicensedUse > 0),
+     ad AS (SELECT DISTINCT d.DateKey, u.UserKey FROM used AS u JOIN bi.DimDate AS d ON d.[Date] BETWEEN u.[Date] AND DATEADD(DAY, 27, u.[Date]) WHERE d.DateKey <= @max),
+     sp AS (SELECT CASE r.Kind WHEN 'Site' THEN 'S' ELSE 'B' END AS Kind, s.SiteKey, r.UserKey, MAX(r.DateKey) AS LastK
+            FROM dash.ResourceDay AS r JOIN bi.DimSite AS s ON CAST(LEFT(s.Site, 400) AS NVARCHAR(400)) = r.Item WHERE r.Kind IN ('Site', 'Blocked') GROUP BY r.Kind, s.SiteKey, r.UserKey),
+     act AS (SELECT UserKey, MIN(CASE WHEN Interactions > 0 THEN DateKey END) AS F, MAX(CASE WHEN Interactions > 0 THEN DateKey END) AS L FROM dash.UserDay GROUP BY UserKey),
+     clo AS (SELECT c.AncestorUpn, c.DescendantUpn, u.UserKey, p.AccountEnabled FROM dash.OrgClosure AS c LEFT JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn LEFT JOIN dash.Person AS p ON p.Upn = c.DescendantUpn)
+SELECT
+  (SELECT COUNT(*) FROM (SELECT * FROM p7 EXCEPT SELECT * FROM t7) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM t7 EXCEPT SELECT * FROM p7) AS x) AS Period7,
+  (SELECT COUNT(*) FROM (SELECT * FROM pall EXCEPT SELECT * FROM tall) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tall EXCEPT SELECT * FROM pall) AS x) AS PeriodAll,
+  (SELECT COUNT(*) FROM (SELECT * FROM wk EXCEPT SELECT * FROM twk) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM twk EXCEPT SELECT * FROM wk) AS x) AS Weeks,
+  (SELECT COUNT(*) FROM (SELECT * FROM it EXCEPT SELECT * FROM tit) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tit EXCEPT SELECT * FROM it) AS x) AS ItemDays,
+  (SELECT COUNT(*) FROM (SELECT * FROM itw EXCEPT SELECT * FROM titw) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM titw EXCEPT SELECT * FROM itw) AS x) AS ItemWeeks,
+  (SELECT COUNT(*) FROM (SELECT * FROM itp EXCEPT SELECT * FROM titp) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM titp EXCEPT SELECT * FROM itp) AS x) AS ItemAll,
+  (SELECT COUNT(*) FROM (SELECT * FROM ad EXCEPT SELECT DateKey, UserKey FROM dash.AdoptionDay) AS x) + (SELECT COUNT(*) FROM (SELECT DateKey, UserKey FROM dash.AdoptionDay EXCEPT SELECT * FROM ad) AS x) AS Adoption,
+  (SELECT COUNT(*) FROM (SELECT * FROM sp EXCEPT SELECT Kind, SiteKey, UserKey, LastKey FROM dash.SitePerson) AS x) + (SELECT COUNT(*) FROM (SELECT Kind, SiteKey, UserKey, LastKey FROM dash.SitePerson EXCEPT SELECT * FROM sp) AS x) AS Sites,
+  (SELECT COUNT(*) FROM (SELECT * FROM act EXCEPT SELECT UserKey, FirstActiveKey, LastActiveKey FROM dash.UserActivity) AS x) + (SELECT COUNT(*) FROM (SELECT UserKey, FirstActiveKey, LastActiveKey FROM dash.UserActivity EXCEPT SELECT * FROM act) AS x) AS Activity,
+  (SELECT COUNT(*) FROM (SELECT * FROM clo EXCEPT SELECT AncestorUpn, DescendantUpn, DescendantKey, DescendantEnabled FROM dash.OrgClosure) AS x) AS Closure,
+  (SELECT COUNT(*) FROM (SELECT * FROM cr EXCEPT SELECT * FROM tcr) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM tcr EXCEPT SELECT * FROM cr) AS x) AS Credit,
+  (SELECT COUNT(*) FROM dash.CreditUsePeriod) AS CreditRows,
+  (SELECT COUNT(*) FROM (SELECT * FROM hu EXCEPT SELECT * FROM thu) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM thu EXCEPT SELECT * FROM hu) AS x) AS HeldUse,
+  (SELECT COUNT(*) FROM (SELECT * FROM he EXCEPT SELECT * FROM the) AS x) + (SELECT COUNT(*) FROM (SELECT * FROM the EXCEPT SELECT * FROM he) AS x) AS HeldAtEnd,
+  (SELECT COUNT(*) FROM (SELECT * FROM hd EXCEPT SELECT DateKey, Held, HeldEnabled, AdoptedEnabled FROM dash.HeldDay) AS x)
+    + (SELECT COUNT(*) FROM (SELECT DateKey, Held, HeldEnabled, AdoptedEnabled FROM dash.HeldDay EXCEPT SELECT * FROM hd) AS x) AS HeldDays,
+  (SELECT COUNT(*) FROM dash.HeldDay) AS HeldDayRows,
+  (SELECT COUNT(DISTINCT CONCAT(EndKey, '/', Days)) FROM dash.UserPeriod) AS PeriodsKept,
+  (SELECT COUNT(*) FROM dash.UserPeriod) AS PeriodRows, (SELECT COUNT(*) FROM dash.UserItemPeriod) AS ItemPeriodRows;
+"@
+$tc = (Invoke-SqlText -As Table -Sql $totalsCheck).Rows[0]
+Assert-That ([int] $tc.Period7 -eq 0 -and [int] $tc.PeriodAll -eq 0 -and [int] $tc.PeriodRows -gt 0) `
+    "dash.UserPeriod holds each person's sums over 7 days and over all the data, as dash.UserDay adds up ($($tc.Period7) and $($tc.PeriodAll) rows differ of $($tc.PeriodRows))"
+Assert-That ([int] $tc.PeriodsKept -ge 8 -and [int] $tc.PeriodsKept -le 16) "for every period a page offers, ending on the last two days the data can end on ($($tc.PeriodsKept) kept)"
+Assert-That ([int] $tc.Weeks -eq 0) "dash.UserWeek holds each person's week as their days add up ($($tc.Weeks) rows differ)"
+Assert-That ([int] $tc.ItemDays -eq 0 -and [int] $tc.ItemWeeks -eq 0 -and [int] $tc.ItemAll -eq 0 -and [int] $tc.ItemPeriodRows -gt 0) `
+    "dash.UserItemDay, dash.UserItemWeek and dash.UserItemPeriod hold each person's use of each app and agent as the interactions count it ($($tc.ItemDays)/$($tc.ItemWeeks)/$($tc.ItemAll) rows differ)"
+Assert-That ([int] $tc.Adoption -eq 0) "dash.AdoptionDay holds each day a person had licensed use in it or the 27 days before ($($tc.Adoption) rows differ)"
+Assert-That ([int] $tc.Sites -eq 0 -and [int] $tc.Activity -eq 0) "dash.SitePerson and dash.UserActivity hold each person's last day at each site and first and last day of use ($($tc.Sites), $($tc.Activity) rows differ)"
+Assert-That ([int] $tc.Closure -eq 0) "dash.OrgClosure carries each person's bi key and whether their account is enabled ($($tc.Closure) rows differ)"
+Assert-That ([int] $tc.Credit -eq 0 -and [int] $tc.CreditRows -gt 0) "dash.CreditUsePeriod holds each person's interactions, billed ones and licensed use per agent, as the Credit estimate counts them ($($tc.Credit) rows differ)"
+Assert-That ([int] $tc.HeldUse -eq 0 -and [int] $tc.HeldAtEnd -eq 0) "dash.UserPeriod.HeldUse and dash.UserWeek.HeldAtEnd hold the use on days holding a license and who held one at each week's end ($($tc.HeldUse), $($tc.HeldAtEnd) rows differ)"
+Assert-That ([int] $tc.HeldDays -eq 0 -and [int] $tc.HeldDayRows -gt 0) "dash.HeldDay holds each day's license holders, enabled holders and adopted holders ($($tc.HeldDays) rows differ of $($tc.HeldDayRows))"
+
 # A full bi rebuild stopped part way, as an upgrade's can be. While it has not finished the rollups are left as
 # they are: the dashboard installer's refresh then took the months the rebuild had not reached out of every rollup. The
 # nightly run finishes it (its window becomes a full rebuild) and rolls up from its load's start, which now covers every
@@ -4089,7 +4173,8 @@ try {
         foreach ($tag in @($compatFloor, $previous | Where-Object { $_ -and $_ -in $tags } | Select-Object -Unique)) {
             $old = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-schema-$($tag.TrimStart('v'))-$PID"
             $compatDirs.Add($old); $compatDirs.Add("$old.zip")
-            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql
+            # tools as well: from 3.1.3 on, the installer loads tools/RunLock.ps1.
+            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql tools
             if ($LASTEXITCODE -ne 0) { throw "git archive $tag failed." }
             Expand-Archive -LiteralPath "$old.zip" -DestinationPath $old -Force
             [string[]] $upgraded = & $installed "Up$($tag -replace '\D', '')" @($old, $root)

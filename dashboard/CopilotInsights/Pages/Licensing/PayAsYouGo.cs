@@ -68,13 +68,10 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
            totals are read on their own, before the search, so the figures above the table do not change with it: taken
            from the page's first row, they were 0 when a search matched nobody or the page was past the end. */
         var (rows, all) = await Db.QueryTwoAsync<Row, (int Candidates, long AllMetered)>($@"
-WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
-                  SUM(CAST(ud.AgentInteractions AS BIGINT)) AS A,
-                  COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays,
-                  MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
-           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-           WHERE ud.DateKey BETWEEN @k0 AND @k1
-           GROUP BY ud.UserKey HAVING SUM(ud.Interactions) > 0),
+WITH u AS (SELECT p.UserKey, CAST(p.Interactions AS BIGINT) AS I, CAST(p.PremiumUse AS BIGINT) AS P, CAST(p.AgentInteractions AS BIGINT) AS A,
+                  p.ActiveDays AS Days, p.PremiumDays, p.LastActiveKey AS LastKey
+           FROM {Ctx.PerPerson()} AS p {Ctx.Scope("p.UserKey")}   -- each person's sums over the period, as the refresh keeps them
+           WHERE p.Interactions > 0),
 x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, du.CopilotSku, du.LicensedSinceUtc,
              u.I, u.P, u.A, u.P + u.A AS Metered, u.P * 1.0 / u.I AS Share, u.Days, u.PremiumDays, dl.[Date] AS LastUsed
       FROM u
@@ -84,7 +81,8 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
       WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I
         AND du.AccountEnabled = 1   -- 3.1.3: a disabled or departed account is on Licenses on disabled accounts
         AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
-SELECT x.* INTO #x FROM x;
+SELECT x.* INTO #x FROM x
+{CopilotInsights.Pages.Forecasting.ActionsModel.IntoHint(Ctx, null)};
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
 {pg.OrderAndPage()};

@@ -39,27 +39,32 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
             return;
         }
         if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
-        var contracts = await Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenseContract ORDER BY RenewalDate;");
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
-        var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         /* Every term the tenant's (see OpsReports.Tenant): for a viewer with the Licensing role and their own part
            only, the tenant's seats less its disabled accounts were set against their own part's revocations and upgrades. */
         var whole = OpsReports.Tenant(Ctx);
-        var totals = await metrics.TotalsAsync(whole);
-        var counts = await reports.ActionCountsAsync(whole);
-        var leavers = (await ops.LeaversAsync(whole.Root)).Count;
         /* The renewal figure is License optimization's right size, worked out the same way (Renewal), less the people
            who used Copilot in the last 30 days holding it only through a suite: the suite covers them, so the add-on
-           contracts need no seat for them. It was today's seats less revocations and leavers, which disagreed with it. */
-        var size = await Renewal.SizeAsync(Db, S.Settings, whole);
-        var suiteActive = await ops.HasAsync("dash.CopilotSuiteOnly") ? await Db.ScalarAsync<int>(@"
+           contracts need no seat for them. It was today's seats less revocations and leavers, which disagreed with it.
+           The reads do not depend on each other, each on its own connection: started together. */
+        var (contracts, poolAll, totals, counts, leaverList, size) = await Queries(
+            Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenseContract ORDER BY RenewalDate;"),
+            ops.PoolAsync(), metrics.TotalsAsync(whole), reports.ActionCountsAsync(whole), ops.LeaversAsync(whole.Root),
+            Renewal.SizeAsync(Db, S.Settings, whole));
+        var pool = poolAll.Where(x => x.IsCopilot).ToList();
+        var leavers = leaverList.Count;
+        /* Used in the last 30 days: each person's 30-day sums where the refresh keeps them for this day, else their days. */
+        var used = whole.RolledDays.Contains(30)
+            ? $"JOIN {whole.PerPerson(30, "@k30")} AS u ON u.UserKey = du.UserKey AND u.Interactions > 0"
+            : "WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k30 AND @k1 AND ud.Interactions > 0)";
+        var suiteActive = await ops.HasAsync("dash.CopilotSuiteOnly") ? await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT du.UserKey)
 FROM dash.CopilotSuiteOnly AS cso
 JOIN bi.DimUser AS du ON du.UserPrincipalName = cso.Upn
+  AND du.AccountEnabled = 1   -- as the right size counts its users
 JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
-WHERE du.AccountEnabled = 1   -- as the right size counts its users (3.1.3)
-  AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k30 AND @k1 AND ud.Interactions > 0);",
+{used};",
             whole.Args(new { k30 = ReportContext.Key(whole.End.AddDays(-29)) })) : 0;
 
         int seats = contracts.Sum(c => c.Seats), assigned = pool.Sum(x => x.Consumed), bought = pool.Sum(x => x.Bought);
@@ -167,8 +172,7 @@ public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
     }
 
     string Sql(string select, string tail) => $@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+WITH a AS (SELECT p.UserKey, p.ActiveDays AS D, p.Interactions AS I FROM {Ctx.PerPerson(30, "@k30")} AS p),
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1),
 dept AS (SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, COUNT(lic.UserKey) AS L,
                 COUNT(CASE WHEN lic.UserKey IS NOT NULL AND a.I > 0 THEN 1 END) AS AL
@@ -291,8 +295,9 @@ WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.Export
 today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay),
 o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
              CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS LicensedNow,
-             CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0
-                               AND ud.DateKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)) THEN 1 ELSE 0 END AS UsedSince
+             CASE WHEN EXISTS ({(Ctx.Rollups
+                 ? "SELECT 1 FROM dash.UserActivity AS ua WHERE ua.UserKey = du.UserKey AND ua.LastActiveKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)"   // used after the day: their last day of use is later
+                 : "SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0 AND ud.DateKey > YEAR(x.Day) * 10000 + MONTH(x.Day) * 100 + DAY(x.Day)")}) THEN 1 ELSE 0 END AS UsedSince
       FROM x
       LEFT JOIN bi.DimUser AS du ON du.UserPrincipalName = x.Upn
       LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = (SELECT K FROM today)

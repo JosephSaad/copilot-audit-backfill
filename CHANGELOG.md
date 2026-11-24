@@ -4,6 +4,75 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.4] - 2026-11-24
+
+Page speed only. The nightly refresh now keeps each person's totals for every period a page offers, per week, per app,
+agent, use case, license type and model, and the Copilot Credit counts, so a page's first visit sums a few hundred
+thousand rows instead of scanning 160 million interactions. Nothing a page shows changes: every figure is the same
+number, worked out the same way.
+
+**Install over 3.1.3** (from 3.1.2, do 3.1.3's steps as well):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`). No setting is new.
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once. It adds the new tables and columns (nothing is
+   removed) and runs the dashboard refresh, which builds the new totals whole the first time: about 35 minutes in the
+   lab at 160 million interactions on 8 processors, less with fewer interactions. Run it outside the nightly window.
+3. Deploy the dashboard package (`copilot-insights-v3.1.4.zip`). The Workbench worker does not change.
+
+Until the first refresh after the install, the pages read the days as 3.1.3 did: the same figures, at 3.1.3's speed.
+
+### Changed
+
+- **First visits are faster.** Every page reads totals the nightly refresh keeps: each person's sums over each period
+  (7 days to All data, ending on the last two days the data can end on), per week, per app, agent, use case, license
+  type and model, the interactions with each of three flags, the Copilot Credit counts per person and agent, each
+  person's last day at each site with labeled or blocked content, who held a license at each week's end, and each
+  day's license holders. Independent queries on a page run side by side. Measured in the lab at 160 million interactions
+  over two years with the query cache off (every visit a first visit), against 3.1.3 on the same data:
+  the median first visit fell from 0.99 s to 0.39 s, the 90th percentile from 9.6 s to 1.9 s, and the slowest from
+  42 s to 12.6 s; 59 of the 78 report pages stay under 2 s at their slowest period and scope (28 in 3.1.3), and 43 under
+  1 s (22). Agents in use went from 42 s to 1.7 s, Apps from 37.5 s to 0.8 s, Forecast from 27 s to 1.0 s, Overview from
+  24 s to 2.5 s. Every page and its times: `plans/3.1.4-page-speed/results-160m.md`.
+- **The org chart on every page is cheaper.** The parts of the organization to drill into, and the people in a part,
+  are read from the org closure, which now carries each person's key and enabled flag (`dash.OrgClosure.DescendantKey`,
+  `DescendantEnabled`, index `IX_DashOrgClosure_Part`): 0.1 s where it was 1 to 3 seconds a page at 210,000 people.
+- **Ties are broken by name** in a few lists that sorted only by a number (License optimization's departments, an
+  agent's people), so the same names show from one visit to the next. Before, people or departments with equal figures
+  came back in whatever order SQL Server returned them.
+- **The nightly refresh does more.** It now builds the totals above: in the lab, a nightly dashboard refresh took about 14 minutes (825 s) where it took about 2, and the first one after
+  the upgrade, which builds them whole, about 35 minutes. They take about 18 GB more in the Copilot database at 160
+  million interactions.
+
+### Fixed
+
+- **New joiners' CSV link answered 404** on a period with nobody licensed or hired; it now downloads an empty list.
+- **The schema test's install over the previous release** copied only the installer and `sql\`; from 3.1.3 on the
+  installer also loads `tools\RunLock.ps1`, so the first branch after 3.1.3 failed it. It copies `tools\` too.
+
+### Known limits
+
+- **Short of the goal.** The aim was every page under 2 s on a first visit at its slowest period and scope; 3.1.4 was
+  released with 19 of 78 report pages over it, most only at long periods for the whole organization or the part of
+  70,000 people (Costs and savings and Suite fit at every period): Oversharing hotspots 12.6 s, What to act on 8.2 s, Usage by license 7.9 s, Labeled content by unit 6.8 s,
+  Sensitive content 6.5 s, Costs and savings 5.1 s, Access to labeled content 4.8 s, Security signals 4.2 s, Credit use
+  3.6 s, Apps and agents 3.6 s, Board pack 3.5 s, Conversation depth 3.3 s, Models and controls 3.1 s, Suite fit 3.1 s, Budget
+  and renewal 2.7 s, Working patterns 2.6 s, Overview 2.5 s, Agents costing credits 2.3 s, Rollout waves 2.3 s. What
+  is left there reads the accessed resources (sites, labels and file types have no per-person totals yet), the suite
+  holders by sign-in, or the license days for a part of the organization.
+- **Measured with the query cache off.** Every visit was a first visit. With the cache on (the default), a page already
+  built since the last data change opens from memory, and the 07:00 pre-cache builds the whole organization's pages at
+  every period, as before.
+- **Synthetic lab data on one server.** Two years of made-up records (160 million interactions, 210,000 people) on 8
+  processors, SQL Server 2025 Enterprise Developer at MAXDOP 6; not the client's data or hardware. A database with fewer
+  interactions, or a shorter history, is faster.
+- **The totals answer the last two days the data can end on.** After midnight, before the next nightly refresh, a page
+  whose period ends on a day they were not built for sums the days as 3.1.3 did: the same figures, at 3.1.3's speed.
+- **Same figures, checked.** Every report page's text at 30 days, 730 days and All data, for the whole organization and a
+  team, matched 3.1.3's on the lab, apart from rows tied on equal values coming back in a different order, which 3.1.3 did
+  from one visit to the next too. The SQL integration test checks every new total against the same figure worked out
+  from the rows under it. Not tested against the client's database.
+
 ## [3.1.3] - 2026-11-23
 
 The weekly report becomes eight figures, the week only, with each one defined under the table and Users Enabled
