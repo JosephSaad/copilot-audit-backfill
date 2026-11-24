@@ -54,6 +54,8 @@ namespace CopilotInsights.Pages.Adoption
         public override string Persona => "Adoption";
         public override string Intro => "People licensed in the period, and people hired in it where Entra has a hire date: how many days until they first used Copilot, and how many have not yet.";
 
+        static readonly string[] DeptHeaders = ["Department", "Licensed in the period", "Have used it", "Median days to first use"];
+
         static readonly (string Label, int Lo, int Hi)[] Bands = [("Within a week", 0, 7), ("8 to 30 days", 8, 30), ("31 to 90 days", 31, 90), ("Over 90 days", 91, int.MaxValue)];
 
         sealed class Row
@@ -89,7 +91,13 @@ LEFT JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
 GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             var (licensed, hired) = await Queries(licensedTask, hiredTask);
 
-            if (licensed.Count == 0 && hired.Count == 0) { Notice = "Nobody was licensed or hired in the period."; return; }
+            if (licensed.Count == 0 && hired.Count == 0)
+            {
+                Notice = "Nobody was licensed or hired in the period.";
+                /* The download still answers, with the headers and no rows: it was a 404 for a period with nobody in it. */
+                CsvTable = new Table { Headers = DeptHeaders, Numeric = new HashSet<int> { 1, 2, 3 } };
+                return;
+            }
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
             Kpis.Add(new("Licensed in the period", Num(licensed.Count), "people whose Copilot license began in the period, with the account enabled today"));
             Kpis.Add(new("Have used it", Num(started.Count), licensed.Count > 0 ? Pct(Ratio(started.Count, licensed.Count)) : null));
@@ -108,7 +116,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
                     Median: g.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList())).ToList();
             var shown = FoldSmall(depts.OrderByDescending(d => d.People), d => d.People,
                 small => ("Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), new List<int>()), out var folded);
-            var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
+            var tb = new Table { Headers = DeptHeaders, Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
             tb.KeepLast = folded > 0 ? 1 : 0;
             CsvTable = tb;

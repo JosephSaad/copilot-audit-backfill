@@ -148,6 +148,12 @@ FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 EL
         var scope = root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = u.UserKey";
         /* Copilot held only inside a suite (E7) is not an add-on to take back: Suite fit reclaims the suite. */
         var addOn = await HasAsync("dash.CopilotSuiteOnly") ? $"AND {CopilotSuites.NotOnlyInSuite("u.UserPrincipalName")}" : "";
+        /* The last day of use, over every day: the refresh keeps it for each person (dash.UserActivity), so it is one row's
+           seek, not a person's days read. Before the refresh has built it, the days are read as before. */
+        var lastKey = await HasAsync("dash.UserActivity")
+            ? @"CASE WHEN EXISTS (SELECT 1 FROM dash.UserActivity) THEN (SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = u.UserKey)
+                    ELSE (SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = u.UserKey AND x.Interactions > 0) END"
+            : "(SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = u.UserKey AND x.Interactions > 0)";
         return await db.QueryAsync<LeaverRow>($@"
 WITH today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay)
 SELECT u.UserPrincipalName, u.DisplayName, u.Department, u.ManagerName,
@@ -156,7 +162,7 @@ SELECT u.UserPrincipalName, u.DisplayName, u.Department, u.ManagerName,
             WHEN {entra} = 0 THEN N'Disabled in Entra'
             ELSE N'Disabled in AD' END AS Reason,
        u.LicensedSinceUtc,
-       (SELECT dl.[Date] FROM bi.DimDate AS dl WHERE dl.DateKey = (SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = u.UserKey AND x.Interactions > 0)) AS LastUsed,
+       (SELECT dl.[Date] FROM bi.DimDate AS dl WHERE dl.DateKey = {lastKey}) AS LastUsed,
        COUNT(*) OVER () AS TotalRows
 FROM bi.FactLicensedDay AS ld
 JOIN today ON ld.DateKey = today.K
