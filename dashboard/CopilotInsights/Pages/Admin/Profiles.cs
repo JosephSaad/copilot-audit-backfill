@@ -94,7 +94,7 @@ FROM dash.AccessProfile AS p ORDER BY p.Name;");
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
         /* Sections are ticked in their own step. The roles offered are Organization, Admin and the Workbench's work roles,
            and a persona role the profile gives already (granted before 3.1.0), so it can be kept or taken off. */
-        var offered = Roles.All.Where(r => r != Roles.Sections && (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))
+        var offered = Roles.All.Where(r => r != Roles.Sections && r != Roles.Preview && (Viewer.IsAdmin || r != Roles.Admin) && (workbenchOn || !Roles.IsWorkbench(r))
                                            && (!AccessRules.IsPersona(r) || r == Roles.Organization || current.Any(c => c.Role == r))).ToList();
         var hasSections = await HasSectionsAsync();
         var sectionRow = current.FirstOrDefault(c => c.Role == Roles.Sections);

@@ -243,6 +243,12 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 
 Anything refused is logged as a warning, and the viewer is treated as not in the directory. Admin › Directory quality › *No SID recorded* lists the people this leaves out, managers outside the directory table included: load them with their SID, or map their accounts in `IdentityMap`. Grant a role to an account outside the directory as `DOMAIN\name` or through a group, not by UPN.
 
+### Beta reports and success stories (3.1.6)
+
+**Beta reports.** An administrator can mark a report Beta in Admin › Reports shown: it is then shown only to full administrators and to the people given a preview of it (Admin › Access, the Preview grant), with a *Beta* badge, inside the sections they see already. For everyone else it is gone, as a report turned off is. Unticking Beta shows it to everyone with its section.
+
+**Success stories.** Everyone the dashboard lets in can share what Copilot did for them (menu: *Success stories*), change it or withdraw it until a curator approves it, and see what became of it. Curators (the Stories role) approve or decline each story and tick the ones the weekly Copilot report quotes in *In their words*. A story names its person only where they agreed; otherwise their department, or "a colleague". [WEEKLY-REPORT.md](WEEKLY-REPORT.md) and [OPERATIONS.md](OPERATIONS.md#email-alerts-and-digests) say more.
+
 ## Periods
 
 Every report has the same choice: the last **7, 14, 30, 90, 180, 365 or 730 days**, or **All data** from the first day with data, ending on the last complete day with data (730 days and All data since 3.1.3). The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by whole Saturday-to-Friday weeks, labeled by the Friday. A link or digest set to All data keeps meaning all the data as more arrives.

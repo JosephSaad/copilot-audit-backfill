@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-130 tables (plus 2 left over from 1.x), 39 views, 1597 columns, from 22 scripts.
+132 tables (plus 2 left over from 1.x), 39 views, 1628 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -25,7 +25,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.ReadMix`](#dashreadmix), [`dash.ReadMixPeriod`](#dashreadmixperiod), [`dash.ResourceItem`](#dashresourceitem), [`dash.ResourcePeriod`](#dashresourceperiod), [`dash.SiteReader`](#dashsitereader), [`dash.SessionSpan`](#dashsessionspan), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.ReadMix`](#dashreadmix), [`dash.ReadMixPeriod`](#dashreadmixperiod), [`dash.ResourceItem`](#dashresourceitem), [`dash.ResourcePeriod`](#dashresourceperiod), [`dash.SiteReader`](#dashsitereader), [`dash.SessionSpan`](#dashsessionspan), [`dash.SuccessStory`](#dashsuccessstory), [`dash.SuccessStorySend`](#dashsuccessstorysend), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -3703,6 +3703,54 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `CCI_DashSessionPeriod`: clustered columnstore
+
+### dash.SuccessStory
+
+*Table.* What people say Copilot did for them, in their own words (3.1.6): entered on the dashboard's Success stories page by anyone it lets in, approved or declined by the Stories role, and quoted by the weekly Copilot report ("In their words") when a curator ticks it. A story only moves forward: Entered, then Approved, then Sent; Declined and Withdrawn end it. Deleting sets Deleted; a full administrator purges a row for good.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `StoryId` | int | **no** | identity, PK | |
+| 2 | `Quote` | nvarchar(2000) | **no** |  | the story as written, edited by a curator if need be |
+| 3 | `App` | nvarchar(200) | yes |  | the app or agent |
+| 4 | `UseCase` | nvarchar(200) | yes |  | the kind of work |
+| 5 | `MinutesSaved` | int | yes |  | a week, as the person put it |
+| 6 | `Upn` | nvarchar(256) | **no** |  | whose story: who entered it |
+| 7 | `DisplayName` | nvarchar(256) | yes |  | their name when they entered it |
+| 8 | `Unit` | nvarchar(256) | yes |  | their department when they entered it |
+| 9 | `MayName` | bit | **no** | 0 | 1: the weekly report may quote them by name |
+| 10 | `Status` | varchar(12) | **no** | 'Entered' | Entered, Approved, Sent, Declined or Withdrawn |
+| 11 | `DeclineReason` | nvarchar(400) | yes |  | why a curator declined it, as the person sees it |
+| 12 | `IncludeNext` | bit | **no** | 0 | ticked for the next weekly report; cleared when it sends |
+| 13 | `EnteredUtc` | datetime2(0) | **no** | `sysutcdatetime` | |
+| 14 | `UpdatedBy` | nvarchar(256) | yes |  | |
+| 15 | `UpdatedUtc` | datetime2(0) | yes |  | |
+| 16 | `ApprovedBy` | nvarchar(256) | yes |  | |
+| 17 | `ApprovedUtc` | datetime2(0) | yes |  | the weekly report quotes the oldest approved first |
+| 18 | `EditedAfterSent` | bit | **no** | 0 | changed after a report quoted it |
+| 19 | `Deleted` | bit | **no** | 0 | hidden and never sent |
+| 20 | `DeletedBy` | nvarchar(256) | yes |  | |
+| 21 | `DeletedUtc` | datetime2(0) | yes |  | |
+
+Indexes and constraints:
+
+- `PK_DashSuccessStory`: primary key, clustered (StoryId)
+- `IX_DashSuccessStory_Status`: (Status, IncludeNext, Deleted)
+- `CK_DashSuccessStory_Status`: Status is one of the five
+
+### dash.SuccessStorySend
+
+*Table.* Each week a story was quoted in (3.1.6): written by `tools\Send-CopilotWeeklyReport.ps1` when a report is sent (not by a preview or a send with -To).
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `StoryId` | int | **no** | PK, dash.SuccessStory | removed with the story when it is purged |
+| 2 | `SentWeek` | date | **no** | PK | the Friday that ends the week the report covered |
+| 3 | `SentUtc` | datetime2(0) | **no** | `sysutcdatetime` | |
 
 ### dash.RefreshRun
 

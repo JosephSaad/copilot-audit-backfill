@@ -23,6 +23,15 @@
     are in. A week already sent is not sent again; a failed send is tried again
     on the next run, up to MaxAttempts. Every send and failure is recorded in
     audit.WeeklyReportSend.
+    In their words (3.1.6): the success stories a curator ticked on the
+    dashboard's Success stories page, approved, up to StoriesPerReport (3 by
+    default, oldest approved first), are quoted in the email and listed in the
+    workbook's Stories sheet. A sent report stamps each with the week and
+    clears its tick, so a story goes out once unless ticked again. A preview
+    or a send with -To quotes them and stamps nothing. On the day before the
+    send day, from the send time, the curators named in StoriesReminderTo
+    (dashboard setting) get one reminder a week when stories wait for review
+    or none is ticked.
 
     It sends through the mail server the dashboard uses (3.1.3): the way of
     sending, server, port, security, user name, password, certificate check,
@@ -514,8 +523,127 @@ function Get-ReportNote {
     , $notes.ToArray()
 }
 
+function Format-StoryAttribution {
+    <#
+        Who said it, as the dashboard's Success stories page shows it (SuccessStories.Attribution): the name where the
+        person agreed and privacy mode is off; else "A colleague in <department>" where the department has at least the
+        minimum group size; else "A colleague".
+    #>
+    param([string] $DisplayName, [string] $Unit, [bool] $MayName, [bool] $PrivacyMode, [int] $UnitSize, [int] $MinGroupSize)
+    if ($MayName -and -not $PrivacyMode -and $DisplayName.Trim()) {
+        if ($Unit.Trim()) { return $DisplayName.Trim() + ', ' + $Unit.Trim() }
+        return $DisplayName.Trim()
+    }
+    if ($Unit.Trim() -and $UnitSize -ge [Math]::Max(1, $MinGroupSize)) { return 'A colleague in ' + $Unit.Trim() }
+    'A colleague'
+}
+
+function Get-ReportStory {
+    <#
+        The success stories for this report: approved or sent, ticked, not deleted, oldest approved first, up to
+        StoriesPerReport. -All instead gives every approved or sent story, for the workbook's Stories sheet. None when the
+        database has no dash.SuccessStory (before 3.1.6) or StoriesPerReport is 0.
+    #>
+    param($Connection, [switch] $All)
+    $sql = @"
+IF OBJECT_ID(N'dash.SuccessStory', N'U') IS NULL BEGIN SELECT TOP (0) 1 AS StoryId; RETURN; END;
+DECLARE @n INT = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N'StoriesPerReport') AS INT);
+IF @n IS NULL SET @n = 3;
+IF @n < 0 SET @n = 0;
+IF @n > 10 SET @n = 10;
+IF @all = 1 SET @n = 100000;
+DECLARE @min INT = ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N'MinGroupSize') AS INT), 5);
+DECLARE @privacy BIT = 0;
+IF OBJECT_ID(N'audit.PipelineSetting', N'U') IS NOT NULL
+    SELECT @privacy = CASE WHEN Value = N'Pseudonymize' THEN 1 ELSE 0 END FROM audit.PipelineSetting WHERE Name = N'PrivacyMode';
+SELECT TOP (@n) s.StoryId, s.Quote, s.App, s.UseCase, s.MinutesSaved, s.DisplayName, s.Unit, s.MayName, s.Status, s.ApprovedUtc,
+       @privacy AS PrivacyMode, @min AS MinGroupSize,
+       (SELECT COUNT(*) FROM dash.Person AS p WHERE p.AccountEnabled = 1 AND p.Department = s.Unit) AS UnitSize,
+       (SELECT STRING_AGG(CONVERT(NVARCHAR(10), x.SentWeek, 23), N', ') FROM dash.SuccessStorySend AS x WHERE x.StoryId = s.StoryId) AS Sends
+FROM dash.SuccessStory AS s
+WHERE s.Deleted = 0 AND s.Status IN ('Approved', 'Sent') AND (@all = 1 OR s.IncludeNext = 1)
+ORDER BY s.ApprovedUtc, s.StoryId;
+"@
+    $ds = Invoke-ReportQuery $Connection $sql @{ '@all' = [bool] $All }
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($r in $ds.Tables[0].Rows) {
+        if (-not $ds.Tables[0].Columns.Contains('Quote')) { break }
+        $text = { param($v) if ($v -is [DBNull] -or $null -eq $v) { '' } else { [string] $v } }
+        $out.Add([pscustomobject]@{
+            StoryId = [int] $r.StoryId
+            Quote = [string] $r.Quote
+            Who = Format-StoryAttribution -DisplayName (& $text $r.DisplayName) -Unit (& $text $r.Unit) -MayName ([bool] $r.MayName) `
+                -PrivacyMode ([bool] $r.PrivacyMode) -UnitSize ([int] $r.UnitSize) -MinGroupSize ([int] $r.MinGroupSize)
+            App = & $text $r.App
+            UseCase = & $text $r.UseCase
+            MinutesSaved = if ($r.MinutesSaved -is [DBNull]) { $null } else { [int] $r.MinutesSaved }
+            Status = [string] $r.Status
+            Sends = & $text $r.Sends
+        })
+    }
+    , $out.ToArray()
+}
+
+function Complete-ReportStory {
+    <# After a send: each story quoted is stamped with the week, set to Sent, and its tick cleared. #>
+    param($Connection, [object[]] $Stories, [datetime] $Week)
+    foreach ($s in $Stories) {
+        [void] (Invoke-ReportQuery $Connection @'
+IF NOT EXISTS (SELECT 1 FROM dash.SuccessStorySend WHERE StoryId = @id AND SentWeek = @w)
+    INSERT INTO dash.SuccessStorySend (StoryId, SentWeek) VALUES (@id, @w);
+UPDATE dash.SuccessStory SET Status = 'Sent', IncludeNext = 0, UpdatedBy = N'weekly report', UpdatedUtc = SYSUTCDATETIME()
+WHERE StoryId = @id AND Status IN ('Approved', 'Sent');
+'@ @{ '@id' = $s.StoryId; '@w' = $Week.Date })
+    }
+}
+
+function Get-StoryDetail {
+    param($Story)
+    $parts = @($Story.App, $Story.UseCase) | Where-Object { $_ }
+    if ($null -ne $Story.MinutesSaved) { $parts += ('{0:N0} minutes saved a week' -f $Story.MinutesSaved) }
+    $parts -join ' - '
+}
+
+function Send-StoryReminder {
+    <#
+        The day before the send day, from the send time: one reminder a week to StoriesReminderTo (dashboard setting) when
+        stories wait for review or none is ticked. Recorded in dash.Setting StoriesReminderWeek, so it goes once a week.
+    #>
+    param($Connection, [datetime] $Week)
+    $ds = Invoke-ReportQuery $Connection @'
+IF OBJECT_ID(N'dash.SuccessStory', N'U') IS NULL BEGIN SELECT CAST(NULL AS NVARCHAR(400)) AS ToList, 0 AS Waiting, 0 AS Ticked, CAST(NULL AS NVARCHAR(400)) AS Done; RETURN; END;
+SELECT (SELECT Value FROM dash.Setting WHERE Name = N'StoriesReminderTo') AS ToList,
+       (SELECT COUNT(*) FROM dash.SuccessStory WHERE Deleted = 0 AND Status = 'Entered') AS Waiting,
+       (SELECT COUNT(*) FROM dash.SuccessStory WHERE Deleted = 0 AND IncludeNext = 1 AND Status IN ('Approved', 'Sent')) AS Ticked,
+       (SELECT Value FROM dash.Setting WHERE Name = N'StoriesReminderWeek') AS Done;
+'@
+    $r = $ds.Tables[0].Rows[0]
+    $to = if ($r.ToList -is [DBNull]) { @() } else { @(([string] $r.ToList) -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    $stamp = $Week.ToString('yyyy-MM-dd')
+    if ($to.Count -eq 0 -or (($r.Done -isnot [DBNull]) -and [string] $r.Done -eq $stamp)) { return }
+    $waiting = [int] $r.Waiting; $ticked = [int] $r.Ticked
+    if ($waiting -eq 0 -and $ticked -gt 0) { return }
+    $lines = @()
+    if ($waiting -gt 0) { $lines += "$waiting success $(if ($waiting -eq 1) { 'story waits' } else { 'stories wait' }) for review." }
+    $lines += if ($ticked -eq 0) { 'No story is ticked for tomorrow''s weekly report, so it will have no "In their words".' } else { "$ticked $(if ($ticked -eq 1) { 'story is' } else { 'stories are' }) ticked for tomorrow's weekly report." }
+    $lines += 'Review them on the dashboard: Success stories.'
+    $text = $lines -join "`r`n"
+    $html = '<div style="font-family:''Segoe UI'',Arial,sans-serif;font-size:14px;">' + (($lines | ForEach-Object { ConvertTo-Html5Text $_ }) -join '<br>') + '</div>'
+    try {
+        $mail = Get-DashboardMail $Connection
+        Send-ReportMail -Mail $mail -Subject 'Success stories for tomorrow''s Copilot weekly report' -Html $html -Text $text -ImageFiles @{} -Workbook $null -ToList $to -CcList @() -BccList @()
+        [void] (Invoke-ReportQuery $Connection @'
+UPDATE dash.Setting SET Value = @w, UpdatedBy = N'weekly report', UpdatedUtc = SYSUTCDATETIME() WHERE Name = N'StoriesReminderWeek';
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'StoriesReminderWeek', @w, N'The week the success stories reminder last went for (the weekly report keeps it).', N'weekly report');
+'@ @{ '@w' = $stamp })
+        Write-ReportLog "Success stories reminder sent to $($to -join '; ') ($waiting waiting, $ticked ticked)."
+    }
+    catch { Write-ReportLog "The success stories reminder was not sent: $($_.Exception.Message)" 'WARN' }
+}
+
 function New-ReportHtml {
-    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks)
+    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @())
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)
@@ -577,13 +705,23 @@ function New-ReportHtml {
         }
     }
 
+    if ($Stories.Count) {
+        [void] $sb.Append("<div style=`"$f font-size:16px;font-weight:700;color:$($p.Navy);padding:24px 0 6px 0;`">In their words</div>")
+        foreach ($s in $Stories) {
+            $detail = Get-StoryDetail $s
+            [void] $sb.Append("<div style=`"$f border-left:4px solid $($p.Orange);background:$($p.RowA);padding:10px 14px;margin:0 0 10px 0;width:870px;`">")
+            [void] $sb.Append("<div style=`"$f font-size:15px;line-height:1.5;color:$($p.Text);`">$([char] 0x201C)$(ConvertTo-Html5Text $s.Quote)$([char] 0x201D)</div>")
+            [void] $sb.Append("<div style=`"$f font-size:12px;color:$($p.Muted);padding:4px 0 0 0;`">$([char] 0x2014) $(ConvertTo-Html5Text $s.Who)$(if ($detail) { ' &middot; ' + (ConvertTo-Html5Text $detail) })</div></div>")
+        }
+    }
+
     [void] $sb.Append("<div style=`"$n padding:18px 0 0 0;`">The charts show the same figures for each of the last weeks. An Excel workbook with the figures, the definitions and the charts is attached.</div>")
     [void] $sb.Append('</td></tr></table></body></html>')
     $sb.ToString()
 }
 
 function New-ReportText {
-    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks)
+    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [object[]] $Stories = @())
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Copilot weekly report, week of $($Meta.WeekLabel)")
     $lines.Add('')
@@ -604,6 +742,16 @@ function New-ReportText {
         $lines.Add("  Copilot Chat: $($d.Chat)")
     }
     foreach ($note in (Get-ReportNote $Meta $Weeks)) { $lines.Add(''); $lines.Add($note) }
+    if ($Stories.Count) {
+        $lines.Add('')
+        $lines.Add('IN THEIR WORDS')
+        foreach ($s in $Stories) {
+            $detail = Get-StoryDetail $s
+            $lines.Add('')
+            $lines.Add('"' + $s.Quote + '"')
+            $lines.Add('  - ' + $s.Who + $(if ($detail) { " ($detail)" }))
+        }
+    }
     $lines.Add('')
     $lines.Add('The charts and the workbook are in the HTML version of this message.')
     $lines -join "`r`n"
@@ -685,7 +833,7 @@ function New-ComboChartXml {
 }
 
 function New-ReportWorkbook {
-    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [string] $Path)
+    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [string] $Path, [object[]] $Library = @())
     Import-Module ImportExcel -ErrorAction Stop
     $color = { param([string] $hex) [Drawing.ColorTranslator]::FromHtml($hex) }
     $p = $script:Palette
@@ -891,6 +1039,31 @@ function New-ReportWorkbook {
             $row++
         }
 
+        # ---- Stories: every approved story to date, as the email quotes them ---
+        if ($Library.Count) {
+            $st = $pkg.Workbook.Worksheets.Add('Stories')
+            $st.Cells.Style.Font.Name = 'Segoe UI'; $st.Cells.Style.Font.Size = 10
+            $heads = 'Story', 'Who', 'App or agent', 'Kind of work', 'Minutes saved a week', 'Sent'
+            for ($c = 0; $c -lt $heads.Count; $c++) {
+                $cell = $st.Cells[1, $c + 1]
+                $cell.Value = $heads[$c]; $cell.Style.Font.Bold = $true
+                $cell.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $cell.Style.Fill.BackgroundColor.SetColor((& $color $p.SubHead))
+            }
+            $row = 2
+            foreach ($s in $Library) {
+                $st.Cells[$row, 1].Value = $s.Quote; $st.Cells[$row, 1].Style.WrapText = $true
+                $st.Cells[$row, 2].Value = $s.Who
+                $st.Cells[$row, 3].Value = $s.App
+                $st.Cells[$row, 4].Value = $s.UseCase
+                if ($null -ne $s.MinutesSaved) { $st.Cells[$row, 5].Value = $s.MinutesSaved }
+                $st.Cells[$row, 6].Value = if ($s.Sends) { $s.Sends } else { 'Not yet' }
+                $row++
+            }
+            $st.Column(1).Width = 80; $st.Column(2).Width = 30; $st.Column(3).Width = 18; $st.Column(4).Width = 20; $st.Column(5).Width = 12; $st.Column(6).Width = 24
+            $st.View.FreezePanes(2, 1)
+        }
+
         $ws.PrinterSettings.Orientation = [OfficeOpenXml.eOrientation]::Landscape
         $ws.PrinterSettings.FitToPage = $true
         $ws.PrinterSettings.FitToWidth = 1
@@ -1078,6 +1251,8 @@ try {
 
     $record = $null
     if ($Scheduled) {
+        # The day before the send, from the send time: the success stories reminder, once a week.
+        if ($nowLocal -lt $due -and $nowLocal -ge $due.AddDays(-1)) { Send-StoryReminder -Connection $conn -Week $week }
         if ($nowLocal -lt $due) { exit 0 }   # not yet: quiet, the task runs every hour
         $record = Get-SendRecord -Connection $conn -Week $week
         if ($record -and $record.Status -eq 'Sent') { exit 0 }
@@ -1141,21 +1316,33 @@ try {
         $images = @{}
     }
 
+    # In their words: the stories ticked on the dashboard (none before 3.1.6, or when StoriesPerReport is 0).
+    $stories = @(); $library = @()
+    try {
+        $stories = @(Get-ReportStory -Connection $conn)
+        $library = @(Get-ReportStory -Connection $conn -All)
+        if ($stories.Count) { Write-ReportLog "In their words: $($stories.Count) success $(if ($stories.Count -eq 1) { 'story' } else { 'stories' }) (ids $(($stories | ForEach-Object { $_.StoryId }) -join ', '))." }
+    }
+    catch {
+        Write-ReportLog "Success stories not read, the email goes without them: $($_.Exception.Message)" 'WARN'
+        $stories = @(); $library = @()
+    }
+
     $workbook = Join-Path $outDir "Copilot weekly report $stamp.xlsx"
-    try { New-ReportWorkbook -Meta $meta -Table $table -Weeks $weeks -Path $workbook }
+    try { New-ReportWorkbook -Meta $meta -Table $table -Weeks $weeks -Path $workbook -Library $library }
     catch {
         Write-ReportLog "Workbook not written, the email goes without it: $($_.Exception.Message)" 'WARN'
         $workbook = $null
     }
 
     $subject = "$($setting.SubjectPrefix): week of $($meta.WeekLabel)"
-    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks
+    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks -Stories $stories
 
     if ($Preview) {
         $fileRefs = @{}
         foreach ($k in $images.Keys) { $fileRefs[$k] = [IO.Path]::GetFileName($images[$k]) }
         $htmlPath = Join-Path $outDir "Copilot weekly report $stamp.html"
-        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks
+        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks -Stories $stories
         [IO.File]::WriteAllText($htmlPath, $html, (New-Object Text.UTF8Encoding($false)))
         Write-ReportLog "Preview of the week ending ${stamp}: $htmlPath"
         if ($workbook) { Write-ReportLog "Workbook: $workbook" }
@@ -1167,7 +1354,7 @@ try {
 
     $cids = @{}; $cidFiles = @{}
     foreach ($k in $images.Keys) { $cids[$k] = "cid:chart$k"; $cidFiles["chart$k"] = $images[$k] }
-    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks
+    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks -Stories $stories
     if ($setting.KeepCopies) {
         [IO.File]::WriteAllText((Join-Path $outDir "Copilot weekly report $stamp.html"), $html, (New-Object Text.UTF8Encoding($false)))
     }
@@ -1191,6 +1378,10 @@ try {
     }
     $note = if ($warnings.Count) { 'Sent before the data was complete.' } else { $null }
     if ($keepRecord) { Set-SendRecord -Connection $conn -Week $week -Status 'Sent' -Recipients $who -DataComplete $complete -Detail $note }
+    if ($keepRecord -and $stories.Count) {
+        try { Complete-ReportStory -Connection $conn -Stories $stories -Week $week }
+        catch { Write-ReportLog "The stories quoted were not marked sent; untick them on the dashboard so they are not sent again: $($_.Exception.Message)" 'WARN' }
+    }
     if (-not $setting.KeepCopies -and -not $To) { Remove-Item -LiteralPath $outDir -Recurse -Force -ErrorAction SilentlyContinue }
     Write-ReportLog "Week ending ${stamp}: sent to $who."
 }

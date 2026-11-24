@@ -28,6 +28,8 @@ public static class AuditChange
     {
         if (string.IsNullOrEmpty(value)) return "";
         if (Secret(name)) return "(set)";
+        /* A success story's words stay with the story, so purging it removes them; an edit's earlier text is its own line. */
+        if (string.Equals(name, "quote", StringComparison.OrdinalIgnoreCase)) return "(kept with the story)";
         if (Uri.TryCreate(value.Trim(), UriKind.Absolute, out var u) && u.Scheme is "http" or "https" && (u.Query.Length > 1 || u.UserInfo.Length > 0))
             return u.GetLeftPart(UriPartial.Path).Replace(u.UserInfo + "@", "", StringComparison.Ordinal) + "?(hidden)";
         return value.Length > 400 ? value[..400] + "…" : value;

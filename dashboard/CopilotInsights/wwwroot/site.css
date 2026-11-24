@@ -695,3 +695,13 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
   .lrow .lsp, .ltotal .lbar { display: none; }
 }
 @media print { .tc, .gc, .rr, .lrow { break-inside: avoid; } .cboard .panel { box-shadow: none; } }
+/* A beta report: its badge beside the section name, in the menu and on the page. */
+.beta { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.6; vertical-align: middle; background: var(--warn-soft); color: var(--warn); }
+/* Success stories: the quote as entered, and its state. */
+.story q { display: block; font-size: 15px; line-height: 1.5; }
+.story .state { font-size: 12px; font-weight: 600; }
+/* The success story form: the story on a line of its own, the small fields on the next. */
+form.admin label.quote { flex: 0 0 100%; }
+form.admin label.quote textarea { width: 100%; max-width: 760px; box-sizing: border-box; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; }
+form.admin:has(label.quote) > .row { flex: 0 0 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.story details { margin-top: 4px; }

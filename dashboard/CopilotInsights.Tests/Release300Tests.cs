@@ -252,7 +252,7 @@ public class Release300Tests
     [Fact]
     public void Review_Workbench_roles_are_refused_on_the_server_while_it_is_off()
     {
-        Assert.Contains("Roles.All.Contains(r) && r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
+        Assert.Contains("Roles.All.Contains(r) && r != Roles.Sections && r != Roles.Preview && (workbenchOn || !Roles.IsWorkbench(r))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
         Assert.Contains(".Where(r => r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r)))", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Profiles.cs"));
         /* The Workbench's sections too. */
         Assert.Contains("Where(k => workbenchOn || Sections.Find(k)?.Workbench != true)", Read("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));

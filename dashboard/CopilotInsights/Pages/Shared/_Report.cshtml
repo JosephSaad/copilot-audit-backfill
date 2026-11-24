@@ -13,7 +13,7 @@
     if (who is { Length: > 1 } && !char.IsUpper(who[1]) && who.Split(' ')[0] is not ("Copilot" or "Microsoft")) who = char.ToLowerInvariant(who[0]) + who[1..];
 }
 <div class="page-head">
-    <div class="eyebrow">@Model.Persona</div>
+    <div class="eyebrow">@Model.Persona@if (Model.IsBeta) { <span class="beta" title="A beta report: open to administrators and to the people given a preview of it (Admin › Access)">Beta</span> }</div>
     @if (guide is not null)
     {
         @* The title and who it is for on one line, and what it helps with and what to do on the next, so the figures

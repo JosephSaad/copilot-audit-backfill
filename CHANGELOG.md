@@ -4,6 +4,69 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.6] - 2026-11-24
+
+Beta reports and success stories. An administrator can put a report in beta, so only administrators and the people
+given a preview of it see it, without a new section. And people can share what Copilot did for them, in their own
+words: curators approve the stories and tick the ones the weekly Copilot report quotes, under "In their words".
+
+**Install over 3.1.5:**
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds two tables (`dash.SuccessStory`, `dash.SuccessStorySend`)
+   and two settings, and lets the role grants take Preview and Stories. Nothing is removed or narrowed.
+3. Deploy the dashboard package (`copilot-insights-v3.1.6.zip`) on each web server (with `-SiteName` and
+   `-ApplicationPath` where it is an application inside a site).
+4. Grant the curators the **Stories** role (Admin › Access › Grant access › Other roles), and, if they want a reminder
+   the day before the report, set *Remind the curators at* (Admin › Alerts and digests › Weekly Copilot report).
+
+### Added
+
+- **Beta reports.** Admin › Reports shown has a **Beta** box beside each report. A beta report is shown only to full
+  administrators and to the people given a preview of it, with a *Beta* badge in the menu and on the page; for anyone
+  else it is gone, as a report turned off is (not in the menu, the start page or search, refused at its address).
+  Untick Beta to show it to everyone with its section. Kept as `Beta:<path>` rows in `dash.Setting`.
+- **The Preview grant.** Admin › Access › Grant access has a step *Beta reports they preview*: tick the beta reports a
+  person or an AD or Entra group may open. A preview opens a report only inside the sections the person sees already,
+  as those sections show it (their own team or the whole organization, named lists, minimum group size, privacy
+  mode). It is a role of its own (Preview), not an Admin role: it opens no section, no Admin page and no usage data,
+  and lets no one past the dashboard's level limit. Granting it again replaces the reports ticked.
+- **Success stories** (menu: *Success stories*, open to everyone the dashboard lets in). Anyone shares a story: the
+  quote, the app or agent, the kind of work, minutes saved a week, and whether the report may name them. They change
+  or withdraw it until a curator approves it, and see what became of it (with the reason, if declined).
+- **The Stories role** curates them: approve or decline (with a reason), change the words (each change in the audit
+  log with the text before it; the status stays), tick approved stories for the next report, delete. A story only
+  moves forward (entered, approved, sent; declined and withdrawn end it); nothing sends it back. A sent story can be
+  ticked again on purpose, after a question. A full administrator restores a deleted story or deletes it permanently,
+  which also removes its earlier text from the audit log. The words of a story are not copied into the audit record of
+  the form that sent them.
+- **"In their words" in the weekly Copilot report.** `Send-CopilotWeeklyReport.ps1` quotes the ticked stories (up to
+  *Success stories quoted*, 3 by default, oldest approved first) in the email and text version, and lists every
+  approved story in the workbook's new *Stories* sheet. A report sent marks its stories sent with the week and clears
+  their ticks; a preview or a send with `-To` marks nothing. A story names its person only where they agreed and
+  privacy mode is off; otherwise "a colleague in" their department, or "a colleague" where the department is smaller
+  than the minimum group size.
+- **The curators' reminder.** The day before the send day, from the send time, one email a week to *Remind the
+  curators at* when stories wait for review or none is ticked. Empty (the default): no reminder.
+
+### Known limits
+
+- **Tested** with the dashboard's unit tests (the access rules, the story's steps, the naming), the SQL integration
+  test (the role checks, the story tables, purge), every script suite and the analyzer, and on a local demo dashboard.
+  The weekly report's stories were checked with `-Preview` against a local database; **no report was sent through a
+  real mail server**, and the reminder was not received by anyone.
+- **A preview needs its section.** Someone given a preview of a report in a section they do not see gets the section's
+  refusal, as for any report there.
+- **The morning pre-cache leaves beta reports out**, so their first visit each day builds them (as fast as before).
+- **Purging a story** removes its words from the table and from the audit log's edit lines. A weekly report already
+  sent, and its saved copy on the job server (`reports\<week>`, when `KeepCopies` is on), keep them.
+- **A dashboard from before 3.1.6** on the same database (a farm part-way through an upgrade) ignores the Beta setting
+  and shows a beta report to everyone with its section. Upgrade every web server.
+- **Preview and Stories are granted on the dashboard.** `Invoke-CopilotMaintenance.ps1 -Task GrantRole` takes
+  `-Role Stories`; a Preview grant, which names its reports, is made in Admin › Access only, and an access profile
+  cannot carry one.
 ## [3.1.5] - 2026-11-24
 
 Page speed, second round: every page in the Leadership and Agents sections opens in under 3 seconds on a first visit

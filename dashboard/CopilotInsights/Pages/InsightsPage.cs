@@ -279,7 +279,9 @@ public abstract class InsightsPage(PageServices s) : PageModel
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
-        HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
+        /* A beta report is not warmed: the warm-up's viewer is given no preview. */
+        BetaReports = await Pages.HiddenReports.BetaAsync(S.Settings);
+        HiddenReports = Pages.HiddenReports.ForViewer(await Pages.HiddenReports.GetAsync(S.Settings), BetaReports, viewer);
         if (Pages.HiddenReports.IsOff(HiddenReports, Request.Path, viewer)) return;
         await S.Stamp.EnsureAsync();
         using (QueryCache.Use()) await BuildAsync();
@@ -388,6 +390,12 @@ END");
     /// <summary>The reports turned off in Admin › Reports shown, by path.</summary>
     public IReadOnlySet<string> HiddenReports { get; private set; } = new HashSet<string>();
 
+    /// <summary>The reports in beta (Admin › Reports shown), by key: the ones this viewer may open show a Beta badge.</summary>
+    public IReadOnlySet<string> BetaReports { get; private set; } = new HashSet<string>();
+
+    /// <summary>Whether this page is a beta report the viewer sees (its badge).</summary>
+    public bool IsBeta => BetaReports.Count > 0 && Nav.SectionsOf(Request.Path).Any(g => Pages.HiddenReports.Is(BetaReports, Nav.Key(g, g.Pages.First(p => string.Equals(p.Path, Request.Path.Value?.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)))));
+
     protected async Task<bool> PrepareAsync()
     {
         /* A section granted across the whole organization widens that section's own pages, and no others. */
@@ -397,11 +405,16 @@ END");
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         DataZone = CopilotInsights.Data.Zones.Label(CopilotInsights.Data.Zones.Resolve(null, await S.Settings.ReportingTimeZoneAsync()));
-        HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
+        var off = await Pages.HiddenReports.GetAsync(S.Settings);
+        BetaReports = await Pages.HiddenReports.BetaAsync(S.Settings);
+        /* A beta report is gone, as one turned off is, for anyone not given a preview of it. */
+        HiddenReports = Pages.HiddenReports.ForViewer(off, BetaReports, Viewer);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
         var turnedOff = !AdminOnly && Pages.HiddenReports.IsOff(HiddenReports, Request.Path, Viewer);
-        if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin › Reports shown.";
+        if (turnedOff && !Pages.HiddenReports.IsOff(off, Request.Path, Viewer))
+            Denied = "This report is not open to you. An administrator can give you a preview of it in Admin › Access.";
+        else if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin › Reports shown.";
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";

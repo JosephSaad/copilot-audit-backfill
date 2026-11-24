@@ -4857,6 +4857,34 @@ Assert-That ([int] $resCheck.SessionSums -eq 0 -and [int] $resCheck.SessionSumRo
 Assert-That ([int] $resCheck.Ends -eq 1) 'the setting DashResourceTotalsEnds names the last two days once the totals are built'
 
 # ---------------------------------------------------------------------------
+# 29. Beta reports and success stories (3.1.6): the role checks take Preview and Stories (widened, never narrowed), a
+#     Preview grant keeps its beta reports in Pages, a story's status is one of five, a story purged takes its sends with
+#     it, and the weekly report's two settings are installed.
+# ---------------------------------------------------------------------------
+Write-Host "`n29. Beta reports and success stories" -ForegroundColor Cyan
+Invoke-SqlText -Sql @"
+DELETE FROM dash.RoleGrant WHERE Principal = N'it-preview@contoso.com';
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, GrantedBy, Pages) VALUES (N'it-preview@contoso.com', 'User', 'Preview', N'it', N'/leadership/act');
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, GrantedBy) VALUES (N'it-preview@contoso.com', 'User', 'Stories', N'it');
+"@
+$pv = Invoke-SqlText -As Table -Sql "SELECT Role, Pages FROM dash.RoleGrant WHERE Principal = N'it-preview@contoso.com' ORDER BY Role;"
+Assert-That ($pv.Rows.Count -eq 2 -and [string] $pv.Rows[0].Pages -eq '/leadership/act') 'dash.RoleGrant takes a Preview grant with its beta reports, and the Stories role'
+Assert-That (Test-Refused "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, GrantedBy) VALUES (N'it-x@contoso.com', 'User', 'Persona', N'it');") 'a role the dashboard does not know is still refused'
+Assert-That (-not (Test-Refused "INSERT INTO dash.AccessProfile (Name, UpdatedBy) VALUES (N'it-stories', N'it'); INSERT INTO dash.AccessProfileRole (ProfileId, Role) SELECT ProfileId, 'Stories' FROM dash.AccessProfile WHERE Name = N'it-stories';")) 'an access profile can give the Stories role'
+$story = [int] (Invoke-SqlText -As Scalar -Sql @"
+INSERT INTO dash.SuccessStory (Quote, Upn, DisplayName, Unit, MayName) OUTPUT inserted.StoryId VALUES (N'It drafted the brief in minutes.', N'it-preview@contoso.com', N'IT Person', N'Finance', 1);
+"@)
+Assert-That ([string] (Invoke-SqlText -As Scalar -Sql "SELECT Status FROM dash.SuccessStory WHERE StoryId = $story;") -eq 'Entered') 'a new story is Entered, not ticked, not deleted'
+Assert-That (Test-Refused "UPDATE dash.SuccessStory SET Status = 'Maybe' WHERE StoryId = $story;") 'a story''s status is one of Entered, Approved, Sent, Declined and Withdrawn'
+Invoke-SqlText -Sql "UPDATE dash.SuccessStory SET Status = 'Sent' WHERE StoryId = $story; INSERT INTO dash.SuccessStorySend (StoryId, SentWeek) VALUES ($story, '2026-11-20');"
+Assert-That (Test-Refused "INSERT INTO dash.SuccessStorySend (StoryId, SentWeek) VALUES ($story, '2026-11-20');") 'a story is recorded sent once a week'
+Invoke-SqlText -Sql "DELETE FROM dash.SuccessStory WHERE StoryId = $story;"
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM dash.SuccessStorySend WHERE StoryId = $story;") -eq 0) 'purging a story removes its sends with it'
+$set = Invoke-SqlText -As Table -Sql "SELECT Name, Value FROM dash.Setting WHERE Name IN (N'StoriesPerReport', N'StoriesReminderTo') ORDER BY Name;"
+Assert-That ($set.Rows.Count -eq 2 -and [string] $set.Rows[0].Value -eq '3') 'StoriesPerReport (3) and StoriesReminderTo are installed'
+Invoke-SqlText -Sql "DELETE FROM dash.RoleGrant WHERE Principal = N'it-preview@contoso.com'; DELETE FROM dash.AccessProfile WHERE Name = N'it-stories';"
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

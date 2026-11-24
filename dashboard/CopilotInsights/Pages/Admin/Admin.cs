@@ -291,16 +291,21 @@ FROM w;")).Single();
 public sealed class ReportsModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Reports shown";
-    public override string Intro => "Turn a report off and it is gone for everyone, administrators too: from the navigation, from the start page, and at its address. Turn it back on here at any time. Nothing is deleted.";
+    public override string Intro => "Turn a report off and it is gone for everyone, administrators too: from the navigation, from the start page, and at its address. " +
+        "Mark one Beta and it is shown only to administrators and to the people given a preview of it in Admin › Access. Change either here at any time. Nothing is deleted.";
 
     protected override async Task BuildAsync()
     {
         ShowDone();
-        var hidden = HiddenReports;
+        /* The page's own HiddenReports leaves out the beta reports for a viewer without a preview; this page shows the settings. */
+        var hidden = await CopilotInsights.Pages.HiddenReports.GetAsync(S.Settings);
+        var beta = BetaReports;
         var all = CopilotInsights.Pages.HiddenReports.Choices.ToList();
         var total = all.Sum(g => g.Pages.Count);
         var off = all.Sum(g => g.Pages.Count(p => CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path)));
-        Kpis.Add(new("Reports shown", Num(total - off), $"of {total:#,0}"));
+        var inBeta = all.Sum(g => g.Pages.Count(p => !CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path) && CopilotInsights.Pages.HiddenReports.Is(beta, p.Path)));
+        Kpis.Add(new("Reports shown", Num(total - off - inBeta), $"of {total:#,0}"));
+        Kpis.Add(new("Beta", Num(inBeta), inBeta == 0 ? "none in beta" : "administrators and previews only", inBeta > 0 ? "warn" : null));
         Kpis.Add(new("Turned off", Num(off), off == 0 ? "every report is shown" : "gone for everyone", off > 0 ? "warn" : null));
 
         var cards = string.Concat(all.Select(g =>
@@ -308,38 +313,57 @@ public sealed class ReportsModel(PageServices s) : AdminPage(s)
             $"<label class=\"all\"><input type=\"checkbox\" data-all{(g.Pages.All(p => !CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path)) ? " checked" : "")}/> All of {E(g.Persona)}</label><ul>" +
             string.Concat(g.Pages.Select(p =>
                 $"<li><label><input type=\"checkbox\" name=\"show\" value=\"{E(p.Path)}\"{(CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path) ? "" : " checked")}/> {E(p.Title)}" +
-                (p.Role is null ? "" : $" <span class=\"sub\">{E(p.Role)} role</span>") + "</label></li>")) +
+                (p.Role is null ? "" : $" <span class=\"sub\">{E(p.Role)} role</span>") + "</label>" +
+                $" <label class=\"sub\" title=\"{E($"Beta: {p.Title} is shown only to administrators and to the people given a preview of it")}\"><input type=\"checkbox\" name=\"beta\" value=\"{E(p.Path)}\"" +
+                $"{(CopilotInsights.Pages.HiddenReports.Is(beta, p.Path) ? " checked" : "")}/> Beta</label></li>")) +
             "</ul></div>"));
         Panels.Add(new("Reports", new HtmlString(
-            "<p class=\"sub\">A ticked report is shown to the people who may open it; its roles and levels still apply. Untick a report to turn it off for everyone.</p>" +
+            "<p class=\"sub\">A ticked report is shown to the people who may open it; its roles and levels still apply. Untick a report to turn it off for everyone. " +
+            "Tick Beta as well to show it only to administrators and to the people given a preview of it (Admin › Access, Beta reports they preview).</p>" +
             Form("save", $"<div class=\"cards\">{cards}</div><p>{Button("Save")}</p>")),
             "A report that is turned off is not found at its address, and its exports and forms are refused. Links to it from other reports stop working, so turn off a detail page (Agent detail, App detail, Person record) together with the lists that open it. " +
+            "A beta report is the same for anyone not given a preview of it, and shows a Beta badge to those who are: their sections, scope, named lists, minimum group size and privacy mode still apply. " +
+            "The morning pre-cache leaves beta reports out. Untick Beta to show the report to everyone with its section; the previews granted for it then do nothing. " +
             "Scheduled digests, extracts, the board pack and the data API are set on their own pages and are not changed here. Admin pages cannot be turned off.", "full"));
     }
 
-    public Task<IActionResult> OnPostSaveAsync(string[] show) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSaveAsync(string[] show, string[]? beta) => AdminChangeAsync(async () =>
     {
         var shown = new HashSet<string>(show ?? [], StringComparer.OrdinalIgnoreCase);
+        var betaNow = new HashSet<string>(beta ?? [], StringComparer.OrdinalIgnoreCase);
         var pages = CopilotInsights.Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
         var before = await CopilotInsights.Pages.HiddenReports.GetAsync(S.Settings);
+        var betaBefore = await CopilotInsights.Pages.HiddenReports.BetaAsync(S.Settings);
         var by = Viewer.Upn ?? Viewer.WindowsName;
-        var off = new List<string>(); var on = new List<string>();
-        foreach (var p in pages)
+        var off = new List<string>(); var on = new List<string>(); var toBeta = new List<string>(); var fromBeta = new List<string>();
+        async Task SetAsync(string name, bool value, string description)
         {
-            var hide = !shown.Contains(p.Path);
-            if (hide == CopilotInsights.Pages.HiddenReports.Is(before, p.Path)) continue;
-            (hide ? off : on).Add(p.Title);
-            var name = CopilotInsights.Pages.HiddenReports.Prefix + p.Path;
-            if (hide)
+            if (value)
                 await Db.ExecuteAsync(@"
 UPDATE dash.Setting SET Value = N'1', UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @name;
-IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (@name, N'1', N'This report is turned off (Admin › Reports shown).', @by);", new { name, by });
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (@name, N'1', @description, @by);", new { name, by, description });
             else
                 await Db.ExecuteAsync("DELETE FROM dash.Setting WHERE Name = @name;", new { name });
         }
+        foreach (var p in pages)
+        {
+            var hide = !shown.Contains(p.Path);
+            if (hide != CopilotInsights.Pages.HiddenReports.Is(before, p.Path))
+            {
+                (hide ? off : on).Add(p.Title);
+                await SetAsync(CopilotInsights.Pages.HiddenReports.Prefix + p.Path, hide, "This report is turned off (Admin › Reports shown).");
+            }
+            var isBeta = betaNow.Contains(p.Path);
+            if (isBeta != CopilotInsights.Pages.HiddenReports.Is(betaBefore, p.Path))
+            {
+                (isBeta ? toBeta : fromBeta).Add(p.Title);
+                await SetAsync(CopilotInsights.Pages.HiddenReports.BetaPrefix + p.Path, isBeta, "This report is in beta: administrators and the people given a preview of it (Admin › Reports shown).");
+            }
+        }
         S.Settings.Invalidate();
-        if (off.Count == 0 && on.Count == 0) return "The reports shown are unchanged.";
-        return "Reports shown changed." + (off.Count > 0 ? $" Turned off: {string.Join(", ", off)}." : "") + (on.Count > 0 ? $" Turned on: {string.Join(", ", on)}." : "");
+        if (off.Count + on.Count + toBeta.Count + fromBeta.Count == 0) return "The reports shown are unchanged.";
+        return "Reports shown changed." + (off.Count > 0 ? $" Turned off: {string.Join(", ", off)}." : "") + (on.Count > 0 ? $" Turned on: {string.Join(", ", on)}." : "") +
+               (toBeta.Count > 0 ? $" Now beta: {string.Join(", ", toBeta)}." : "") + (fromBeta.Count > 0 ? $" Out of beta, shown to everyone with its section: {string.Join(", ", fromBeta)}." : "");
     });
 }
 
@@ -448,7 +472,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
         /* Sections are ticked in their own step; the roles left are Organization, Admin and the Workbench's work roles. A
            persona role granted before is kept and listed, and no longer offered: a section with named people gives it. */
-        var offered = Roles.All.Where(r => r == Roles.Organization || (r == Roles.Admin && Viewer.IsAdmin) || (workbenchOn && Roles.IsWorkbench(r))).ToList();
+        var offered = Roles.All.Where(r => r == Roles.Organization || r == Roles.Stories || (r == Roles.Admin && Viewer.IsAdmin) || (workbenchOn && Roles.IsWorkbench(r))).ToList();
         var pagePicker = !Viewer.IsAdmin || !hasPages ? "" :
             "<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
             string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"/> {E(ap.Title)}</label>")) + "</fieldset>";
@@ -461,6 +485,8 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "SELECT GrantId, Principal, PrincipalType, Role, Note, GrantedBy, GrantedUtc, PrincipalName, OrgWide, Sections, NamedPeople FROM dash.RoleGrant WHERE Principal = @edit AND Role = 'Sections';",
             new { edit })).FirstOrDefault();
         var ticked = new HashSet<string>(Sections.Parse(editing?.Sections), StringComparer.OrdinalIgnoreCase);
+        /* Their Preview grant, ticked again when their grant is opened to change. */
+        var editPreview = string.IsNullOrEmpty(edit) || !hasPages ? null : await Db.ScalarAsync<string?>("SELECT Pages FROM dash.RoleGrant WHERE Principal = @edit AND Role = Preview;", new { edit });
         if (Request.Query["section"].FirstOrDefault() is { } pre && Sections.Find(pre) is { } preset) ticked.Add(preset.Key);
         var profiles = await Db.QueryAsync<(int Id, string Name)>("IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL SELECT ProfileId, Name FROM dash.AccessProfile ORDER BY Name;");
         var step = 0;
@@ -474,6 +500,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             (has31 ? Step("Sections they see", "section", SectionPicker.Boxes(ticked, workbenchOn)) +
                      Step("How much of the organization", "orgWide", SectionPicker.Scope(editing?.OrgWide == true)) +
                      Step("Lists that name people", "named", SectionPicker.Named(editing?.NamedPeople == true)) : "") +
+            (BetaReports.Count == 0 || !hasPages ? "" : Step("Beta reports they preview (optional)", "previewPage", PreviewBoxes(editPreview))) +
             Step("Other roles (optional)", "role", "<fieldset class=\"roles\"><legend>Roles</legend>" +
                 string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}{((HtmlString)InfoTip.Icon(Roles.Describe[r], r)).Value}</label>")) + "</fieldset>" + pagePicker) +
             "<div class=\"row\">" + Input("note", "Why (optional)", editing?.Note, 30) + Button(editing is null ? "Grant access" : "Save the change") + "</div>";
@@ -527,6 +554,7 @@ WHERE g.Principal IN @list;", new { list });
                     $" <a class=\"btn quiet\" href=\"{E(Request.Path + "?edit=" + Uri.EscapeDataString(g.Principal))}#grant\" title=\"{E($"Change the sections of {g.Principal}")}\">Change</a>"
                   : g.OrgWide ? " <small>(whole organization)</small>" : "") +
                 (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $" <small>({E(AdminPages.Names(g.Pages))})</small>" : "") +
+                (g.Role == Roles.Preview ? $" <small>({E(CopilotInsights.Pages.HiddenReports.Titles(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Admin && !Viewer.IsAdmin ? "" :
                     Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}"))) + "</span>")) +
                 "<span class=\"grant all\">" + Form("revokeall", Hidden("principal", principal) +
@@ -817,7 +845,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
     });
 
     public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note, bool orgWide = false, string? entraGroup = null,
-        string[]? section = null, bool named = false, string? profile = null) => AdminChangeAsync(async () =>
+        string[]? section = null, bool named = false, string? profile = null, string[]? previewPage = null) => AdminChangeAsync(async () =>
     {
         /* An Entra group chosen in its own box is the grant's group, whatever else was typed. */
         if (!string.IsNullOrWhiteSpace(entraGroup)) (principal, type) = (entraGroup, "Group");
@@ -826,10 +854,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
         var workbenchOn = HttpContext.RequestServices.GetRequiredService<global::Governance.Web.Infrastructure.WorkbenchState>().On;
         /* Sections are their own grant; Sections and Restricted are never ticked as roles. */
-        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && r != Roles.Sections && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
+        /* Preview is its own step (the beta reports ticked), never ticked as a role. */
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r) && r != Roles.Sections && r != Roles.Preview && (workbenchOn || !Roles.IsWorkbench(r))).Distinct().ToList();
         var sections = Sections.Format((section ?? []).Where(k => workbenchOn || Sections.Find(k)?.Workbench != true));
         int? profileId = int.TryParse(profile, out var pid) ? pid : null;
-        if (roles.Count == 0 && sections is null && profileId is null) throw new ArgumentException("tick at least one section or role, or choose a profile.");
+        var preview = CopilotInsights.Pages.HiddenReports.FormatKeys(previewPage, await CopilotInsights.Pages.HiddenReports.BetaAsync(S.Settings));
+        if (roles.Count == 0 && sections is null && profileId is null && preview is null) throw new ArgumentException("tick at least one section, role or beta report, or choose a profile.");
         if (sections is not null && !await HasSectionsAsync()) throw new ArgumentException("granting sections needs the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         var (objectId, groupName) = type == "Group" && !principal.Contains('\\') ? await EntraGroupAsync(principal) : ((Guid?)null, (string?)null);
@@ -906,6 +936,30 @@ WHERE Principal = @principal AND Role = 'Sections';", new { principal, sections,
             }
         }
 
+        /* The beta reports they preview: one Preview grant a person or group, its reports replaced when granted again. */
+        var previewSaid = "";
+        if (preview is not null)
+        {
+            if (!await HasPagesAsync()) throw new ArgumentException("a preview needs the 2.6.4 schema: run Create-CopilotDashboardSchema.sql again.");
+            var was = (await Db.QueryAsync<string?>("SELECT Pages FROM dash.RoleGrant WHERE Principal = @principal AND Role = 'Preview';", new { principal })).ToList();
+            if (was.Count == 0)
+            {
+                await Db.ExecuteAsync(has28 ? @"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, PrincipalObjectId, PrincipalName, Pages)
+VALUES (@principal, @type, 'Preview', @note, @by, @objectId, @groupName, @preview);" : @"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, Pages) VALUES (@principal, @type, 'Preview', @note, @by, @preview);",
+                    new { principal, type, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by, objectId, groupName, preview });
+                previewSaid = $" Granted a preview of {CopilotInsights.Pages.HiddenReports.Titles(preview)} to {who}.";
+            }
+            else if (was[0] == preview) previewSaid = $" {who} already had a preview of {CopilotInsights.Pages.HiddenReports.Titles(preview)}.";
+            else
+            {
+                await Db.ExecuteAsync("UPDATE dash.RoleGrant SET Pages = @preview, GrantedBy = @by, GrantedUtc = SYSUTCDATETIME() WHERE Principal = @principal AND Role = 'Preview';",
+                    new { principal, preview, by });
+                previewSaid = $" {who}'s preview was of {CopilotInsights.Pages.HiddenReports.Titles(was[0])}; it is now of {CopilotInsights.Pages.HiddenReports.Titles(preview)}.";
+            }
+        }
+
         /* A profile chosen in step 2: granted as Admin › Access profiles grants it. */
         var profileSaid = "";
         if (profileId is { } pr)
@@ -926,7 +980,7 @@ IF NOT EXISTS (SELECT 1 FROM dash.ProfileGrant WHERE Principal = @principal AND 
                     (wideAdded.Count > 0 ? $", {string.Join(", ", wideAdded)} across the whole organization" : "") +
                     (added.Contains(Roles.Admin) && pages is not null ? $", with Admin limited to: {AdminPages.Names(pages)}." : ".") : "")
              + (widened.Count > 0 ? $" {who}: {string.Join("; ", widened)}." : "")
-             + (had.Count > 0 ? $" {who} already had {string.Join(", ", had)}." : "") + changed + sectionsSaid + profileSaid).Trim();
+             + (had.Count > 0 ? $" {who} already had {string.Join(", ", had)}." : "") + changed + sectionsSaid + previewSaid + profileSaid).Trim();
     });
 
     /// <summary>Whether this database has 2.8.0's grant columns (the whole organization, Entra groups).</summary>
@@ -938,6 +992,20 @@ IF NOT EXISTS (SELECT 1 FROM dash.ProfileGrant WHERE Principal = @principal AND 
         if (!await PrepareAsync() || !Viewer.CanAdmin(Request.Path)) return StatusCode(403);
         var groups = await HttpContext.RequestServices.GetRequiredService<EntraGraph>().FindGroupsAsync(q ?? "");
         return new JsonResult(groups.Select(g => new { value = EntraPrincipal.Of(g.Id), label = g.Name }));
+    }
+
+    /// <summary>
+    /// The grant form's beta reports (Admin › Reports shown), one box each, ticked from <paramref name="stored"/>: the
+    /// Preview grant. A report out of beta is not offered; one ticked before stays in the grant and does nothing.
+    /// </summary>
+    string PreviewBoxes(string? stored)
+    {
+        var mine = new HashSet<string>(CopilotInsights.Pages.HiddenReports.ParseKeys(stored), StringComparer.OrdinalIgnoreCase);
+        var pages = CopilotInsights.Pages.HiddenReports.Choices.SelectMany(g => g.Pages.Select(p => (g.Persona, p.Title, p.Path)))
+            .Where(x => CopilotInsights.Pages.HiddenReports.Is(BetaReports, x.Path)).DistinctBy(x => x.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        return "<fieldset class=\"roles\"><legend>Beta reports (none ticked: no preview)</legend>" +
+            string.Concat(pages.Select(x => $"<label><input type=\"checkbox\" name=\"previewPage\" value=\"{E(x.Path)}\"{(mine.Contains(x.Path) ? " checked" : "")}/> {E(x.Persona)} › {E(x.Title)}</label>")) +
+            "</fieldset><p class=\"sub\">A preview opens a beta report inside the sections they see already, as those sections show it. Granting a preview again replaces the reports ticked.</p>";
     }
 
     /// <summary>The grant form's box for an Entra group: its name, searched in Graph from the second letter.</summary>
