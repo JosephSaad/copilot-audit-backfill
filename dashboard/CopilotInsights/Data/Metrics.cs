@@ -79,32 +79,30 @@ ends AS (SELECT Bucket, MAX(DateKey) AS EndKey FROM b GROUP BY Bucket),
 per AS (SELECT pp.* FROM {c.PerPoint()} AS pp {c.Scope("pp.UserKey")}),
 /* Who holds a license at the end of each point: the licenses of those days alone, met on the point and the person,
    so they can be matched to the people in one pass rather than looked up a person at a time. */
-held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey),
+held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")}),
 /* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
-/* People are accounts enabled today (3.1.3); the sums below still count everyone's use. */
-people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 THEN 1 END) AS Active,
-                  COUNT(CASE WHEN per.LicensedUse > 0 AND le.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
-                  COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 THEN 1 END) AS ActiveUnlicensed
-           FROM per {ReportContext.EnabledJoin("per.UserKey")}
+/* People are accounts enabled today (3.1.3); the sums still count everyone's use. Both in one pass over the points. */
+people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
+                  COUNT(CASE WHEN per.LicensedUse > 0 AND le.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
+                  COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveUnlicensed,
+                  SUM(CAST(per.Interactions AS BIGINT)) AS Interactions, SUM(CAST(per.Prompts AS BIGINT)) AS Prompts,
+                  SUM(CAST(per.Sessions AS BIGINT)) AS Sessions, SUM(CAST(per.MultiTurnSessions AS BIGINT)) AS MultiTurn,
+                  SUM(CAST(per.ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(per.AgentInteractions AS BIGINT)) AS Agent,
+                  SUM(CAST(per.WebGrounded AS BIGINT)) AS Web, SUM(CAST(per.Jailbreak AS BIGINT)) AS Jailbreak,
+                  SUM(CAST(per.PromptInjection AS BIGINT)) AS Injection, SUM(CAST(per.BlockedResource AS BIGINT)) AS Blocked,
+                  SUM(CAST(per.LabeledContent AS BIGINT)) AS Labeled
+           FROM per {ReportContext.EnabledJoin("per.UserKey", left: true)}
            LEFT JOIN held AS le ON le.Bucket = per.Bucket AND le.UserKey = per.UserKey
            GROUP BY per.Bucket),
-sums AS (SELECT Bucket, SUM(CAST(Interactions AS BIGINT)) AS Interactions, SUM(CAST(Prompts AS BIGINT)) AS Prompts,
-                SUM(CAST(Sessions AS BIGINT)) AS Sessions, SUM(CAST(MultiTurnSessions AS BIGINT)) AS MultiTurn,
-                SUM(CAST(ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(AgentInteractions AS BIGINT)) AS Agent,
-                SUM(CAST(WebGrounded AS BIGINT)) AS Web, SUM(CAST(Jailbreak AS BIGINT)) AS Jailbreak,
-                SUM(CAST(PromptInjection AS BIGINT)) AS Injection, SUM(CAST(BlockedResource AS BIGINT)) AS Blocked,
-                SUM(CAST(LabeledContent AS BIGINT)) AS Labeled
-         FROM per GROUP BY Bucket),
 lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket)
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
-       ISNULL(s.Interactions, 0) AS Interactions, ISNULL(s.Prompts, 0) AS Prompts, ISNULL(s.Sessions, 0) AS Sessions,
-       ISNULL(s.MultiTurn, 0) AS MultiTurn, ISNULL(s.Chat, 0) AS Chat, ISNULL(s.Agent, 0) AS Agent, ISNULL(s.Web, 0) AS Web,
-       ISNULL(s.Jailbreak, 0) AS Jailbreak, ISNULL(s.Injection, 0) AS Injection, ISNULL(s.Blocked, 0) AS Blocked,
-       ISNULL(s.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed
+       ISNULL(p.Interactions, 0) AS Interactions, ISNULL(p.Prompts, 0) AS Prompts, ISNULL(p.Sessions, 0) AS Sessions,
+       ISNULL(p.MultiTurn, 0) AS MultiTurn, ISNULL(p.Chat, 0) AS Chat, ISNULL(p.Agent, 0) AS Agent, ISNULL(p.Web, 0) AS Web,
+       ISNULL(p.Jailbreak, 0) AS Jailbreak, ISNULL(p.Injection, 0) AS Injection, ISNULL(p.Blocked, 0) AS Blocked,
+       ISNULL(p.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed
 FROM ends AS e
 LEFT JOIN people AS p ON p.Bucket = e.Bucket
-LEFT JOIN sums AS s ON s.Bucket = e.Bucket
 LEFT JOIN lic AS l ON l.Bucket = e.Bucket
 ORDER BY e.Bucket;", c.Args());
         /* One row per trend point, in order, even where nothing happened. */
@@ -278,7 +276,8 @@ ORDER BY {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN 1 ELS
         var parent = c.Root ?? c.OrgTopUpn;
         return await db.QueryAsync<(string, DateTime, int)>($@"
 {UnitMembersInto(c, parent is not null)}
-SELECT u.Unit, pp.Bucket, COUNT(DISTINCT CASE WHEN pp.Interactions > 0 THEN pp.UserKey END)
+/* A member is in one unit once, and has one row a point, so the active rows are the active people: no distinct count. */
+SELECT u.Unit, pp.Bucket, COUNT(CASE WHEN pp.Interactions > 0 THEN 1 END)
 FROM #u AS u JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey
 WHERE u.AccountEnabled = 1
 GROUP BY u.Unit, pp.Bucket;", c.Args(new { parent }));
