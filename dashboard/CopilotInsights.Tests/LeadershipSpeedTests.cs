@@ -1,0 +1,66 @@
+using Xunit;
+
+namespace CopilotInsights.Tests;
+
+/// <summary>The Leadership pages' reads: the same figures from less work.</summary>
+public class LeadershipSpeedTests
+{
+    static string Root()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(d.FullName, "CHANGELOG.md"))) d = d.Parent!;
+        return d.FullName;
+    }
+
+    static string Read(params string[] p) => File.ReadAllText(Path.Combine([Root(), "dashboard", "CopilotInsights", .. p])).Replace("\r\n", "\n");
+
+    [Fact]
+    public void Units_meet_their_members_by_hash_and_name_the_managers_after_counting()
+    {
+        var m = Read("Data", "Metrics.cs");
+        Assert.DoesNotContain("INTO #u", m);   // no temporary table: no compile on every visit
+        Assert.Contains("var join = hash ? \"LEFT HASH JOIN\" : \"LEFT JOIN\";", m);   // by hash over the period totals; a parallel plan otherwise
+        Assert.Contains("{join} act AS a ON a.UserKey = u.UserKey", m);
+        Assert.Contains("USE HINT('ENABLE_PARALLEL_PLAN_PREFERENCE')", m);
+        Assert.Contains("FROM u INNER HASH JOIN {c.PerPoint()} AS pp ON pp.UserKey = u.UserKey", m);
+        Assert.Contains("LEFT JOIN dash.Person AS mp ON mp.Upn = g.Unit", m);
+        /* The members with a key and an account on the closure come from its part index alone. */
+        Assert.Contains("WHERE oc.DescendantEnabled IS NOT NULL AND oc.DescendantKey IS NOT NULL\n      UNION ALL", m);
+        Assert.Contains("WHERE oc.DescendantEnabled IS NULL OR oc.DescendantKey IS NULL) AS m", m);
+    }
+
+    [Fact]
+    public void Pages_that_chart_only_use_read_no_license_days()
+    {
+        Assert.Contains("var trTask = m.SumsTrendAsync(Ctx);", Read("Pages", "Leadership", "Leadership.cs"));
+        Assert.Contains("var rpTask = full ? metrics.SumsTrendAsync(prev) : null;", Read("Pages", "Leadership", "BoardPack.cs"));
+        Assert.Contains("metrics.PeriodSumsAsync(Ctx)", Read("Pages", "Leadership", "ActOn.cs"));
+        var m = Read("Data", "Metrics.cs");
+        var sums = m[m.IndexOf("public async Task<List<TrendRow>> SumsTrendAsync", StringComparison.Ordinal)..m.IndexOf("public const int AdoptionDays", StringComparison.Ordinal)];
+        Assert.DoesNotContain("FactLicensedDay", sums);
+        Assert.DoesNotContain("EnabledJoin", sums);   // use is everyone's
+    }
+
+    [Fact]
+    public void The_period_before_is_summed_from_its_weeks_and_the_trend_sums_apart_from_its_people()
+    {
+        var rc = Read("Infrastructure", "ReportContext.Leadership.cs");
+        Assert.Contains("public bool WeeksAnswer => Rollups && !RolledDays.Contains(Choice) && Days > 30;", rc);
+        Assert.Contains("uw.WeekEnding < {Day(\"@k7\")}", rc);   // the last 7 days always come from the days
+        Assert.Contains("(d.WeekEnding >= {Day(\"@k7\")} OR d.WeekEnding IN {cut})", rc);
+        var m = Read("Data", "Metrics.cs");
+        Assert.Contains("static string PerPersonOf(ReportContext c) => c.WeeksAnswer ? c.PerPersonFromWeeks() : c.PerPerson();", m);
+        Assert.Contains("{(c.WeeksAnswer ? \"p.Last7\" : \"CASE WHEN p.LastActiveKey >= @k7 THEN 1 ELSE 0 END\")} AS Last7", m);
+        Assert.Contains("LEFT JOIN sums AS su ON su.Bucket = e.Bucket", m);
+    }
+
+    [Fact]
+    public void Overview_counts_the_adopted_with_the_license_holders()
+    {
+        var m = Read("Data", "Metrics.cs");
+        Assert.Contains("var adopted = withAdopted && c.Rollups;", m);
+        Assert.Contains("h.AdoptedEnabled AS Adopted", m);
+        Assert.Contains("LEFT JOIN dash.AdoptionDay AS ad ON ad.DateKey = e.EndKey AND ad.UserKey = ld.UserKey", m);
+        Assert.Contains("tr.ToDictionary(w => w.Bucket, w => w.Adopted ?? 0)", Read("Pages", "Leadership", "Leadership.cs"));
+    }
+}

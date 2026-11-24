@@ -42,9 +42,9 @@ public class Release273Tests
     public void Slow_pages_read_their_independent_sources_together()
     {
         var act = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "ActOn.cs");
-        Assert.Contains("await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, trendTask }.OfType<Task>());", act);
+        Assert.Contains("await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, signalsTask }.OfType<Task>());", act);
         var lead = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Leadership.cs");
-        Assert.Contains("await Task.WhenAll(totalsTask, trendTask, adoptedTask, unitsTask);", lead);
+        Assert.Contains("await Task.WhenAll(new Task?[] { totalsTask, trendTask, adoptedTask, unitsTask }.OfType<Task>());", lead);
         Assert.Contains("await Task.WhenAll(unitsTask, trendTask);", lead);
         /* The swap list's figures come from the same read as its pairs, not a second pass over both sides. */
         var swap = Read("dashboard", "CopilotInsights", "Pages", "Licensing", "Swap.cs");
