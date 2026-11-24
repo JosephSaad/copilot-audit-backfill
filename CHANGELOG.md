@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.7] - 2026-11-24
+
+Copilot licenses assigned and removed through a group are counted. Where Copilot is assigned through a group
+(group-based licensing), the audit log records no Copilot license change, so License inventory showed 0 assigned and
+0 removed, and License changes listed none, however many licenses changed. They are now counted from the nightly
+license lookup as well.
+
+**Install over 3.1.6** (from 3.1.4 or 3.1.5, do their steps as well):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds two tables and updates `bi.usp_RefreshBi`; nothing is
+   removed. Its bi refresh counts the assignments at once.
+3. The dashboard has no change in this release: a server on 3.1.6 keeps its dashboard.
+
+A server that ran `Fix-CopilotLicenseChanges-3.1.6.sql` (attached to 3.1.6) has this already; installing 3.1.7 over it
+is fine.
+
+### Fixed
+
+- **Assigned and removed were 0 when Copilot is assigned through a group.** The license-event load reads the audit
+  log's license changes, and a license a group assigns or takes away leaves none there. `bi.FactLicenseChange` now
+  also counts, where no audit record has the change:
+  - **an assignment** on each holder's licensed-since date from the nightly license lookup (`LicensedSinceUtc`),
+    back as far as those dates go, where the person has no Copilot license change in the audit log from the day
+    before it on;
+  - **a removal** for each license the lookup no longer finds, compared with the holders at the refresh before
+    (`audit.CopilotLicenseHolder`, `audit.CopilotLicenseRemoval`); the license's licensed-since date stays counted as
+    its assignment.
+
+  They are marked `RecordId` `lookup:…` and `ChangedBy` `(license lookup)`, which License changes shows as who made
+  them.
+
+### Known limits
+
+- **Removals count from the first refresh after the install.** Nothing recorded the licenses a group took away before,
+  so the periods before it show none.
+- **A removal is dated by the lookup that saw it,** not the minute it happened: it went between that night's lookup and
+  the one before.
+- **A lookup that fails is not a mass removal**: when it finds under 85% of the holders of the refresh before (100 or
+  more), no removal is recorded that night and a warning is in the refresh's messages. A real cut of more than 15% in
+  one night is recorded the next night after it, once the holders are taken from a lookup that worked.
+- **Licensed since is when the current assignment began.** A license re-processed by Entra (a group change, a license
+  moved between groups) can start a new licensed-since date, counted as an assignment that day.
+- **The licensed-days trend is unchanged**: it already came from the lookup. A license removed before 3.1.7 still
+  leaves the history thinking it was never held.
+- **Tested** with the SQL integration test (an assignment from licensed-since, a removal recorded once, the assignment
+  kept, nothing counted twice), and on a fresh 3.1.6 install with the 3.1.6 fix script run as SSMS runs it; not on the
+  client's data.
 ## [3.1.6] - 2026-11-24
 
 Beta reports and success stories. An administrator can put a report in beta, so only administrators and the people

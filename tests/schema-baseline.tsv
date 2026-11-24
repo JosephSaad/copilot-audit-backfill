@@ -1,4 +1,4 @@
-# release 3.1.6
+# release 3.1.7
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -164,6 +164,15 @@ C	copilot	audit.CopilotLicense	U	6	EntraAccountEnabled	bit	1
 C	copilot	audit.CopilotLicense	U	7	EmployeeHireDate	date	1	
 C	copilot	audit.CopilotLicense	U	8	EmployeeLeaveUtc	datetime2(0)	1	
 C	copilot	audit.CopilotLicense	U	9	UserType	nvarchar(20)	1	
+C	copilot	audit.CopilotLicenseHolder	U	1	Upn	nvarchar(512)	0	
+C	copilot	audit.CopilotLicenseHolder	U	2	Sku	nvarchar(100)	0	
+C	copilot	audit.CopilotLicenseHolder	U	3	SinceUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLicenseRemoval	U	1	RemovalId	int	0	I
+C	copilot	audit.CopilotLicenseRemoval	U	2	Upn	nvarchar(512)	0	
+C	copilot	audit.CopilotLicenseRemoval	U	3	Sku	nvarchar(100)	0	
+C	copilot	audit.CopilotLicenseRemoval	U	4	RemovedUtc	datetime2(0)	0	
+C	copilot	audit.CopilotLicenseRemoval	U	5	HeldSinceUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLicenseRemoval	U	6	RecordedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotLoad	U	1	LoadId	int	0	I
 C	copilot	audit.CopilotLoad	U	10	RowsAlreadyLoaded	bigint	1	
 C	copilot	audit.CopilotLoad	U	11	DerivedRefreshedUtc	datetime2(0)	1	
@@ -2128,6 +2137,8 @@ O	copilot	audit.CopilotCsvReject	U
 O	copilot	audit.CopilotCsvStage	U
 O	copilot	audit.CopilotInteraction	U
 O	copilot	audit.CopilotLicense	U
+O	copilot	audit.CopilotLicenseHolder	U
+O	copilot	audit.CopilotLicenseRemoval	U
 O	copilot	audit.CopilotLoad	U
 O	copilot	audit.CopilotLoadStage	U
 O	copilot	audit.CopilotLoadWindow	U
