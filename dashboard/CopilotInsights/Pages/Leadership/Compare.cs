@@ -45,8 +45,8 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return;
         if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) { Notice = "Choose two different managers: both boxes name the same one."; return; }
 
-        var first = await SideAsync(a);
-        var second = await SideAsync(b);
+        /* The two teams, and each one's totals and trend, are read side by side, each read on its own connection. */
+        var (first, second) = await Queries(SideAsync(a), SideAsync(b));
         if (first.Refusal is not null || second.Refusal is not null)
         {
             Notice = string.Join(" ", new[] { first.Refusal, second.Refusal }.Where(r => r is not null));
@@ -101,8 +101,7 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
             $"Each team's interactions at each point divided by all its enabled people, whether they used Copilot or not. Interactions include use by people since disabled. {TrendNote}", "half"));
 
         /* Where each team uses Copilot: each app's share of the team's interactions, the busiest apps of the two together. */
-        var appsA = await AppsAsync(A.Ctx);
-        var appsB = await AppsAsync(B.Ctx);
+        var (appsA, appsB) = await Queries(AppsAsync(A.Ctx), AppsAsync(B.Ctx));
         var names = appsA.Keys.Union(appsB.Keys, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(n => appsA.GetValueOrDefault(n) + appsB.GetValueOrDefault(n)).Take(8).ToList();
         if (names.Count > 0)
@@ -140,13 +139,14 @@ SELECT TOP (2) p.Upn FROM dash.Person AS p {Ctx.PersonScope("p.Upn")} WHERE p.Di
                 OrgRefusal.Outside => $"{asked} is not in your part of the organization, so that team is not shown.",
                 _ => $"No one in the organization directory has the name or sign-in {asked}. Choose a manager from the list.",
             });
-        return (new Side(upn, c.RootName ?? upn, c, await m.TotalsAsync(c), await m.TrendAsync(c)), null);
+        var (t, trend) = await Queries(m.TotalsAsync(c), m.TrendAsync(c));
+        return (new Side(upn, c.RootName ?? upn, c, t, trend), null);
     }
 
     async Task<Dictionary<string, long>> AppsAsync(ReportContext c) =>
         (await Db.QueryAsync<(string App, long N)>($@"
-WITH g AS (SELECT f.AppKey, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f {c.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey)   -- 2.7.4: counted per key, then named
+WITH g AS (SELECT it.Item AS AppKey, SUM(CAST(it.Interactions AS BIGINT)) AS N FROM {c.PerItem('A')} AS it {c.Scope("it.UserKey")}
+           GROUP BY it.Item)   -- 2.7.4: counted per key, then named; each person's use of each app from the nightly totals
 SELECT COALESCE(vn.Name, a.App), SUM(g.N)
 FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name
