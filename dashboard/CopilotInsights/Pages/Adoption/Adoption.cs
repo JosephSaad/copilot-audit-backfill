@@ -5,6 +5,29 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Adoption;
 
+/// <summary>
+/// Whether a person has ever used Copilot, and their first day: dash.UserActivity's, kept by the nightly refresh, one row
+/// a person. Before the refresh has built it, read from each person's days in dash.UserDay, as it always was: the same
+/// answer either way. Read from the days, it took 2 to 3 seconds a page at 210,000 people and two years.
+/// </summary>
+static class FirstUse
+{
+    /// <summary>SQL: the person with this key has used Copilot at least once, on any day.</summary>
+    public static string Ever(ReportContext c, string userKey) => c.Rollups
+        ? $"EXISTS (SELECT 1 FROM dash.UserActivity AS ua WHERE ua.UserKey = {userKey} AND ua.FirstActiveKey IS NOT NULL)"
+        : $"EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = {userKey} AND ud.Interactions > 0)";
+
+    /// <summary>SQL: the person's first day of use (a date key), or NULL for none.</summary>
+    public static string Key(ReportContext c, string userKey) => c.Rollups
+        ? $"(SELECT ua.FirstActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = {userKey})"
+        : $"(SELECT MIN(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = {userKey} AND ud.Interactions > 0)";
+
+    /// <summary>SQL: everyone in scope who has used Copilot, with their first day: UserKey, FirstKey.</summary>
+    public static string People(ReportContext c) => c.Rollups
+        ? $"SELECT ua.UserKey, ua.FirstActiveKey AS FirstKey FROM dash.UserActivity AS ua {c.Scope("ua.UserKey")} WHERE ua.FirstActiveKey IS NOT NULL"
+        : $"SELECT ud.UserKey, MIN(ud.DateKey) AS FirstKey FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0 GROUP BY ud.UserKey";
+}
+
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Funnel and trend";
@@ -13,12 +36,18 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendAsync(Ctx);
-        var started = await Db.ScalarAsync<int>($@"
+        /* The five reads are independent: started together, each on its own connection, where they ran one after another. */
+        var (t, tr, started, notStarted, firsts) = await Queries(
+            m.TotalsAsync(Ctx),
+            m.TrendAsync(Ctx),
+            Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")}
-WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0);", Ctx.Args());
-        var notStarted = await Db.ScalarAsync<int>($"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};", Ctx.Args());
+WHERE ld.DateKey = @k1 AND {FirstUse.Ever(Ctx, "ld.UserKey")};", Ctx.Args()),
+            Db.ScalarAsync<int>($"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};", Ctx.Args()),
+            Db.QueryAsync<(DateTime Bucket, int N)>($@"
+WITH f AS ({FirstUse.People(Ctx)})
+SELECT {Ctx.BucketSql("d")}, COUNT(*) FROM f {ReportContext.EnabledJoin("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.FirstKey
+WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()));
 
         /* The same names as Leadership › Overview: the license is the Premium one, and its use in the period is Adoption. */
         Kpis.Add(new("Premium licenses", Num(t.LicensedNow), "people holding a Microsoft 365 Copilot license; " + LicensesAsOf(t)));
@@ -40,10 +69,6 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         Panels.Add(new("Adoption funnel", Chart.Bars(stages, Fmt.Count, "Adoption funnel"),
             "Each bar is a count of people with an enabled account. The first four narrow from everyone to the license holders who used Copilot in the period. The last two count anyone who used Copilot, with a license or on the free Copilot Chat."));
 
-        var firsts = await Db.QueryAsync<(DateTime Bucket, int N)>($@"
-WITH f AS (SELECT ud.UserKey, MIN(ud.DateKey) AS FirstKey FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.Interactions > 0 GROUP BY ud.UserKey)
-SELECT {Ctx.BucketSql("d")}, COUNT(*) FROM f {ReportContext.EnabledJoin("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.FirstKey
-WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         Panels.Add(new("People using Copilot for the first time",
             Chart.Columns(Labels(), [new Series("First-time users", buckets.Select(b => (double?)firsts.Where(f => f.Bucket == b.Key).Sum(f => f.N)).ToList(), 3)], Fmt.Count, "First-time users"),
@@ -103,7 +128,7 @@ GROUP BY c.Cohort, k.K;", Ctx.Args());
 
         var ttf = await Db.QueryAsync<(string Bucket, int N)>($@"
 WITH f AS (SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
-                  (SELECT MIN(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0) AS FirstKey
+                  {FirstUse.Key(Ctx, "du.UserKey")} AS FirstKey
            FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
            WHERE du.CopilotLicenseToday = N'Licensed' AND du.AccountEnabled = 1 AND du.LicensedSinceUtc IS NOT NULL),
 g AS (SELECT CASE WHEN FirstKey IS NULL THEN 7
@@ -129,20 +154,34 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
 
     static readonly string[] RankBy = ["Department", "Division", "Country", "Office"];
 
+    /// <summary>What the ranking groups by (by=), the department when it is anything else.</summary>
+    string RankedBy() => Request.Query["by"].FirstOrDefault() is { } b && RankBy.Contains(b) ? b : "Department";
+
+    /// <summary>
+    /// The ranking's groups in the period and, where the data covers it, in the period before: the two read side by
+    /// side, and started before the page's own figures where the ranking will be shown, so the page waits for the
+    /// slowest of its reads instead of their sum.
+    /// </summary>
+    async Task<(List<GroupRow> Now, Dictionary<string, GroupRow> Before)> GroupsAsync(string by)
+    {
+        var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
+        async Task<Dictionary<string, GroupRow>> BeforeAsync() => OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
+            ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
+        return await Queries(metrics.ByAttributeAsync(Ctx, by), BeforeAsync());
+    }
+
     /// <summary>
     /// The groups ranked by adoption against the period before (the Leaderboard was this, on a page of its own: it is
     /// here, and /adoption/leaderboard arrives here). Only groups of at least the minimum group size, with at least that
     /// many licenses, are ranked, then and now. Ranked by department, the change goes into All departments, which is
     /// that ranking already, and no second table repeats it: the panels to add after it are returned, with the changes.
     /// </summary>
-    async Task<(string By, Dictionary<string, double> Changes, List<Panel> Panels)> RankingAsync()
+    async Task<(string By, Dictionary<string, double> Changes, List<Panel> Panels)> RankingAsync(Task<(List<GroupRow> Now, Dictionary<string, GroupRow> Before)> groups)
     {
         var after = new List<Panel>();
-        var by = Request.Query["by"].FirstOrDefault() is { } b && RankBy.Contains(b) ? b : "Department";
-        var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-        var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
-        var before = OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
-            ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
+        var by = RankedBy();
+        var (all, before) = await groups;
+        var now = all.Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
         double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
         var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
         var choices = string.Join(" · ", RankBy.Select(x => $"<a href=\"{E(Ctx.Url(Request.Path, extra: "by=" + x))}#ranking\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
@@ -200,10 +239,14 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
 
     protected override async Task BuildAsync()
     {
+        /* The ranking was the Leaderboard: turned off in Admin › Reports shown by that address (HiddenReports.Parts). Its
+           groups are read alongside the page's own figures unless a department is asked for, which leaves it out. */
+        var rankingShown = !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/adoption/leaderboard");
+        var groupsTask = rankingShown && string.IsNullOrEmpty(Request.Query["dept"].FirstOrDefault()) ? GroupsAsync(RankedBy()) : null;
+        /* Each person's sums over the period are the nightly totals' (Ctx.PerPerson), one row a person. */
         var rows = await Db.QueryAsync<Row>($@"
-WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
-                    SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
-             FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+WITH act AS (SELECT pp.UserKey, pp.Interactions AS I, pp.LicensedUse AS L, pp.ActiveDays AS D, pp.Sessions AS S, pp.MultiTurnSessions AS MT
+             FROM {Ctx.PerPerson()} AS pp)
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People, COUNT(ld.UserKey) AS Licensed, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active,
        COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
@@ -236,8 +279,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         if (dept is not null) shown = shown.Where(r => r.Department == dept).ToList();
         /* In the chart and the table, every name but the combined smaller ones, until one is chosen. */
         string? Pick(Row r) => dept is null && r.Department != "Smaller departments" ? Only(r) : null;
-        /* The ranking was the Leaderboard: turned off in Admin › Reports shown by that address (HiddenReports.Parts). */
-        var ranking = dept is null && !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/adoption/leaderboard") ? await RankingAsync() : default;
+        var ranking = dept is null && rankingShown ? await RankingAsync(groupsTask ?? GroupsAsync(RankedBy())) : default;
         var withChange = ranking.By == "Department";
 
         Panels.Add(new("Adoption by department",
@@ -269,7 +311,7 @@ public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
     internal static string Who(ReportContext c) => $@"
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0)
+  AND NOT {FirstUse.Ever(c, "du.UserKey")}
   AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}";
 
     public override string Title => "Not started";

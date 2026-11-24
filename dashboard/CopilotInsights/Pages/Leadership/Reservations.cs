@@ -38,12 +38,14 @@ public sealed partial class ReservationsModel(PageServices s, ReservationData da
             return;
         }
         var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
-        var snaps = await data.SnapshotsAsync(Ctx);   // The viewer's organizations only, as a snapshot shows them
+        /* The snapshots and the view shown are read side by side, each on its own connection. */
+        var snapsTask = data.SnapshotsAsync(Ctx);   // The viewer's organizations only, as a snapshot shows them
         var snapParam = Request.Query["snap"].FirstOrDefault();
         ReservationView? v = null;
         if (DateTime.TryParseExact(snapParam, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var snapDate))
             v = await data.SnapshotAsync(Ctx, snapDate);
         v ??= await data.CurrentAsync(Ctx);
+        var snaps = await snapsTask;
         if (v is null)
         {
             Notice = "No licenses have been read yet. The license lookup fills them each night.";
@@ -166,6 +168,13 @@ public sealed partial class ReservationsModel(PageServices s, ReservationData da
             EmptyText = "No exceptions: every organization's leader is in the directory, every holder maps to an organization or the Technology pool." };
         void Add(string what, int n, string todo, object? where) { if (n > 0) t.Rows.Add([what, n, todo, where]); }
         object? To(string path, string? extra = null, string text = "Open the list") => Open(path, extra) is { } u ? new Link(text, u) : null;
+        /* The checks' reads do not need each other: started together, each on its own connection, awaited in the order
+           the rows are listed. */
+        var techTask = whole ? Db.QueryAsync<string>("SELECT Upn FROM dash.TechnologyAllocation;") : null;
+        var nonHumanTask = whole ? NonHuman.AllAsync(Db, S.Settings) : null;
+        var expiredTask = whole ? Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.TechnologyAllocation WHERE ReviewDate < CAST(GETDATE() AS DATE);") : null;
+        var notCountedTask = Db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly UNION SELECT Upn FROM dash.TechnologyAllocation;");
+        var leaversTask = ops.LeaversAsync(Ctx.Root);
 
         var missing = v.Orgs.Where(o => o.LeaderMissing).ToList();
         Add("Leader not in the directory", missing.Count, "Correct the sign-in in the register: " + string.Join(", ", missing.Select(o => o.Name)), null);
@@ -174,15 +183,15 @@ public sealed partial class ReservationsModel(PageServices s, ReservationData da
         if (whole)
         {
             Add("Add-on holders under no listed leader", v.Unmapped, "Map them: add their leader's organization, or approve them as Technology-funded.", To("/licensing/reservation-holders", "res=" + ReservationData.Unmapped));
-            var tech = (await Db.QueryAsync<string>("SELECT Upn FROM dash.TechnologyAllocation;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var candidates = (await NonHuman.AllAsync(Db, S.Settings)).Count(b => !tech.Contains(b.UserPrincipalName));
+            var tech = (await techTask!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var candidates = (await nonHumanTask!).Count(b => !tech.Contains(b.UserPrincipalName));
             Add("Accounts that look non-human, not in the Technology register", candidates, "Approve each as Technology-funded with its owner and review date, or remove its license.", To("/licensing/non-person"));
-            var expired = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.TechnologyAllocation WHERE ReviewDate < CAST(GETDATE() AS DATE);");
+            var expired = await expiredTask!;
             Add("Technology-funded allocations past their review date", expired, "Review and renew, or end the allocation.", null);
         }
         /* Only the add-on licenses an organization counts: Copilot inside a suite, and Technology-funded accounts, are not. */
-        var notCounted = (await Db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly UNION SELECT Upn FROM dash.TechnologyAllocation;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var leavers = (await ops.LeaversAsync(Ctx.Root)).Count(l => !notCounted.Contains(l.UserPrincipalName));
+        var notCounted = (await notCountedTask).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var leavers = (await leaversTask).Count(l => !notCounted.Contains(l.UserPrincipalName));
         Add("Add-on licenses on disabled or departed accounts", leavers, "Reclaim them: they count against their organization.", To("/licensing/leavers"));
         if (v.Rate is null) Add("No rate in force", 1, "Finance enters the rate: until then obligations are Pending Finance Decision.", null);
         Panels.Add(new("Exceptions", t.Render(), "Raised from today's data. The register's leaders, the org chart and the licenses held are what each check reads.", "half"));
