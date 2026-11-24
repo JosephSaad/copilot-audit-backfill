@@ -605,10 +605,20 @@ IF OBJECT_ID(N'dash.UserWeek', N'U') IS NULL
         MultiTurnSessions INT     NOT NULL,
         CONSTRAINT PK_DashUserWeek PRIMARY KEY (WeekEnding, UserKey)
     );
+/* Whether the person held a license on the week's last day (bi.FactLicensedDay): a trend's "licensed at the end of
+   the point" read with the week. bi.usp_RefreshBi rebuilds the license days whole, so each refresh rebuilds
+   dash.UserWeek whole too. */
+IF COL_LENGTH(N'dash.UserWeek', N'HeldAtEnd') IS NULL
+    ALTER TABLE dash.UserWeek ADD HeldAtEnd BIT NOT NULL CONSTRAINT DF_DashUserWeek_HeldAtEnd DEFAULT (0);
+/* A columnstore made before the column was added does not hold it: made again with it. */
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserWeek') AND name = N'NCCI_DashUserWeek')
+   AND NOT EXISTS (SELECT 1 FROM sys.index_columns AS ic JOIN sys.indexes AS i ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+                   WHERE i.object_id = OBJECT_ID(N'dash.UserWeek') AND i.name = N'NCCI_DashUserWeek' AND COL_NAME(ic.object_id, ic.column_id) = N'HeldAtEnd')
+    DROP INDEX NCCI_DashUserWeek ON dash.UserWeek;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserWeek') AND name = N'NCCI_DashUserWeek')
     EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashUserWeek ON dash.UserWeek
           (WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse,
-           PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions);');
+           PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldAtEnd);');
 
 IF OBJECT_ID(N'dash.UserPeriod', N'U') IS NULL
     CREATE TABLE dash.UserPeriod
@@ -634,6 +644,25 @@ IF OBJECT_ID(N'dash.UserPeriod', N'U') IS NULL
         Sessions          INT      NOT NULL,
         MultiTurnSessions INT      NOT NULL,
         CONSTRAINT PK_DashUserPeriod PRIMARY KEY (EndKey, Days, UserKey)
+    );
+/* The person's interactions in the period on days they held a license (bi.FactLicensedDay): what the cost pages count
+   as use of a license. Rebuilt with the rest of the row. */
+IF COL_LENGTH(N'dash.UserPeriod', N'HeldUse') IS NULL
+    ALTER TABLE dash.UserPeriod ADD HeldUse INT NOT NULL CONSTRAINT DF_DashUserPeriod_HeldUse DEFAULT (0);
+
+/*
+    The whole organization's license holders on each day: everyone holding one (bi.FactLicensedDay), those with an
+    account enabled today, and those of them adopted (dash.AdoptionDay). A trend for the whole organization reads its
+    points' last days here, where it met 15 million license rows a visit at two years. Rebuilt whole by each refresh,
+    as the license days and the enabled flags are.
+*/
+IF OBJECT_ID(N'dash.HeldDay', N'U') IS NULL
+    CREATE TABLE dash.HeldDay
+    (
+        DateKey         INT NOT NULL CONSTRAINT PK_DashHeldDay PRIMARY KEY,
+        Held            INT NOT NULL,   -- people holding a license that day
+        HeldEnabled     INT NOT NULL,   -- of them, accounts enabled today
+        AdoptedEnabled  INT NOT NULL    -- of those, adopted that day (dash.AdoptionDay)
     );
 
 IF OBJECT_ID(N'dash.AdoptionDay', N'U') IS NULL

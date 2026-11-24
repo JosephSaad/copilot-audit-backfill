@@ -122,13 +122,13 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
         var firstTask = OpsReports.FirstDayAsync(db);
         /* Copilot's value goes with the use: the share of licensed interactions in the period by people whose Copilot comes
            only with a suite is the suite's; the rest is the add-on's. */
-        var useTask = db.QueryAsync<(long All, long Suite)>(@"
-SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CASE WHEN cso.Upn IS NOT NULL THEN CAST(ud.Interactions AS BIGINT) END), 0)
-FROM dash.UserDay AS ud
-JOIN bi.FactLicensedDay AS ld ON ld.UserKey = ud.UserKey AND ld.DateKey = ud.DateKey
-JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
-LEFT JOIN dash.CopilotSuiteOnly AS cso ON cso.Upn = du.UserPrincipalName
-WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args());
+        /* Each person's use on days holding a license is kept with their period (dash.UserPeriod.HeldUse), where it was
+           every person-day met with the license days: 3 to 20 seconds at two years. */
+        var useTask = db.QueryAsync<(long All, long Suite)>($@"
+SELECT ISNULL(SUM(CAST(p.HeldUse AS BIGINT)), 0), ISNULL(SUM(CASE WHEN cso.Upn IS NOT NULL THEN CAST(p.HeldUse AS BIGINT) END), 0)
+FROM {c.PerPerson(withHeld: true)} AS p
+JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
+LEFT JOIN dash.CopilotSuiteOnly AS cso ON cso.Upn = du.UserPrincipalName;", c.Args());
 
         /* S: licensed through a suite only (E7): paid for in the suite's price, not as the add-on.
            L and S are paid seats, so every holder counts, a disabled or departed account's too (3.1.3). Revoke keeps

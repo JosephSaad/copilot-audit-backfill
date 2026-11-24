@@ -432,25 +432,30 @@ BEGIN
     DECLARE @maxKey INT = (SELECT MAX(DateKey) FROM dash.UserDay);
     DECLARE @minKey INT = (SELECT MIN(DateKey) FROM dash.UserDay);
 
-    /* By week: the weeks from the one @fromKey falls in, each rebuilt whole from its days. */
+    /* The week @fromKey falls in: the per app and agent weeks are rebuilt from it. */
     DECLARE @weekFrom DATE = NULL, @weekFromKey INT = NULL;
     IF @fromKey IS NOT NULL AND EXISTS (SELECT 1 FROM dash.UserWeek)
         SELECT @weekFrom = d.WeekEnding,
                @weekFromKey = (SELECT s.DateKey FROM bi.DimDate AS s WHERE s.[Date] = DATEADD(DAY, -6, d.WeekEnding))
         FROM bi.DimDate AS d WHERE d.DateKey = @fromKey;
     IF @weekFromKey IS NULL SET @weekFrom = NULL;
+    /* By week, whole: with whether the person held a license on the week's last day, which bi.usp_RefreshBi can change
+       for any day when it rebuilds the license days. */
     DROP TABLE IF EXISTS #week;
+    WITH w AS (
     SELECT d.WeekEnding, ud.UserKey, CAST(COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS TINYINT) AS ActiveDays,
            SUM(ud.Interactions) AS Interactions, SUM(ud.Prompts) AS Prompts, SUM(ud.AgentInteractions) AS AgentInteractions,
            SUM(ud.WebGrounded) AS WebGrounded, SUM(ud.ChatInteractions) AS ChatInteractions, SUM(ud.LicensedUse) AS LicensedUse,
            SUM(ud.PremiumUse) AS PremiumUse, SUM(ud.Jailbreak) AS Jailbreak, SUM(ud.PromptInjection) AS PromptInjection,
            SUM(ud.BlockedResource) AS BlockedResource, SUM(ud.LabeledContent) AS LabeledContent, SUM(ud.Sessions) AS Sessions,
            SUM(ud.MultiTurnSessions) AS MultiTurnSessions
-    INTO #week
     FROM dash.UserDay AS ud
     JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-    WHERE @weekFromKey IS NULL OR ud.DateKey >= @weekFromKey
-    GROUP BY d.WeekEnding, ud.UserKey
+    GROUP BY d.WeekEnding, ud.UserKey)
+    SELECT w.*, CAST(CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS BIT) AS HeldAtEnd
+    INTO #week
+    FROM w
+    LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = CONVERT(INT, CONVERT(CHAR(8), w.WeekEnding, 112)) AND ld.UserKey = w.UserKey
     OPTION (RECOMPILE);
 
     /* The same per app and agent (dash.UserItemWeek), from the same week, or every week the first time and whenever
@@ -516,7 +521,7 @@ BEGIN
     CREATE TABLE #period (EndKey INT NOT NULL, Days SMALLINT NOT NULL, UserKey INT NOT NULL, ActiveDays SMALLINT NOT NULL, PremiumDays SMALLINT NOT NULL,
                           LastActiveKey INT NULL, MostApps TINYINT NOT NULL, Interactions INT NOT NULL, Prompts INT NOT NULL, AgentInteractions INT NOT NULL, WebGrounded INT NOT NULL,
                           ChatInteractions INT NOT NULL, LicensedUse INT NOT NULL, PremiumUse INT NOT NULL, Jailbreak INT NOT NULL, PromptInjection INT NOT NULL,
-                          BlockedResource INT NOT NULL, LabeledContent INT NOT NULL, Sessions INT NOT NULL, MultiTurnSessions INT NOT NULL);
+                          BlockedResource INT NOT NULL, LabeledContent INT NOT NULL, Sessions INT NOT NULL, MultiTurnSessions INT NOT NULL, HeldUse INT NOT NULL);
     DROP TABLE IF EXISTS #itemperiod;
     CREATE TABLE #itemperiod (EndKey INT NOT NULL, Days SMALLINT NOT NULL, Kind CHAR(1) NOT NULL, Item INT NOT NULL, UserKey INT NOT NULL,
                               ActiveDays SMALLINT NOT NULL, LastActiveKey INT NOT NULL, Interactions INT NOT NULL, Prompts INT NOT NULL,
@@ -542,8 +547,10 @@ BEGIN
                MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END), MAX(ud.AppsUsed),
                SUM(ud.Interactions), SUM(ud.Prompts), SUM(ud.AgentInteractions), SUM(ud.WebGrounded), SUM(ud.ChatInteractions),
                SUM(ud.LicensedUse), SUM(ud.PremiumUse), SUM(ud.Jailbreak), SUM(ud.PromptInjection), SUM(ud.BlockedResource),
-               SUM(ud.LabeledContent), SUM(ud.Sessions), SUM(ud.MultiTurnSessions)
+               SUM(ud.LabeledContent), SUM(ud.Sessions), SUM(ud.MultiTurnSessions),
+               SUM(CASE WHEN ld.UserKey IS NOT NULL THEN ud.Interactions ELSE 0 END)   -- use on days holding a license
         FROM dash.UserDay AS ud
+        LEFT JOIN bi.FactLicensedDay AS ld ON ld.DateKey = ud.DateKey AND ld.UserKey = ud.UserKey
         WHERE ud.DateKey BETWEEN @pFrom AND @pEnd
         GROUP BY ud.UserKey
         OPTION (RECOMPILE);
@@ -568,14 +575,12 @@ BEGIN
     DECLARE @mayTruncate BIT = CASE WHEN HAS_PERMS_BY_NAME(N'dash.UserWeek', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
 
     BEGIN TRANSACTION;
-    IF @weekFrom IS NULL AND @mayTruncate = 1 TRUNCATE TABLE dash.UserWeek;
-    ELSE IF @weekFrom IS NULL DELETE FROM dash.UserWeek;
-    ELSE DELETE FROM dash.UserWeek WHERE WeekEnding >= @weekFrom;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.UserWeek; ELSE DELETE FROM dash.UserWeek;
     INSERT INTO dash.UserWeek WITH (TABLOCK)
         (WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
-         Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions)
+         Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldAtEnd)
     SELECT WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
-           Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions
+           Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldAtEnd
     FROM #week;
     COMMIT TRANSACTION;
 
@@ -592,10 +597,26 @@ BEGIN
     IF @mayTruncate = 1 TRUNCATE TABLE dash.UserPeriod; ELSE DELETE FROM dash.UserPeriod;
     INSERT INTO dash.UserPeriod WITH (TABLOCK)
         (EndKey, Days, UserKey, ActiveDays, PremiumDays, LastActiveKey, MostApps, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions,
-         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions)
+         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldUse)
     SELECT EndKey, Days, UserKey, ActiveDays, PremiumDays, LastActiveKey, MostApps, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions,
-           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions
+           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, HeldUse
     FROM #period;
+    COMMIT TRANSACTION;
+
+    /* The whole organization's license holders on each day, those enabled today, and those of them adopted that day:
+       after dash.AdoptionDay, whole, as the license days and the enabled flags are. */
+    DROP TABLE IF EXISTS #held;
+    SELECT ld.DateKey, COUNT(*) AS Held, COUNT(en.UserKey) AS HeldEnabled,
+           COUNT(CASE WHEN en.UserKey IS NOT NULL AND ad.UserKey IS NOT NULL THEN 1 END) AS AdoptedEnabled
+    INTO #held
+    FROM bi.FactLicensedDay AS ld
+    LEFT JOIN bi.DimUser AS en ON en.UserKey = ld.UserKey AND en.AccountEnabled = 1
+    LEFT JOIN dash.AdoptionDay AS ad ON ad.DateKey = ld.DateKey AND ad.UserKey = ld.UserKey
+    GROUP BY ld.DateKey
+    OPTION (RECOMPILE);
+    BEGIN TRANSACTION;
+    DELETE FROM dash.HeldDay;
+    INSERT INTO dash.HeldDay (DateKey, Held, HeldEnabled, AdoptedEnabled) SELECT DateKey, Held, HeldEnabled, AdoptedEnabled FROM #held;
     COMMIT TRANSACTION;
 
     BEGIN TRANSACTION;

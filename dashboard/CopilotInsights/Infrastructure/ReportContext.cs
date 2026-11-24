@@ -312,15 +312,23 @@ public sealed class ReportContext
     /// last day, whose first day key is in the parameter <paramref name="fromKey"/>. Read from dash.UserPeriod when the
     /// refresh built that period, else summed from dash.UserDay. A person with no day in it has no row.
     /// </summary>
-    public string PerPerson(int? choice = null, string fromKey = "@k0")
+    /// <param name="withHeld">Add HeldUse: the person's interactions in the period on days they held a license
+    /// (bi.FactLicensedDay), from dash.UserPeriod once a refresh has filled it (<see cref="Held"/>), else joined from the days.</param>
+    public string PerPerson(int? choice = null, string fromKey = "@k0", bool withHeld = false)
     {
         var c = choice ?? Choice;
-        return RolledDays.Contains(c)
-            ? $"(SELECT up.UserKey, CAST(up.ActiveDays AS INT) AS ActiveDays, CAST(up.PremiumDays AS INT) AS PremiumDays, up.LastActiveKey, up.MostApps, {string.Join(", ", SumColumns.Select(s => "up." + s))} FROM dash.UserPeriod AS up WHERE up.EndKey = @k1 AND up.Days = {c})"
-            : $@"(SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays,
-        MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastActiveKey, MAX(ud.AppsUsed) AS MostApps, {Summed("ud")}
-    FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN {fromKey} AND @k1 GROUP BY ud.UserKey)";
+        if (RolledDays.Contains(c) && (!withHeld || Held))
+            return $"(SELECT up.UserKey, CAST(up.ActiveDays AS INT) AS ActiveDays, CAST(up.PremiumDays AS INT) AS PremiumDays, up.LastActiveKey, up.MostApps, {string.Join(", ", SumColumns.Select(s => "up." + s))}{(withHeld ? ", up.HeldUse" : "")} FROM dash.UserPeriod AS up WHERE up.EndKey = @k1 AND up.Days = {c})";
+        return $@"(SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays,
+        MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastActiveKey, MAX(ud.AppsUsed) AS MostApps, {Summed("ud")}{(withHeld ? ", SUM(CASE WHEN hl.UserKey IS NOT NULL THEN ud.Interactions ELSE 0 END) AS HeldUse" : "")}
+    FROM dash.UserDay AS ud{(withHeld ? " LEFT JOIN bi.FactLicensedDay AS hl ON hl.DateKey = ud.DateKey AND hl.UserKey = ud.UserKey" : "")} WHERE ud.DateKey BETWEEN {fromKey} AND @k1 GROUP BY ud.UserKey)";
     }
+
+    /// <summary>
+    /// Whether the refresh has filled the license-held totals: dash.UserWeek.HeldAtEnd, dash.UserPeriod.HeldUse and
+    /// dash.HeldDay (all three in the same run). Before, the pages join the license days themselves.
+    /// </summary>
+    public bool Held { get; init; }
 
     /// <summary>
     /// Each person's sums at each trend point from <paramref name="from"/> (a date-key parameter) to the period's last
@@ -328,20 +336,23 @@ public sealed class ReportContext
     /// dash.UserDay's row; a week inside the range is dash.UserWeek's row, and a week the range cuts (the first or the last)
     /// is summed from its days in it. Before the totals are built, every week is summed from its days.
     /// </summary>
-    public string PerPoint(string from = "@k0")
+    /// <param name="withHeld">Add Held: 1 when the person held a license on a whole week's last day (dash.UserWeek.HeldAtEnd,
+    /// once <see cref="Held"/>), NULL for a day or a week the range cuts, which the caller looks up in the license days.</param>
+    public string PerPoint(string from = "@k0", bool withHeld = false)
     {
+        var heldNull = withHeld ? ", CAST(NULL AS INT) AS Held" : "";
         if (Daily)
-            return $@"(SELECT d.[Date] AS Bucket, ud.UserKey, CASE WHEN ud.Interactions > 0 THEN 1 ELSE 0 END AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "ud." + c))}
+            return $@"(SELECT d.[Date] AS Bucket, ud.UserKey, CASE WHEN ud.Interactions > 0 THEN 1 ELSE 0 END AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "ud." + c))}{heldNull}
     FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE ud.DateKey BETWEEN {from} AND @k1)";
         var cut = $"(SELECT w.WeekEnding FROM bi.DimDate AS w WHERE w.DateKey BETWEEN {from} AND @k1 GROUP BY w.WeekEnding HAVING COUNT(*) < 7)";
-        var days = $@"SELECT d.WeekEnding AS Bucket, ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, {Summed("ud")}
+        var days = $@"SELECT d.WeekEnding AS Bucket, ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, {Summed("ud")}{heldNull}
     FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
     WHERE ud.DateKey BETWEEN {from} AND @k1{(Rollups ? $" AND d.WeekEnding IN {cut}" : "")}
     GROUP BY d.WeekEnding, ud.UserKey";
         if (!Rollups) return $"({days})";
         /* A whole week inside the range has all seven of its days in it; the weeks are read between the first and the last
            Friday the range can hold whole, so the columnstore skips the rest. */
-        return $@"(SELECT uw.WeekEnding AS Bucket, uw.UserKey, CAST(uw.ActiveDays AS INT) AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "uw." + c))}
+        return $@"(SELECT uw.WeekEnding AS Bucket, uw.UserKey, CAST(uw.ActiveDays AS INT) AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "uw." + c))}{(withHeld ? (Held ? ", CAST(uw.HeldAtEnd AS INT) AS Held" : ", CAST(NULL AS INT) AS Held") : "")}
     FROM dash.UserWeek AS uw
     WHERE uw.WeekEnding BETWEEN DATEADD(DAY, 6, DATEFROMPARTS({from} / 10000, {from} / 100 % 100, {from} % 100)) AND DATEFROMPARTS(@k1 / 10000, @k1 / 100 % 100, @k1 % 100)
       AND uw.WeekEnding NOT IN {cut}
@@ -672,12 +683,12 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
             Viewer = viewer, Days = days, Choice = choice, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
             PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
-            Rollups = t.Built, RolledDays = t.Days, RolledItemDays = t.ItemDays, ItemKinds = t.Kinds, CreditDays = t.Credit, RolledCreditDays = t.CreditDays,
+            Rollups = t.Built, RolledDays = t.Days, RolledItemDays = t.ItemDays, ItemKinds = t.Kinds, CreditDays = t.Credit, RolledCreditDays = t.CreditDays, Held = t.Held,
         };
     }
 
     /// <summary>What <see cref="RollupsAsync"/> found: which totals the refresh has built.</summary>
-    public sealed record Totals(bool Built, IReadOnlySet<int> Days, IReadOnlySet<int> ItemDays, string Kinds, bool Credit, IReadOnlySet<int> CreditDays)
+    public sealed record Totals(bool Built, IReadOnlySet<int> Days, IReadOnlySet<int> ItemDays, string Kinds, bool Credit, IReadOnlySet<int> CreditDays, bool Held = false)
     {
         public static readonly Totals None = new(false, new HashSet<int>(), new HashSet<int>(), "", false, new HashSet<int>());
     }
@@ -706,12 +717,14 @@ WHERE EXISTS (SELECT 1 FROM dash.CreditUsePeriod AS cp WHERE cp.EndKey = @endKey
 UNION ALL
 SELECT 4, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.CreditUseDay)
 UNION ALL
+SELECT 6, 0, NULL WHERE OBJECT_ID(N'dash.HeldDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM dash.HeldDay)
+UNION ALL
 SELECT 5, 0, (SELECT Value FROM dash.Setting WHERE Name = 'DashItemKinds')
 UNION ALL
 SELECT 0, 0, NULL WHERE EXISTS (SELECT 1 FROM dash.UserActivity) AND EXISTS (SELECT 1 FROM dash.UserItemDay);", new { endKey });
             var list = rows.ToList();
             HashSet<int> Of(int which) => list.Where(r => r.Which == which).Select(r => r.Days).ToHashSet();
-            return new(list.Any(r => r.Which == 0), Of(1), Of(2), list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), Of(3));
+            return new(list.Any(r => r.Which == 0), Of(1), Of(2), list.FirstOrDefault(r => r.Which == 5).Kinds ?? "", list.Any(r => r.Which == 4), Of(3), list.Any(r => r.Which == 6));
         }
         catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return Totals.None; }
     }

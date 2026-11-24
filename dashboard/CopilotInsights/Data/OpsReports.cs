@@ -51,7 +51,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
         Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, LastRecord = c.LastRecord, Root = c.Root, RootName = c.RootName, PathBase = c.PathBase,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
         Rollups = c.Rollups, RolledDays = RolledFor(c, end), RolledItemDays = RolledItemsFor(c, end),
-        CreditDays = c.CreditDays, RolledCreditDays = end == c.End ? c.RolledCreditDays : new HashSet<int>(),
+        CreditDays = c.CreditDays, RolledCreditDays = end == c.End ? c.RolledCreditDays : new HashSet<int>(), ItemKinds = c.ItemKinds, Held = c.Held,
     };
 
     /* The totals the refresh keeps by week, by day of adoption and over every day (Rollups) answer any window; the ones
@@ -70,7 +70,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     {
         Viewer = c.Viewer, Days = 30, Start = c.End.AddDays(-29), End = c.End, LastRecord = c.LastRecord, Root = null, PathBase = c.PathBase,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
-        Rollups = c.Rollups, RolledDays = c.RolledDays, RolledItemDays = c.RolledItemDays, CreditDays = c.CreditDays, RolledCreditDays = c.RolledCreditDays,
+        Rollups = c.Rollups, RolledDays = c.RolledDays, RolledItemDays = c.RolledItemDays, CreditDays = c.CreditDays, RolledCreditDays = c.RolledCreditDays, ItemKinds = c.ItemKinds, Held = c.Held,
     };
 
     /* ---- The days the data covers ------------------------------------------------------------ */
@@ -166,7 +166,7 @@ WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash
         {
             Viewer = now.Viewer, Days = 30, Start = now.End.AddDays(-29), End = now.End, LastRecord = now.LastRecord, Root = r.RootUpn, PathBase = now.PathBase,
             MinGroupSize = now.MinGroupSize, InactiveDays = now.InactiveDays, OrgTopUpn = now.OrgTopUpn, PrivacyMode = now.PrivacyMode,
-            Rollups = now.Rollups, RolledDays = now.RolledDays, RolledItemDays = now.RolledItemDays, CreditDays = now.CreditDays, RolledCreditDays = now.RolledCreditDays,
+            Rollups = now.Rollups, RolledDays = now.RolledDays, RolledItemDays = now.RolledItemDays, CreditDays = now.CreditDays, RolledCreditDays = now.RolledCreditDays, ItemKinds = now.ItemKinds, Held = now.Held,
         };
         var baseEnd = r.StartDate.Date.AddDays(-1);
         var currentTask = metrics.TotalsAsync(scoped);

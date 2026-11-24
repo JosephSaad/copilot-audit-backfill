@@ -73,18 +73,28 @@ public sealed class Metrics(Db db)
     {
         /* Each person's sums at each point come from the totals the refresh keeps (ReportContext.PerPoint): a week is one
            row, not seven days added up, and a person is one row a point, so the people are counted without a distinct. */
+        /* Once the refresh keeps who held a license at each whole week's end (dash.UserWeek.HeldAtEnd) and each day's
+           holders for the whole organization (dash.HeldDay), the license days are met only for the points those do not
+           answer: a day, or a week the period cuts. At two years they were 15 million license rows a visit. */
+        var weekly = c.Held && c.Rollups && !c.Daily;
+        var orgHeld = c.Held && c.Root is null;
+        var cutOnly = weekly ? " WHERE e.Bucket IN (SELECT w.WeekEnding FROM bi.DimDate AS w WHERE w.DateKey BETWEEN @k0 AND @k1 GROUP BY w.WeekEnding HAVING COUNT(*) < 7)" : "";
+        var heldTest = weekly ? "COALESCE(per.Held, CASE WHEN le.UserKey IS NOT NULL THEN 1 ELSE 0 END) = 1" : "le.UserKey IS NOT NULL";
+        var licSql = orgHeld
+            ? "SELECT e.Bucket, h.HeldEnabled AS Licensed FROM ends AS e JOIN dash.HeldDay AS h ON h.DateKey = e.EndKey"
+            : $"SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket";
         var rows = await db.QueryAsync<TrendRow>($@"
 WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
 ends AS (SELECT Bucket, MAX(DateKey) AS EndKey FROM b GROUP BY Bucket),
-per AS (SELECT pp.* FROM {c.PerPoint()} AS pp {c.Scope("pp.UserKey")}),
+per AS (SELECT pp.* FROM {c.PerPoint(withHeld: weekly)} AS pp {c.Scope("pp.UserKey")}),
 /* Who holds a license at the end of each point: the licenses of those days alone, met on the point and the person,
    so they can be matched to the people in one pass rather than looked up a person at a time. */
-held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")}),
+held AS (SELECT e.Bucket, ld.UserKey FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")}{cutOnly}),
 /* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
 /* People are accounts enabled today (3.1.3); the sums still count everyone's use. Both in one pass over the points. */
 people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS Active,
-                  COUNT(CASE WHEN per.LicensedUse > 0 AND le.UserKey IS NOT NULL AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
+                  COUNT(CASE WHEN per.LicensedUse > 0 AND {heldTest} AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveLicensed,
                   COUNT(CASE WHEN per.Interactions > 0 AND per.LicensedUse = 0 AND {ReportContext.IsEnabled()} THEN 1 END) AS ActiveUnlicensed,
                   SUM(CAST(per.Interactions AS BIGINT)) AS Interactions, SUM(CAST(per.Prompts AS BIGINT)) AS Prompts,
                   SUM(CAST(per.Sessions AS BIGINT)) AS Sessions, SUM(CAST(per.MultiTurnSessions AS BIGINT)) AS MultiTurn,
@@ -95,7 +105,7 @@ people AS (SELECT per.Bucket, COUNT(CASE WHEN per.Interactions > 0 AND {ReportCo
            FROM per {ReportContext.EnabledJoin("per.UserKey", left: true)}
            LEFT JOIN held AS le ON le.Bucket = per.Bucket AND le.UserKey = per.UserKey
            GROUP BY per.Bucket),
-lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} {ReportContext.EnabledJoin("ld.UserKey")} GROUP BY e.Bucket)
+lic AS ({licSql})
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
        ISNULL(p.Interactions, 0) AS Interactions, ISNULL(p.Prompts, 0) AS Prompts, ISNULL(p.Sessions, 0) AS Sessions,
        ISNULL(p.MultiTurn, 0) AS MultiTurn, ISNULL(p.Chat, 0) AS Chat, ISNULL(p.Agent, 0) AS Agent, ISNULL(p.Web, 0) AS Web,
@@ -121,6 +131,15 @@ ORDER BY e.Bucket;", c.Args());
     {
         /* The refresh keeps who was adopted on each day (dash.AdoptionDay: licensed use that day or in the 27 before,
            worked out by the same rule as below over every day), so a point is a seek on its last day. */
+        /* For the whole organization, each day's adopted holders are kept as a count (dash.HeldDay). */
+        if (c.Rollups && c.Held && c.Root is null)
+            return (await db.QueryAsync<(DateTime Bucket, int Adopted)>($@"
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
+ends AS (SELECT b.Bucket, MAX(b.DateKey) AS EndKey FROM b GROUP BY b.Bucket)
+SELECT e.Bucket, h.AdoptedEnabled AS Adopted
+FROM ends AS e
+JOIN dash.HeldDay AS h ON h.DateKey = e.EndKey
+WHERE h.AdoptedEnabled > 0;", c.Args())).ToDictionary(r => r.Bucket, r => r.Adopted);
         if (c.Rollups)
             return (await db.QueryAsync<(DateTime Bucket, int Adopted)>($@"
 WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
