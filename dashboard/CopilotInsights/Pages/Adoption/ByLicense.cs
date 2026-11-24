@@ -113,10 +113,9 @@ public sealed class ByLicenseModel(PageServices s) : InsightsPage(s)
         /* Independent statements, each on its own connection, run side by side: the page waits for the slowest, not the sum. */
         var peopleTask = Db.QueryTwoAsync<(int Days, int People), Person>($@"
 WITH {pop}
-SELECT p.UserKey, ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0) AS I, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D
+SELECT p.UserKey, ISNULL(CAST(pp.Interactions AS BIGINT), 0) AS I, ISNULL(pp.ActiveDays, 0) AS D
 INTO #u
-FROM p LEFT JOIN dash.UserDay AS ud ON ud.UserKey = p.UserKey AND ud.DateKey BETWEEN @k0 AND @k1
-GROUP BY p.UserKey;
+FROM p LEFT JOIN {Ctx.PerPerson()} AS pp ON pp.UserKey = p.UserKey;
 SELECT D, COUNT(*) FROM #u GROUP BY D;
 SELECT x.Low, du.DisplayName, du.UserPrincipalName, du.Department, x.I, x.D
 FROM (SELECT TOP ({Top}) 0 AS Low, UserKey, I, D FROM #u WHERE I > 0 ORDER BY I DESC, UserKey) AS x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
@@ -125,14 +124,16 @@ SELECT x.Low, du.DisplayName, du.UserPrincipalName, du.Department, x.I, x.D
 FROM (SELECT TOP ({Top}) 1 AS Low, u.UserKey, u.I, u.D FROM #u AS u JOIN bi.DimUser AS n ON n.UserKey = u.UserKey ORDER BY u.I, n.DisplayName, u.UserKey) AS x
 JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
 
+        /* Each person's interactions and days, and their use of each app at each point, are the nightly totals'
+           (Ctx.PerPerson, Ctx.PerItemPoint): one row a person, or a person and app, instead of their days or the fact. */
         var appsTask = Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
 WITH {pop},
-x AS (SELECT f.DateKey, f.AppKey, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f JOIN p ON p.UserKey = f.UserKey
-      WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.DateKey, f.AppKey)
-SELECT {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App), SUM(x.N)
-FROM x JOIN bi.DimDate AS d ON d.DateKey = x.DateKey JOIN bi.DimApp AS a ON a.AppKey = x.AppKey
+x AS (SELECT pt.Bucket, pt.Item AS AppKey, SUM(CAST(pt.Interactions AS BIGINT)) AS N FROM {Ctx.PerItemPoint('A')} AS pt JOIN p ON p.UserKey = pt.UserKey
+      GROUP BY pt.Bucket, pt.Item)
+SELECT x.Bucket, COALESCE(vn.Name, a.App), SUM(x.N)
+FROM x JOIN bi.DimApp AS a ON a.AppKey = x.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
-GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
+GROUP BY x.Bucket, COALESCE(vn.Name, a.App);", Ctx.Args());
 
         /* By file type (docx, xlsx, pptx ... and, for what is not a file, its kind), or by kind before that column exists. */
         var fileTypes = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL THEN 0 ELSE 1 END") == 1;

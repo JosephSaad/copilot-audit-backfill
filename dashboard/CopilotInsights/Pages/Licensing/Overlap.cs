@@ -67,13 +67,17 @@ WITH held AS (SELECT u.UserPrincipalName, s.SkuId, s.SkuPartNumber, s.IsCopilot,
                      CAST(CASE WHEN s.IsCopilot = 0 AND ({family}) THEN 1 ELSE 0 END AS BIT) AS Other
               FROM audit.UserLicenseSku AS u JOIN audit.LicenseSku AS s ON s.SkuId = u.SkuId
               WHERE NOT ({free})),
-h AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department
+/* Each person's Copilot licenses and whether they hold another Copilot-family one, counted in one pass: counted
+   person by person in subqueries, the licenses were read three times over for each of them. */
+per AS (SELECT held.UserPrincipalName, SUM(CASE WHEN held.IsCopilot = 1 THEN 1 ELSE 0 END) AS Copilots,
+               MAX(CASE WHEN held.Other = 1 THEN 1 ELSE 0 END) AS AnyOther
+        FROM held GROUP BY held.UserPrincipalName),
+h AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, per.Copilots
       FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-      WHERE EXISTS (SELECT 1 FROM held WHERE held.UserPrincipalName = du.UserPrincipalName AND held.IsCopilot = 1)
-        AND ((SELECT COUNT(*) FROM held WHERE held.UserPrincipalName = du.UserPrincipalName AND held.IsCopilot = 1) > 1
-             OR EXISTS (SELECT 1 FROM held WHERE held.UserPrincipalName = du.UserPrincipalName AND held.Other = 1))),
+      JOIN per ON per.UserPrincipalName = du.UserPrincipalName
+      WHERE per.Copilots >= 1 AND (per.Copilots > 1 OR per.AnyOther = 1)),
 o AS (SELECT h.UserKey, held.SkuId, held.SkuPartNumber FROM h JOIN held ON held.UserPrincipalName = h.UserPrincipalName
-      WHERE held.Other = 1 OR (held.IsCopilot = 1 AND (SELECT COUNT(*) FROM held AS c WHERE c.UserPrincipalName = h.UserPrincipalName AND c.IsCopilot = 1) > 1))";
+      WHERE held.Other = 1 OR (held.IsCopilot = 1 AND h.Copilots > 1))";
 
         /* The three reads share nothing but their arguments: started together. */
         var bySkuTask = Db.QueryAsync<(Guid SkuId, string Part, int People, int Bought, int Assigned)>($@"{cte}
@@ -84,7 +88,8 @@ GROUP BY o.SkuId, o.SkuPartNumber ORDER BY COUNT(*) DESC;", args);
 x AS (SELECT h.DisplayName, h.UserPrincipalName, h.Department,
              (SELECT STRING_AGG(held.SkuPartNumber, N', ') FROM held WHERE held.UserPrincipalName = h.UserPrincipalName AND held.IsCopilot = 1) AS CopilotSkus,
              (SELECT STRING_AGG(held.SkuPartNumber, N', ') FROM held WHERE held.UserPrincipalName = h.UserPrincipalName AND held.Other = 1) AS Others,
-             (SELECT MAX(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = h.UserKey AND ud.Interactions > 0) AS LastKey
+             ({(Ctx.Rollups ? "SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = h.UserKey"   // the last day of use, as the refresh keeps it
+                            : "SELECT MAX(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = h.UserKey AND ud.Interactions > 0")}) AS LastKey
       FROM h WHERE @sku IS NULL OR EXISTS (SELECT 1 FROM o WHERE o.UserKey = h.UserKey AND o.SkuId = @sku))
 SELECT x.DisplayName, x.UserPrincipalName, x.Department, x.CopilotSkus, x.Others, dl.[Date] AS LastUsed, COUNT(*) OVER () AS TotalRows
 FROM x LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey

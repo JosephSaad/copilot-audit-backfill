@@ -77,7 +77,9 @@ SELECT u.DisplayName, u.UserPrincipalName, u.Department, u.ManagerName, u.Licens
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey
 LEFT JOIN dash.TechnologyAllocation AS t ON t.Upn = u.UserPrincipalName AND t.EffectiveFrom <= @day
-OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = u.UserKey AND ud.Interactions > 0) AS x
+OUTER APPLY ({(Ctx.Rollups
+    ? "SELECT ua.LastActiveKey AS LastKey FROM dash.UserActivity AS ua WHERE ua.UserKey = u.UserKey"   // the last day of use, kept by the refresh
+    : "SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = u.UserKey AND ud.Interactions > 0")}) AS x
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 WHERE ld.DateKey = @k AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName)
   AND {which}

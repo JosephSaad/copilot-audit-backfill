@@ -49,11 +49,66 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     }
 
     /// <summary>
+    /// The same CTE for a context: each person's sums over the last 30 days as ReportContext.PerPerson reads them, from
+    /// the totals the refresh keeps when it has them. The same days, Premium days and interactions, without summing every
+    /// person's last 30 days on each visit. The query passes @k30 (the 30 days' first key) and @k1, as for the other.
+    /// </summary>
+    internal static async Task<string> ActivitySqlAsync(Db db, ReportContext c, int k30)
+    {
+        var k1 = c.EndKey;
+        var ready = await db.ScalarAsync<int>(@"SELECT CASE WHEN COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NOT NULL
+    AND EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k30 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END;", new { k30, k1 }) == 1;
+        return $@"a AS (SELECT p.UserKey, p.ActiveDays AS D, {(ready ? "p.PremiumDays" : "p.ActiveDays")} AS P, p.Interactions AS I
+           FROM {c.PerPerson(30, "@k30")} AS p)";
+    }
+
+    /// <summary>
     /// Whose account a list may name (3.1.3): upgrade and train are for people, so accounts enabled today only (a departed
     /// person has no AccountEnabled and is left out). Revoke reclaims a license, so it keeps everyone but the disabled, who
     /// are on Licenses on disabled accounts, as before.
     /// </summary>
     public static string Enabled(string kind) => kind == "revoke" ? "ISNULL(du.AccountEnabled, 1) = 1" : "du.AccountEnabled = 1";
+
+    /*
+        A page's people, their last day of use and the license type Copilot wrote into their latest record that names
+        one. The last day is each person's from dash.UserActivity. The latest typed record is looked for on that day or
+        after it first (for someone with no use on record, after the last day dash.UserDay holds), which the columnstore
+        reads only those days of; only the people whose records there name no license type have their earlier records
+        read. Read over every record of the page's people, it took 1 to 13 seconds at 160 million interactions.
+    */
+    const string DetailSql = @"
+SELECT CAST(j.[value] AS INT) AS UserKey INTO #keys FROM OPENJSON(@keys) AS j;
+SELECT k.UserKey, ua.LastActiveKey INTO #used FROM #keys AS k JOIN dash.UserActivity AS ua ON ua.UserKey = k.UserKey WHERE ua.LastActiveKey IS NOT NULL;
+DECLARE @after INT = (SELECT MAX(DateKey) + 1 FROM dash.UserDay);
+DECLARE @from INT = (SELECT ISNULL(MIN(LastActiveKey), @after) FROM #used);
+SELECT f.UserKey, f.DateKey, f.LicenseTypeKey INTO #rec
+FROM bi.FactInteraction AS f
+JOIN (SELECT k.UserKey, ISNULL(u.LastActiveKey, @after) AS FromKey FROM #keys AS k LEFT JOIN #used AS u ON u.UserKey = k.UserKey) AS k
+  ON k.UserKey = f.UserKey AND f.DateKey >= k.FromKey
+WHERE f.LicenseTypeKey <> 1 AND f.DateKey >= @from
+OPTION (RECOMPILE);
+IF EXISTS (SELECT 1 FROM #used AS u WHERE NOT EXISTS (SELECT 1 FROM #rec AS r WHERE r.UserKey = u.UserKey))
+    INSERT INTO #rec (UserKey, DateKey, LicenseTypeKey)
+    SELECT f.UserKey, f.DateKey, f.LicenseTypeKey
+    FROM bi.FactInteraction AS f
+    JOIN #used AS u ON u.UserKey = f.UserKey AND f.DateKey < u.LastActiveKey
+    WHERE f.LicenseTypeKey <> 1 AND NOT EXISTS (SELECT 1 FROM #rec AS r WHERE r.UserKey = u.UserKey);
+SELECT k.UserKey, dl.[Date], dash.fnValueName(10, t.LicenseType)
+FROM #keys AS k
+LEFT JOIN #used AS u ON u.UserKey = k.UserKey
+LEFT JOIN bi.DimDate AS dl ON dl.DateKey = u.LastActiveKey
+OUTER APPLY (SELECT TOP (1) r.LicenseTypeKey FROM #rec AS r WHERE r.UserKey = k.UserKey ORDER BY r.DateKey DESC) AS rec
+LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;";
+
+    /// <summary>
+    /// The plan hint for a statement that writes a page's people into a temporary table from the totals the refresh
+    /// keeps: PlanHints' own (built for a typical range for the whole organization, for the people asked for inside a
+    /// part of it), and on one thread. Read from the totals, the people are a few hundred thousand rows; written into the
+    /// table by several threads at once, they waited on each other: 9 to 23 seconds for under half a second of work.
+    /// Summing the days instead (no totals for the window), the statement keeps PlanHints' hint alone.
+    /// </summary>
+    internal static string IntoHint(ReportContext c, int? choice = 30) =>
+        !c.RolledDays.Contains(choice ?? c.Choice) ? "" : c.Root is null ? "OPTION (OPTIMIZE FOR UNKNOWN, MAXDOP 1)" : "OPTION (RECOMPILE, MAXDOP 1)";
 
     internal static async Task<bool> PremiumReadyAsync(Db db, int k30, int k1) => (await ActivitySqlAsync(db, k30, k1)).Contains("PremiumUse");
 
@@ -93,7 +148,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         var kind = Request.Query["kind"].FirstOrDefault() is "revoke" ? "revoke" : "upgrade";
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
         var upns = await Db.QueryAsync<string>($@"
-WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
+WITH {await ActivitySqlAsync(Db, Ctx, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT du.UserPrincipalName
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
@@ -122,7 +177,7 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         /* The count is read on its own: taken from the page's first row, a page past the end (a stale link, a list
            that shrank) said 0 people at a cost of 0, with the empty-list text and no files to apply it. */
         var (count, rows) = await Db.QueryTwoAsync<int, Row>($@"
-WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
+WITH {await ActivitySqlAsync(Db, Ctx, k30)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, ISNULL(a.D, 0) AS Days, ISNULL(a.P, 0) AS PremiumDays, ISNULL(a.I, 0) AS Interactions,
        du.LicensedSinceUtc,
@@ -135,7 +190,8 @@ LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN lic ON lic.UserKey = du.UserKey
 WHERE {Kinds[kind].Where}
   AND {Enabled(kind)}
-  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q);
+  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
+{IntoHint(Ctx)};
 SELECT COUNT(*) FROM #b;
 SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.Like }));
         pg.Total = count.Single();
@@ -148,7 +204,7 @@ SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.
             /* The people as one parameter, a JSON list. One parameter each was SQL Server's limit of 2,100 at
                about 1,050 people, twice named here: a page of 50 was fine, and the CSV of a longer list failed. */
             var keys = System.Text.Json.JsonSerializer.Serialize(rows.Select(r => r.UserKey));
-            var detail = (await Db.QueryAsync<(int UserKey, DateTime? LastUsed, string? RecordedLicense)>(@"
+            var detail = (await Db.QueryAsync<(int UserKey, DateTime? LastUsed, string? RecordedLicense)>(Ctx.Rollups ? DetailSql : @"
 SELECT CAST(j.[value] AS INT) AS UserKey INTO #keys FROM OPENJSON(@keys) AS j;
 WITH used AS (SELECT x.UserKey, MAX(x.DateKey) AS DateKey FROM dash.UserDay AS x WHERE x.UserKey IN (SELECT UserKey FROM #keys) AND x.Interactions > 0 GROUP BY x.UserKey),
 rec AS (SELECT f.UserKey, f.LicenseTypeKey, ROW_NUMBER() OVER (PARTITION BY f.UserKey ORDER BY f.DateKey DESC) AS n

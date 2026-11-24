@@ -661,7 +661,9 @@ IF OBJECT_ID(N'dash.UserActivity', N'U') IS NULL
 
       dash.UserItemDay     per person per day per app (Kind A, Item = bi.DimApp.AppKey) or agent (Kind G, Item =
                            bi.DimAgent.AgentKey, never the "(none)" agent): kept by dash.usp_RefreshDashboard as
-                           dash.UserDay is, from the same day.
+                           dash.UserDay is, from the same day. Also per use case (U, bi.DimUseCase), license type
+                           Copilot recorded (L, LicenseTypeKey), model (M, ModelKey), and the interactions with a
+                           flag (F: Item 1 memory updated, 2 called another agent, 3 data-loss check deferred).
       dash.UserItemWeek    the same per Saturday-to-Friday week, as dash.UserWeek.
       dash.UserItemPeriod  the same over each period a page offers, as dash.UserPeriod.
 */
@@ -670,8 +672,8 @@ IF OBJECT_ID(N'dash.UserItemDay', N'U') IS NULL
     (
         DateKey      INT     NOT NULL,
         UserKey      INT     NOT NULL,
-        Kind         CHAR(1) NOT NULL,   -- A: an app, G: an agent
-        Item         INT     NOT NULL,   -- the app's or the agent's key
+        Kind         CHAR(1) NOT NULL,   -- A: an app, G: an agent, U: a use case, L: a license type, M: a model, F: a flag
+        Item         INT     NOT NULL,   -- the app's, agent's, use case's, license type's or model's key, or the flag's number
         Interactions INT     NOT NULL,
         Prompts      INT     NOT NULL,
         Resources    INT     NOT NULL,   -- the resources its interactions read
@@ -717,6 +719,54 @@ IF OBJECT_ID(N'dash.UserItemPeriod', N'U') IS NULL
         /* One row per period, kind, item and person, rebuilt whole by each refresh: a columnstore, which a page reading
            one period scans in batches, and which takes a third of the space. */
         INDEX CCI_DashUserItemPeriod CLUSTERED COLUMNSTORE
+    );
+
+/*
+    What the Copilot Credit estimate counts, per person and agent (the "(none)" agent too: use without an agent), per
+    day and per period a page offers: interactions, those with an agent, those billed (an agent used by someone not
+    licensed at the time, or in a Copilot Studio channel), billed ones that read work data or called another agent,
+    resources read and messages, and whether the person was licensed at any of them. Agents costing credits, Credit
+    use and License for credits counted it from bi.FactInteraction on every first visit: 12 to 28 seconds at 160
+    million interactions. Kept by dash.usp_RefreshDashboard as dash.UserItemDay is.
+*/
+IF OBJECT_ID(N'dash.CreditUseDay', N'U') IS NULL
+    CREATE TABLE dash.CreditUseDay
+    (
+        DateKey      INT     NOT NULL,
+        UserKey      INT     NOT NULL,
+        AgentKey     INT     NOT NULL,
+        I            INT     NOT NULL,   -- interactions
+        A            INT     NOT NULL,   -- with an agent
+        B            INT     NOT NULL,   -- billed
+        BW           INT     NOT NULL,   -- billed, reading work data
+        BA           INT     NOT NULL,   -- billed, calling another agent
+        R            BIGINT  NOT NULL,   -- resources read
+        M            BIGINT  NOT NULL,   -- messages (the prompt and the answer each count)
+        Lic          TINYINT NOT NULL,   -- 1 when any was made while licensed
+        AnyBilled    TINYINT NOT NULL,   -- 1 when any was billed
+        CONSTRAINT PK_DashCreditUseDay PRIMARY KEY (DateKey, UserKey, AgentKey)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.CreditUseDay') AND name = N'NCCI_DashCreditUseDay')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashCreditUseDay ON dash.CreditUseDay
+          (DateKey, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled);');
+
+IF OBJECT_ID(N'dash.CreditUsePeriod', N'U') IS NULL
+    CREATE TABLE dash.CreditUsePeriod
+    (
+        EndKey    INT      NOT NULL,   -- the period's last day
+        Days      SMALLINT NOT NULL,   -- as dash.UserPeriod's: 7 to 730 days, or 0 for All data
+        UserKey   INT      NOT NULL,
+        AgentKey  INT      NOT NULL,
+        I         BIGINT   NOT NULL,
+        A         BIGINT   NOT NULL,
+        B         BIGINT   NOT NULL,
+        BW        BIGINT   NOT NULL,
+        BA        BIGINT   NOT NULL,
+        R         BIGINT   NOT NULL,
+        M         BIGINT   NOT NULL,
+        Lic       TINYINT  NOT NULL,
+        AnyBilled TINYINT  NOT NULL,
+        INDEX CCI_DashCreditUsePeriod CLUSTERED COLUMNSTORE
     );
 
 /*
@@ -776,18 +826,19 @@ IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
     when they drill in; a whole-organization view with no drill-in does not
     call it at all. The keys are the ones the refresh wrote on the closure, read
     from one index (IX_DashOrgClosure_Part), where each was looked up in
-    bi.DimUser by sign-in. A row written without its key (by another tool, or
-    for a person bi gained after the refresh) is still looked up by sign-in.
+    bi.DimUser by sign-in: 24 ms for a part of 70,000 people at 210,000, where
+    the lookup took 0.7 s, and a fallback to it for rows without a key made the
+    plan worse than either. The refresh writes every row's key; the bi refresh
+    that adds a person runs just before it.
 */
 EXEC (N'
 CREATE OR ALTER FUNCTION dash.fnScopeUsers (@RootUpn NVARCHAR(256))
 RETURNS TABLE
 AS
 RETURN
-SELECT COALESCE(c.DescendantKey, u.UserKey) AS UserKey
+SELECT c.DescendantKey AS UserKey
 FROM dash.OrgClosure AS c
-LEFT JOIN bi.DimUser AS u ON c.DescendantKey IS NULL AND u.UserPrincipalName = c.DescendantUpn
-WHERE c.AncestorUpn = @RootUpn AND COALESCE(c.DescendantKey, u.UserKey) IS NOT NULL;');
+WHERE c.AncestorUpn = @RootUpn AND c.DescendantKey IS NOT NULL;');
 
 /*
     The agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per

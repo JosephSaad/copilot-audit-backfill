@@ -325,8 +325,13 @@ BEGIN
     COMMIT TRANSACTION;
 
     /* Each person's use of each app and each agent per day (dash.UserItemDay), from the same day as dash.UserDay, or
-       every day the first time. Apps and agents apart: most interactions have no agent, and are not read twice. */
-    DECLARE @itemFrom INT = CASE WHEN EXISTS (SELECT 1 FROM dash.UserItemDay) THEN @fromKey END;
+       every day the first time. Apps and agents apart: most interactions have no agent, and are not read twice. Also
+       per use case (U), license type Copilot recorded (L), model (M), and the interactions with each of three flags
+       (F). The kinds the table holds are recorded (setting DashItemKinds): a database whose table was built with
+       fewer kinds is built whole once, so the new kinds cover every day. */
+    DECLARE @kinds NVARCHAR(40) = N'A,G,U,L,M,F';
+    DECLARE @itemFrom INT = CASE WHEN EXISTS (SELECT 1 FROM dash.UserItemDay)
+                                  AND EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'DashItemKinds' AND Value = @kinds) THEN @fromKey END;
     DROP TABLE IF EXISTS #item;
     SELECT f.DateKey, f.UserKey, CAST('A' AS CHAR(1)) AS Kind, f.AppKey AS Item, CAST(COUNT_BIG(*) AS INT) AS Interactions,
            ISNULL(SUM(f.PromptCount), 0) AS Prompts, ISNULL(SUM(f.AccessedResourceCount), 0) AS Resources,
@@ -342,6 +347,16 @@ BEGIN
     FROM bi.FactInteraction AS f
     WHERE (@itemFrom IS NULL OR f.DateKey >= @itemFrom) AND f.AgentKey <> ISNULL(@noAgent, -1)
     GROUP BY f.DateKey, f.UserKey, f.AgentKey
+    OPTION (RECOMPILE);
+    INSERT INTO #item WITH (TABLOCK) (DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web)
+    SELECT f.DateKey, f.UserKey, k.Kind, k.Item, CAST(COUNT_BIG(*) AS INT), ISNULL(SUM(f.PromptCount), 0),
+           ISNULL(SUM(f.AccessedResourceCount), 0), ISNULL(SUM(CAST(f.UsedWebSearch AS INT)), 0)
+    FROM bi.FactInteraction AS f
+    CROSS APPLY (VALUES ('U', f.UseCaseKey), ('L', f.LicenseTypeKey), ('M', f.ModelKey),
+                        ('F', CASE WHEN f.MemoryUpdated = 1 THEN 1 END), ('F', CASE WHEN f.CalledAnotherAgent = 1 THEN 2 END),
+                        ('F', CASE WHEN f.DlpEvaluationDeferred = 1 THEN 3 END)) AS k (Kind, Item)
+    WHERE (@itemFrom IS NULL OR f.DateKey >= @itemFrom) AND k.Item IS NOT NULL
+    GROUP BY f.DateKey, f.UserKey, k.Kind, k.Item
     OPTION (RECOMPILE);
     /* Written whole, the table's columnstore is set aside and built again after, in one pass: kept up row by row, a
        first build of tens of millions of rows takes minutes in its delta stores. */
@@ -360,8 +375,52 @@ BEGIN
     SELECT DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web FROM #item;
     IF @itemWhole = 1
         ALTER INDEX NCCI_DashUserItemDay ON dash.UserItemDay REBUILD;
+    MERGE dash.Setting AS t
+    USING (SELECT 'DashItemKinds' AS Name, @kinds AS Value) AS s ON t.Name = s.Name
+    WHEN MATCHED AND t.Value <> s.Value THEN UPDATE SET Value = s.Value, UpdatedBy = N'dash.usp_RefreshDashboard', UpdatedUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
+        VALUES (s.Name, s.Value, N'The kinds dash.UserItemDay holds. Written by each refresh: one built with fewer is built whole once.', N'dash.usp_RefreshDashboard');
     COMMIT TRANSACTION;
     DROP TABLE #item;
+
+    /* What the Copilot Credit estimate counts, per person, agent and day (dash.CreditUseDay), from the same day as
+       dash.UserItemDay, or every day the first time. Billed: an agent used by someone not licensed at the time
+       (status 2; an unknown status is not taken for unlicensed), or in a Copilot Studio channel. */
+    DECLARE @creditFrom INT = CASE WHEN EXISTS (SELECT 1 FROM dash.CreditUseDay) THEN @itemFrom END;
+    DROP TABLE IF EXISTS #credit;
+    SELECT fi.DateKey, fi.UserKey, fi.AgentKey,
+           CAST(COUNT_BIG(*) AS INT) AS I, SUM(x.IsAgent) AS A, SUM(x.Billed) AS B, SUM(x.Billed * x.Work) AS BW, SUM(x.Billed * x.Calls) AS BA,
+           SUM(CAST(ISNULL(fi.AccessedResourceCount, 0) AS BIGINT)) AS R, SUM(CAST(ISNULL(fi.MessageCount, 1) AS BIGINT)) AS M,
+           CAST(MAX(x.Lic) AS TINYINT) AS Lic, CAST(MAX(x.Billed) AS TINYINT) AS AnyBilled
+    INTO #credit
+    FROM bi.FactInteraction AS fi
+    JOIN bi.DimAgent AS ag ON ag.AgentKey = fi.AgentKey
+    JOIN bi.DimApp AS ap ON ap.AppKey = fi.AppKey
+    CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS IsAgent,
+                        CASE WHEN fi.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS Lic,
+                        CASE WHEN ag.AgentSource <> N'(no agent)' AND (fi.LicenseStatusKey = 2 OR ap.App = N'Copilot Studio') THEN 1 ELSE 0 END AS Billed,
+                        CASE WHEN fi.AccessedResourceCount > 0 OR fi.UseKind IN (1, 3) THEN 1 ELSE 0 END AS Work,
+                        CAST(ISNULL(fi.CalledAnotherAgent, 0) AS INT) AS Calls) AS x
+    WHERE @creditFrom IS NULL OR fi.DateKey >= @creditFrom
+    GROUP BY fi.DateKey, fi.UserKey, fi.AgentKey
+    OPTION (RECOMPILE);
+    DECLARE @creditWhole BIT = CASE WHEN @creditFrom IS NULL AND HAS_PERMS_BY_NAME(N'dash.CreditUseDay', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
+    BEGIN TRANSACTION;
+    IF @creditWhole = 1
+    BEGIN
+        ALTER INDEX NCCI_DashCreditUseDay ON dash.CreditUseDay DISABLE;
+        TRUNCATE TABLE dash.CreditUseDay;
+    END;
+    ELSE IF @creditFrom IS NULL
+        DELETE FROM dash.CreditUseDay;
+    ELSE
+        DELETE FROM dash.CreditUseDay WHERE DateKey >= @creditFrom;
+    INSERT INTO dash.CreditUseDay WITH (TABLOCK) (DateKey, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled)
+    SELECT DateKey, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled FROM #credit;
+    IF @creditWhole = 1
+        ALTER INDEX NCCI_DashCreditUseDay ON dash.CreditUseDay REBUILD;
+    COMMIT TRANSACTION;
+    DROP TABLE #credit;
 
     /* ---- 3. Totals of dash.UserDay the pages read ---------------------------- */
 
@@ -394,8 +453,9 @@ BEGIN
     GROUP BY d.WeekEnding, ud.UserKey
     OPTION (RECOMPILE);
 
-    /* The same per app and agent (dash.UserItemWeek), from the same week, or every week the first time. */
-    DECLARE @itemWeekFrom DATE = CASE WHEN EXISTS (SELECT 1 FROM dash.UserItemWeek) THEN @weekFrom END;
+    /* The same per app and agent (dash.UserItemWeek), from the same week, or every week the first time and whenever
+       dash.UserItemDay was just built whole (new kinds). */
+    DECLARE @itemWeekFrom DATE = CASE WHEN @itemFrom IS NOT NULL AND EXISTS (SELECT 1 FROM dash.UserItemWeek) THEN @weekFrom END;
     DECLARE @itemWeekFromKey INT = CASE WHEN @itemWeekFrom IS NOT NULL THEN @weekFromKey END;
     DROP TABLE IF EXISTS #itemweek;
     SELECT d.WeekEnding, ui.UserKey, ui.Kind, ui.Item, CAST(COUNT(*) AS TINYINT) AS ActiveDays, SUM(ui.Interactions) AS Interactions,
@@ -461,6 +521,10 @@ BEGIN
     CREATE TABLE #itemperiod (EndKey INT NOT NULL, Days SMALLINT NOT NULL, Kind CHAR(1) NOT NULL, Item INT NOT NULL, UserKey INT NOT NULL,
                               ActiveDays SMALLINT NOT NULL, LastActiveKey INT NOT NULL, Interactions INT NOT NULL, Prompts INT NOT NULL,
                               Resources INT NOT NULL, Web INT NOT NULL);
+    DROP TABLE IF EXISTS #creditperiod;
+    CREATE TABLE #creditperiod (EndKey INT NOT NULL, Days SMALLINT NOT NULL, UserKey INT NOT NULL, AgentKey INT NOT NULL, I BIGINT NOT NULL,
+                                A BIGINT NOT NULL, B BIGINT NOT NULL, BW BIGINT NOT NULL, BA BIGINT NOT NULL, R BIGINT NOT NULL, M BIGINT NOT NULL,
+                                Lic TINYINT NOT NULL, AnyBilled TINYINT NOT NULL);
     DECLARE @pEnd INT, @pDays SMALLINT, @pFrom INT;
     DECLARE periods CURSOR LOCAL FAST_FORWARD FOR
         SELECT e.EndKey, p.Days
@@ -488,6 +552,13 @@ BEGIN
         FROM dash.UserItemDay AS ui
         WHERE ui.DateKey BETWEEN @pFrom AND @pEnd
         GROUP BY ui.Kind, ui.Item, ui.UserKey
+        OPTION (RECOMPILE);
+        INSERT INTO #creditperiod WITH (TABLOCK)
+        SELECT @pEnd, @pDays, cu.UserKey, cu.AgentKey, SUM(CAST(cu.I AS BIGINT)), SUM(CAST(cu.A AS BIGINT)), SUM(CAST(cu.B AS BIGINT)),
+               SUM(CAST(cu.BW AS BIGINT)), SUM(CAST(cu.BA AS BIGINT)), SUM(cu.R), SUM(cu.M), MAX(cu.Lic), MAX(cu.AnyBilled)
+        FROM dash.CreditUseDay AS cu
+        WHERE cu.DateKey BETWEEN @pFrom AND @pEnd
+        GROUP BY cu.UserKey, cu.AgentKey
         OPTION (RECOMPILE);
         FETCH NEXT FROM periods INTO @pEnd, @pDays;
     END;
@@ -574,6 +645,30 @@ BEGIN
         END CATCH;
     END;
 
+    SET @periodTry = 0;
+    WHILE 1 = 1
+    BEGIN
+        BEGIN TRY
+            BEGIN TRANSACTION;
+            IF @mayTruncate = 1 TRUNCATE TABLE dash.CreditUsePeriod; ELSE DELETE FROM dash.CreditUsePeriod;
+            IF @periodTry = 0
+                INSERT INTO dash.CreditUsePeriod WITH (TABLOCK) (EndKey, Days, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled)
+                SELECT EndKey, Days, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled FROM #creditperiod;
+            ELSE
+                INSERT INTO dash.CreditUsePeriod WITH (TABLOCK) (EndKey, Days, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled)
+                SELECT EndKey, Days, UserKey, AgentKey, I, A, B, BW, BA, R, M, Lic, AnyBilled FROM #creditperiod
+                OPTION (MAXDOP 1);
+            COMMIT TRANSACTION;
+            BREAK;
+        END TRY
+        BEGIN CATCH
+            IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+            IF ERROR_NUMBER() <> 1205 OR @periodTry > 0 THROW;
+            SET @periodTry = 1;
+            RAISERROR('  The load of dash.CreditUsePeriod was chosen as a deadlock victim: loading it again on one thread.', 0, 1) WITH NOWAIT;
+        END CATCH;
+    END;
+
     /* ---- 4. The columnstores over what this run wrote ------------------------ */
 
     /* Rows written to a table with a columnstore beside it wait in a delta store, read row by row, until a million have
@@ -589,6 +684,8 @@ BEGIN
         ALTER INDEX NCCI_DashUserItemDay ON dash.UserItemDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
         ALTER INDEX NCCI_DashUserItemWeek ON dash.UserItemWeek REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
         ALTER INDEX CCI_DashUserItemPeriod ON dash.UserItemPeriod REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashCreditUseDay ON dash.CreditUseDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX CCI_DashCreditUsePeriod ON dash.CreditUsePeriod REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
     END;
 
     INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows, BiRunId)

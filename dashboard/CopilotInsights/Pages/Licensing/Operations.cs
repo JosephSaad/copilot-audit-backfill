@@ -78,13 +78,17 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         int bought = copilot.Sum(p => p.Bought), assigned = copilot.Sum(p => p.Consumed);
         /* The use set against the tenant's seats is the tenant's (see OpsReports.Tenant). */
         var tc = OpsReports.Tenant(Ctx);
-        var t = await metrics.TotalsAsync(tc);
-        /* Those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
-        var inSuite = await Db.ScalarAsync<int>($@"
+        /* Those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. Their
+           licensed use in the 30 days is read from each person's sums where the refresh keeps them for this day. */
+        var licensedUse = tc.RolledDays.Contains(tc.Choice)
+            ? $"EXISTS (SELECT 1 FROM {tc.PerPerson()} AS p WHERE p.UserKey = ld.UserKey AND p.LicensedUse > 0)"
+            : "EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.LicensedUse > 0)";
+        /* The two reads do not depend on each other, each on its own connection: started together. */
+        var (t, inSuite) = await Queries(metrics.TotalsAsync(tc), Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
-WHERE ld.DateKey = @k1 AND du.AccountEnabled = 1   -- as Totals.ActiveLicensed counts them (3.1.3)
+WHERE ld.DateKey = @k1 AND du.AccountEnabled = 1   -- as Totals.ActiveLicensed counts them
   AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
-  AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.LicensedUse > 0);", tc.Args());
+  AND {licensedUse};", tc.Args()));
         t.ActiveLicensed = Math.Max(0, t.ActiveLicensed - inSuite);
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
