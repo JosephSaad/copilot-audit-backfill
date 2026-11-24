@@ -14,6 +14,13 @@
          rollup, and from the first day of an app whose category a
          bi refresh changed.
       3. dash.AgentUse, whole: when each agent was first and last used.
+      4. The totals the pages read: dash.UserItemDay (per person per app and
+         agent) from @SinceUtc's day, as dash.UserDay; dash.UserWeek and
+         dash.UserItemWeek from the week it falls in, dash.AdoptionDay from
+         its day; dash.UserActivity, dash.UserPeriod, dash.UserItemPeriod and
+         dash.SitePerson whole; each whole the first time.
+      5. The columnstores over what it wrote, compressed, when the caller may
+         alter the tables.
 
     Invoke-CopilotAuditBackfill.ps1 -Incremental and the CSV importer call it
     last, after bi.usp_RefreshBi, with the same @SinceUtc.
@@ -125,8 +132,12 @@ BEGIN
 
     BEGIN TRANSACTION;
     DELETE FROM dash.OrgClosure;
-    INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth)
-    SELECT AncestorUpn, DescendantUpn, Depth FROM #clo;
+    /* With each person's bi.DimUser key and whether their account is enabled, which the pages read with the pairs. */
+    INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth, DescendantKey, DescendantEnabled)
+    SELECT c.AncestorUpn, c.DescendantUpn, c.Depth, u.UserKey, p.AccountEnabled
+    FROM #clo AS c
+    LEFT JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn
+    LEFT JOIN #person AS p ON p.Upn = c.DescendantUpn;
 
     DELETE FROM dash.Person;
     INSERT INTO dash.Person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled, Sid, Level, DirectReports, PeopleBelow)
@@ -312,6 +323,273 @@ BEGIN
     INSERT INTO dash.AgentUse (AgentKey, FirstDateKey, LastDateKey, Interactions)
     SELECT AgentKey, MIN(DateKey), MAX(DateKey), COUNT_BIG(*) FROM bi.FactInteraction GROUP BY AgentKey;
     COMMIT TRANSACTION;
+
+    /* Each person's use of each app and each agent per day (dash.UserItemDay), from the same day as dash.UserDay, or
+       every day the first time. Apps and agents apart: most interactions have no agent, and are not read twice. */
+    DECLARE @itemFrom INT = CASE WHEN EXISTS (SELECT 1 FROM dash.UserItemDay) THEN @fromKey END;
+    DROP TABLE IF EXISTS #item;
+    SELECT f.DateKey, f.UserKey, CAST('A' AS CHAR(1)) AS Kind, f.AppKey AS Item, CAST(COUNT_BIG(*) AS INT) AS Interactions,
+           ISNULL(SUM(f.PromptCount), 0) AS Prompts, ISNULL(SUM(f.AccessedResourceCount), 0) AS Resources,
+           ISNULL(SUM(CAST(f.UsedWebSearch AS INT)), 0) AS Web
+    INTO #item
+    FROM bi.FactInteraction AS f
+    WHERE @itemFrom IS NULL OR f.DateKey >= @itemFrom
+    GROUP BY f.DateKey, f.UserKey, f.AppKey
+    OPTION (RECOMPILE);
+    INSERT INTO #item WITH (TABLOCK) (DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web)
+    SELECT f.DateKey, f.UserKey, 'G', f.AgentKey, CAST(COUNT_BIG(*) AS INT), ISNULL(SUM(f.PromptCount), 0),
+           ISNULL(SUM(f.AccessedResourceCount), 0), ISNULL(SUM(CAST(f.UsedWebSearch AS INT)), 0)
+    FROM bi.FactInteraction AS f
+    WHERE (@itemFrom IS NULL OR f.DateKey >= @itemFrom) AND f.AgentKey <> ISNULL(@noAgent, -1)
+    GROUP BY f.DateKey, f.UserKey, f.AgentKey
+    OPTION (RECOMPILE);
+    /* Written whole, the table's columnstore is set aside and built again after, in one pass: kept up row by row, a
+       first build of tens of millions of rows takes minutes in its delta stores. */
+    DECLARE @itemWhole BIT = CASE WHEN @itemFrom IS NULL AND HAS_PERMS_BY_NAME(N'dash.UserItemDay', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
+    BEGIN TRANSACTION;
+    IF @itemWhole = 1
+    BEGIN
+        ALTER INDEX NCCI_DashUserItemDay ON dash.UserItemDay DISABLE;
+        TRUNCATE TABLE dash.UserItemDay;
+    END;
+    ELSE IF @itemFrom IS NULL
+        DELETE FROM dash.UserItemDay;
+    ELSE
+        DELETE FROM dash.UserItemDay WHERE DateKey >= @itemFrom;
+    INSERT INTO dash.UserItemDay WITH (TABLOCK) (DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web)
+    SELECT DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web FROM #item;
+    IF @itemWhole = 1
+        ALTER INDEX NCCI_DashUserItemDay ON dash.UserItemDay REBUILD;
+    COMMIT TRANSACTION;
+    DROP TABLE #item;
+
+    /* ---- 3. Totals of dash.UserDay the pages read ---------------------------- */
+
+    /* Each is worked out from dash.UserDay as it now stands, into a temporary table, then put in place in a short
+       transaction of its own: a page reading one waits for the swap, not for the sums. A page that reads one while
+       another is still being swapped is kept under the data stamp from before, which this run's dash.RefreshRun row
+       ends. Where the table is empty (the first refresh after an upgrade), or the run rebuilds every day, each is
+       built whole. */
+    DECLARE @maxKey INT = (SELECT MAX(DateKey) FROM dash.UserDay);
+    DECLARE @minKey INT = (SELECT MIN(DateKey) FROM dash.UserDay);
+
+    /* By week: the weeks from the one @fromKey falls in, each rebuilt whole from its days. */
+    DECLARE @weekFrom DATE = NULL, @weekFromKey INT = NULL;
+    IF @fromKey IS NOT NULL AND EXISTS (SELECT 1 FROM dash.UserWeek)
+        SELECT @weekFrom = d.WeekEnding,
+               @weekFromKey = (SELECT s.DateKey FROM bi.DimDate AS s WHERE s.[Date] = DATEADD(DAY, -6, d.WeekEnding))
+        FROM bi.DimDate AS d WHERE d.DateKey = @fromKey;
+    IF @weekFromKey IS NULL SET @weekFrom = NULL;
+    DROP TABLE IF EXISTS #week;
+    SELECT d.WeekEnding, ud.UserKey, CAST(COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS TINYINT) AS ActiveDays,
+           SUM(ud.Interactions) AS Interactions, SUM(ud.Prompts) AS Prompts, SUM(ud.AgentInteractions) AS AgentInteractions,
+           SUM(ud.WebGrounded) AS WebGrounded, SUM(ud.ChatInteractions) AS ChatInteractions, SUM(ud.LicensedUse) AS LicensedUse,
+           SUM(ud.PremiumUse) AS PremiumUse, SUM(ud.Jailbreak) AS Jailbreak, SUM(ud.PromptInjection) AS PromptInjection,
+           SUM(ud.BlockedResource) AS BlockedResource, SUM(ud.LabeledContent) AS LabeledContent, SUM(ud.Sessions) AS Sessions,
+           SUM(ud.MultiTurnSessions) AS MultiTurnSessions
+    INTO #week
+    FROM dash.UserDay AS ud
+    JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+    WHERE @weekFromKey IS NULL OR ud.DateKey >= @weekFromKey
+    GROUP BY d.WeekEnding, ud.UserKey
+    OPTION (RECOMPILE);
+
+    /* The same per app and agent (dash.UserItemWeek), from the same week, or every week the first time. */
+    DECLARE @itemWeekFrom DATE = CASE WHEN EXISTS (SELECT 1 FROM dash.UserItemWeek) THEN @weekFrom END;
+    DECLARE @itemWeekFromKey INT = CASE WHEN @itemWeekFrom IS NOT NULL THEN @weekFromKey END;
+    DROP TABLE IF EXISTS #itemweek;
+    SELECT d.WeekEnding, ui.UserKey, ui.Kind, ui.Item, CAST(COUNT(*) AS TINYINT) AS ActiveDays, SUM(ui.Interactions) AS Interactions,
+           SUM(ui.Prompts) AS Prompts, SUM(ui.Resources) AS Resources, SUM(ui.Web) AS Web
+    INTO #itemweek
+    FROM dash.UserItemDay AS ui
+    JOIN bi.DimDate AS d ON d.DateKey = ui.DateKey
+    WHERE @itemWeekFromKey IS NULL OR ui.DateKey >= @itemWeekFromKey
+    GROUP BY d.WeekEnding, ui.UserKey, ui.Kind, ui.Item
+    OPTION (RECOMPILE);
+
+    /* Adoption's 28 days: each day a person used Copilot with a license keeps them adopted until their next such
+       day, or for 28 days, so each person-day is written once. From @fromKey on: a day looks back, never forward,
+       so the days before it keep theirs; it reads the 27 days before @fromKey for them. */
+    DECLARE @adoptFrom INT = CASE WHEN @fromKey IS NOT NULL AND EXISTS (SELECT 1 FROM dash.AdoptionDay) THEN @fromKey END;
+    DECLARE @adoptFromN INT = (SELECT DATEDIFF(DAY, 0, [Date]) FROM bi.DimDate WHERE DateKey = @adoptFrom);
+    IF @adoptFromN IS NULL SET @adoptFrom = NULL;
+    DECLARE @useFromKey INT = (SELECT MIN(DateKey) FROM bi.DimDate WHERE DATEDIFF(DAY, 0, [Date]) >= @adoptFromN - 27);
+    DROP TABLE IF EXISTS #adopt;
+    WITH used AS (SELECT ud.UserKey, DATEDIFF(DAY, 0, d.[Date]) AS N
+                  FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+                  WHERE ud.LicensedUse > 0 AND (@adoptFrom IS NULL OR ud.DateKey >= @useFromKey)),
+    iv AS (SELECT u.UserKey, u.N, ISNULL(LEAD(u.N) OVER (PARTITION BY u.UserKey ORDER BY u.N) - u.N, 28) AS Gap FROM used AS u),
+    k AS (SELECT n FROM (VALUES (0), (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12), (13), (14), (15), (16), (17), (18), (19),
+                                (20), (21), (22), (23), (24), (25), (26), (27)) AS v (n)),
+    cover AS (SELECT iv.UserKey, iv.N + k.n AS DayN FROM iv JOIN k ON k.n < iv.Gap)
+    SELECT d.DateKey, c.UserKey
+    INTO #adopt
+    FROM cover AS c
+    JOIN bi.DimDate AS d ON DATEDIFF(DAY, 0, d.[Date]) = c.DayN
+    WHERE d.DateKey <= @maxKey AND (@adoptFrom IS NULL OR d.DateKey >= @adoptFrom)
+    OPTION (RECOMPILE);
+
+    /* Each person and each site they read labeled content from or were blocked at, with the last day they did and the
+       last before @maxKey (dash.SitePerson), from dash.ResourceDay as it now stands: whole, as both move every day. */
+    DROP TABLE IF EXISTS #siteperson;
+    SELECT CAST(CASE r.Kind WHEN 'Site' THEN 'S' ELSE 'B' END AS CHAR(1)) AS Kind, s.SiteKey, r.UserKey,
+           MAX(r.DateKey) AS LastKey, MAX(CASE WHEN r.DateKey < @maxKey THEN r.DateKey END) AS PrevKey
+    INTO #siteperson
+    FROM dash.ResourceDay AS r
+    JOIN bi.DimSite AS s ON CAST(LEFT(s.Site, 400) AS NVARCHAR(400)) = r.Item
+    WHERE r.Kind IN ('Site', 'Blocked')
+    GROUP BY r.Kind, s.SiteKey, r.UserKey
+    OPTION (RECOMPILE);
+
+    /* Each person's first and last day of use, over every day. */
+    DROP TABLE IF EXISTS #act;
+    SELECT ud.UserKey, MIN(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS FirstActiveKey,
+           MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastActiveKey
+    INTO #act
+    FROM dash.UserDay AS ud
+    GROUP BY ud.UserKey;
+
+    /* Each person's sums over every period a page offers, ending on the last day with data or the day before it: a
+       page's period ends on the last complete day, which is one of the two whether or not today has begun arriving.
+       Days 0 is All data, from the first day with data. */
+    DROP TABLE IF EXISTS #period;
+    CREATE TABLE #period (EndKey INT NOT NULL, Days SMALLINT NOT NULL, UserKey INT NOT NULL, ActiveDays SMALLINT NOT NULL, PremiumDays SMALLINT NOT NULL,
+                          LastActiveKey INT NULL, MostApps TINYINT NOT NULL, Interactions INT NOT NULL, Prompts INT NOT NULL, AgentInteractions INT NOT NULL, WebGrounded INT NOT NULL,
+                          ChatInteractions INT NOT NULL, LicensedUse INT NOT NULL, PremiumUse INT NOT NULL, Jailbreak INT NOT NULL, PromptInjection INT NOT NULL,
+                          BlockedResource INT NOT NULL, LabeledContent INT NOT NULL, Sessions INT NOT NULL, MultiTurnSessions INT NOT NULL);
+    DROP TABLE IF EXISTS #itemperiod;
+    CREATE TABLE #itemperiod (EndKey INT NOT NULL, Days SMALLINT NOT NULL, Kind CHAR(1) NOT NULL, Item INT NOT NULL, UserKey INT NOT NULL,
+                              ActiveDays SMALLINT NOT NULL, LastActiveKey INT NOT NULL, Interactions INT NOT NULL, Prompts INT NOT NULL,
+                              Resources INT NOT NULL, Web INT NOT NULL);
+    DECLARE @pEnd INT, @pDays SMALLINT, @pFrom INT;
+    DECLARE periods CURSOR LOCAL FAST_FORWARD FOR
+        SELECT e.EndKey, p.Days
+        FROM (SELECT @maxKey AS EndKey UNION SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @maxKey) AS e
+        CROSS JOIN (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
+        WHERE e.EndKey IS NOT NULL;
+    OPEN periods;
+    FETCH NEXT FROM periods INTO @pEnd, @pDays;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @pFrom = CASE WHEN @pDays = 0 THEN @minKey
+                          ELSE CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 1 - @pDays, CONVERT(DATE, CONVERT(CHAR(8), @pEnd))), 112)) END;
+        INSERT INTO #period WITH (TABLOCK)
+        SELECT @pEnd, @pDays, ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END), COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END),
+               MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END), MAX(ud.AppsUsed),
+               SUM(ud.Interactions), SUM(ud.Prompts), SUM(ud.AgentInteractions), SUM(ud.WebGrounded), SUM(ud.ChatInteractions),
+               SUM(ud.LicensedUse), SUM(ud.PremiumUse), SUM(ud.Jailbreak), SUM(ud.PromptInjection), SUM(ud.BlockedResource),
+               SUM(ud.LabeledContent), SUM(ud.Sessions), SUM(ud.MultiTurnSessions)
+        FROM dash.UserDay AS ud
+        WHERE ud.DateKey BETWEEN @pFrom AND @pEnd
+        GROUP BY ud.UserKey
+        OPTION (RECOMPILE);
+        INSERT INTO #itemperiod WITH (TABLOCK)
+        SELECT @pEnd, @pDays, ui.Kind, ui.Item, ui.UserKey, COUNT(*), MAX(ui.DateKey), SUM(ui.Interactions), SUM(ui.Prompts), SUM(ui.Resources), SUM(ui.Web)
+        FROM dash.UserItemDay AS ui
+        WHERE ui.DateKey BETWEEN @pFrom AND @pEnd
+        GROUP BY ui.Kind, ui.Item, ui.UserKey
+        OPTION (RECOMPILE);
+        FETCH NEXT FROM periods INTO @pEnd, @pDays;
+    END;
+    CLOSE periods;
+    DEALLOCATE periods;
+
+    DECLARE @mayTruncate BIT = CASE WHEN HAS_PERMS_BY_NAME(N'dash.UserWeek', N'OBJECT', N'ALTER') = 1 THEN 1 ELSE 0 END;
+
+    BEGIN TRANSACTION;
+    IF @weekFrom IS NULL AND @mayTruncate = 1 TRUNCATE TABLE dash.UserWeek;
+    ELSE IF @weekFrom IS NULL DELETE FROM dash.UserWeek;
+    ELSE DELETE FROM dash.UserWeek WHERE WeekEnding >= @weekFrom;
+    INSERT INTO dash.UserWeek WITH (TABLOCK)
+        (WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
+         Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions)
+    SELECT WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse,
+           Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions
+    FROM #week;
+    COMMIT TRANSACTION;
+
+    BEGIN TRANSACTION;
+    IF @adoptFrom IS NULL AND @mayTruncate = 1 TRUNCATE TABLE dash.AdoptionDay;
+    ELSE IF @adoptFrom IS NULL DELETE FROM dash.AdoptionDay;
+    ELSE DELETE FROM dash.AdoptionDay WHERE DateKey >= @adoptFrom;
+    INSERT INTO dash.AdoptionDay WITH (TABLOCK) (DateKey, UserKey) SELECT DateKey, UserKey FROM #adopt;
+    COMMIT TRANSACTION;
+
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.UserActivity; ELSE DELETE FROM dash.UserActivity;
+    INSERT INTO dash.UserActivity WITH (TABLOCK) (UserKey, FirstActiveKey, LastActiveKey) SELECT UserKey, FirstActiveKey, LastActiveKey FROM #act;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.UserPeriod; ELSE DELETE FROM dash.UserPeriod;
+    INSERT INTO dash.UserPeriod WITH (TABLOCK)
+        (EndKey, Days, UserKey, ActiveDays, PremiumDays, LastActiveKey, MostApps, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions,
+         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions)
+    SELECT EndKey, Days, UserKey, ActiveDays, PremiumDays, LastActiveKey, MostApps, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions,
+           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions
+    FROM #period;
+    COMMIT TRANSACTION;
+
+    BEGIN TRANSACTION;
+    IF @itemWeekFrom IS NULL AND @mayTruncate = 1
+    BEGIN
+        ALTER INDEX NCCI_DashUserItemWeek ON dash.UserItemWeek DISABLE;   -- as dash.UserItemDay's, written whole
+        TRUNCATE TABLE dash.UserItemWeek;
+    END;
+    ELSE IF @itemWeekFrom IS NULL DELETE FROM dash.UserItemWeek;
+    ELSE DELETE FROM dash.UserItemWeek WHERE WeekEnding >= @itemWeekFrom;
+    INSERT INTO dash.UserItemWeek WITH (TABLOCK) (WeekEnding, UserKey, Kind, Item, ActiveDays, Interactions, Prompts, Resources, Web)
+    SELECT WeekEnding, UserKey, Kind, Item, ActiveDays, Interactions, Prompts, Resources, Web FROM #itemweek;
+    IF @itemWeekFrom IS NULL AND @mayTruncate = 1
+        ALTER INDEX NCCI_DashUserItemWeek ON dash.UserItemWeek REBUILD;
+    COMMIT TRANSACTION;
+
+    BEGIN TRANSACTION;
+    IF @mayTruncate = 1 TRUNCATE TABLE dash.SitePerson; ELSE DELETE FROM dash.SitePerson;
+    INSERT INTO dash.SitePerson WITH (TABLOCK) (Kind, SiteKey, UserKey, LastKey, PrevKey, AsOfKey)
+    SELECT Kind, SiteKey, UserKey, LastKey, PrevKey, @maxKey FROM #siteperson;
+    COMMIT TRANSACTION;
+
+    /* Loaded in parallel, which a columnstore takes a large load fastest by. The threads of such a load have
+       deadlocked on each other (dash.SitePerson's, when it was a columnstore): should SQL Server pick this load as the
+       victim, it is loaded again on one thread. */
+    DECLARE @periodTry INT = 0;
+    WHILE 1 = 1
+    BEGIN
+        BEGIN TRY
+            BEGIN TRANSACTION;
+            IF @mayTruncate = 1 TRUNCATE TABLE dash.UserItemPeriod; ELSE DELETE FROM dash.UserItemPeriod;
+            IF @periodTry = 0
+                INSERT INTO dash.UserItemPeriod WITH (TABLOCK) (EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web)
+                SELECT EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web FROM #itemperiod;
+            ELSE
+                INSERT INTO dash.UserItemPeriod WITH (TABLOCK) (EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web)
+                SELECT EndKey, Days, Kind, Item, UserKey, ActiveDays, LastActiveKey, Interactions, Prompts, Resources, Web FROM #itemperiod
+                OPTION (MAXDOP 1);
+            COMMIT TRANSACTION;
+            BREAK;
+        END TRY
+        BEGIN CATCH
+            IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+            IF ERROR_NUMBER() <> 1205 OR @periodTry > 0 THROW;
+            SET @periodTry = 1;
+            RAISERROR('  The load of dash.UserItemPeriod was chosen as a deadlock victim: loading it again on one thread.', 0, 1) WITH NOWAIT;
+        END CATCH;
+    END;
+
+    /* ---- 4. The columnstores over what this run wrote ------------------------ */
+
+    /* Rows written to a table with a columnstore beside it wait in a delta store, read row by row, until a million have
+       gathered: the newest days, the ones the 7- to 30-day pages read. Compressing them is online and takes seconds,
+       and is done before this run is recorded, so the pages built ahead after it read them compressed. It needs ALTER
+       on the tables: a refresh run by an account without it leaves them for the next. */
+    IF @mayTruncate = 1
+    BEGIN
+        ALTER INDEX NCCI_DashUserDay ON dash.UserDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashResourceDay ON dash.ResourceDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashUserWeek ON dash.UserWeek REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashAdoptionDay ON dash.AdoptionDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashUserItemDay ON dash.UserItemDay REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX NCCI_DashUserItemWeek ON dash.UserItemWeek REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+        ALTER INDEX CCI_DashUserItemPeriod ON dash.UserItemPeriod REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
+    END;
 
     INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows, BiRunId)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows, @biRun);

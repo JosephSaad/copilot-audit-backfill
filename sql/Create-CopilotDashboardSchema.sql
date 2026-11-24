@@ -566,6 +566,194 @@ IF OBJECT_ID(N'dash.AgentUse', N'U') IS NULL
         Interactions BIGINT  NOT NULL
     );
 
+/*
+    Totals the pages read instead of summing dash.UserDay or bi.FactInteraction themselves, each rebuilt by
+    dash.usp_RefreshDashboard after dash.UserDay. With two years of 160 million interactions (210,000 people,
+    28 million person-days), a page that counted people over 730 days or All data summed every person-day, or every
+    interaction, on its first visit: 2 to 40 seconds, several queries a page.
+
+      dash.UserWeek      per person per Saturday-to-Friday week: the weekly trends count each person once a week
+                         from here, not from their days.
+      dash.UserPeriod    per person, their sums over each period a page offers (7 days to All data, Days 0 being
+                         All data), for the last two days the data can end on. A period that ends on another day
+                         is summed from dash.UserDay as before.
+      dash.AdoptionDay   per person per day, when they had used Copilot with a license on that day or one of the
+                         27 before it: Adoption rate counts these at each point.
+      dash.UserActivity  per person, the first and last day they used Copilot.
+
+    None of them holds whether a person held a license: bi.usp_RefreshBi rebuilds bi.FactLicensedDay whole, so the
+    pages still read it there. None holds whether an account is enabled: that is today's, read from bi.DimUser.
+*/
+IF OBJECT_ID(N'dash.UserWeek', N'U') IS NULL
+    CREATE TABLE dash.UserWeek
+    (
+        WeekEnding        DATE    NOT NULL,   -- bi.DimDate.WeekEnding: the Friday ending the week
+        UserKey           INT     NOT NULL,
+        ActiveDays        TINYINT NOT NULL,   -- days of the week with an interaction
+        Interactions      INT     NOT NULL,
+        Prompts           INT     NOT NULL,
+        AgentInteractions INT     NOT NULL,
+        WebGrounded       INT     NOT NULL,
+        ChatInteractions  INT     NOT NULL,
+        LicensedUse       INT     NOT NULL,
+        PremiumUse        INT     NOT NULL,
+        Jailbreak         INT     NOT NULL,
+        PromptInjection   INT     NOT NULL,
+        BlockedResource   INT     NOT NULL,
+        LabeledContent    INT     NOT NULL,
+        Sessions          INT     NOT NULL,
+        MultiTurnSessions INT     NOT NULL,
+        CONSTRAINT PK_DashUserWeek PRIMARY KEY (WeekEnding, UserKey)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserWeek') AND name = N'NCCI_DashUserWeek')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashUserWeek ON dash.UserWeek
+          (WeekEnding, UserKey, ActiveDays, Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse,
+           PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions);');
+
+IF OBJECT_ID(N'dash.UserPeriod', N'U') IS NULL
+    CREATE TABLE dash.UserPeriod
+    (
+        EndKey            INT      NOT NULL,   -- the period's last day
+        Days              SMALLINT NOT NULL,   -- the period chosen: 7, 14, 30, 90, 180, 365 or 730 days, or 0 for All data
+        UserKey           INT      NOT NULL,
+        ActiveDays        SMALLINT NOT NULL,   -- days with an interaction
+        PremiumDays       SMALLINT NOT NULL,   -- days with Premium use
+        LastActiveKey     INT      NULL,       -- the last day with an interaction
+        MostApps          TINYINT  NOT NULL,   -- the most apps used in one day
+        Interactions      INT      NOT NULL,
+        Prompts           INT      NOT NULL,
+        AgentInteractions INT      NOT NULL,
+        WebGrounded       INT      NOT NULL,
+        ChatInteractions  INT      NOT NULL,
+        LicensedUse       INT      NOT NULL,
+        PremiumUse        INT      NOT NULL,
+        Jailbreak         INT      NOT NULL,
+        PromptInjection   INT      NOT NULL,
+        BlockedResource   INT      NOT NULL,
+        LabeledContent    INT      NOT NULL,
+        Sessions          INT      NOT NULL,
+        MultiTurnSessions INT      NOT NULL,
+        CONSTRAINT PK_DashUserPeriod PRIMARY KEY (EndKey, Days, UserKey)
+    );
+
+IF OBJECT_ID(N'dash.AdoptionDay', N'U') IS NULL
+    CREATE TABLE dash.AdoptionDay
+    (
+        DateKey INT NOT NULL,
+        UserKey INT NOT NULL,
+        CONSTRAINT PK_DashAdoptionDay PRIMARY KEY (DateKey, UserKey)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.AdoptionDay') AND name = N'NCCI_DashAdoptionDay')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashAdoptionDay ON dash.AdoptionDay (DateKey, UserKey);');
+
+IF OBJECT_ID(N'dash.UserActivity', N'U') IS NULL
+    CREATE TABLE dash.UserActivity
+    (
+        UserKey        INT NOT NULL CONSTRAINT PK_DashUserActivity PRIMARY KEY,
+        FirstActiveKey INT NULL,   -- the first day with an interaction; NULL when a person has rows but none
+        LastActiveKey  INT NULL
+    );
+
+/*
+    Each person's use of each app and each agent, for the pages that count people per app or agent (Apps, Agents,
+    Engagement, Models and web search). They counted each person's days in each one from bi.FactInteraction on every
+    first visit: 37 to 42 seconds at 730 days and 160 million interactions.
+
+      dash.UserItemDay     per person per day per app (Kind A, Item = bi.DimApp.AppKey) or agent (Kind G, Item =
+                           bi.DimAgent.AgentKey, never the "(none)" agent): kept by dash.usp_RefreshDashboard as
+                           dash.UserDay is, from the same day.
+      dash.UserItemWeek    the same per Saturday-to-Friday week, as dash.UserWeek.
+      dash.UserItemPeriod  the same over each period a page offers, as dash.UserPeriod.
+*/
+IF OBJECT_ID(N'dash.UserItemDay', N'U') IS NULL
+    CREATE TABLE dash.UserItemDay
+    (
+        DateKey      INT     NOT NULL,
+        UserKey      INT     NOT NULL,
+        Kind         CHAR(1) NOT NULL,   -- A: an app, G: an agent
+        Item         INT     NOT NULL,   -- the app's or the agent's key
+        Interactions INT     NOT NULL,
+        Prompts      INT     NOT NULL,
+        Resources    INT     NOT NULL,   -- the resources its interactions read
+        Web          INT     NOT NULL,   -- its interactions that searched the web
+        CONSTRAINT PK_DashUserItemDay PRIMARY KEY (DateKey, Kind, Item, UserKey)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserItemDay') AND name = N'NCCI_DashUserItemDay')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashUserItemDay ON dash.UserItemDay
+          (DateKey, UserKey, Kind, Item, Interactions, Prompts, Resources, Web);');
+
+IF OBJECT_ID(N'dash.UserItemWeek', N'U') IS NULL
+    CREATE TABLE dash.UserItemWeek
+    (
+        WeekEnding   DATE    NOT NULL,   -- bi.DimDate.WeekEnding: the Friday ending the week
+        UserKey      INT     NOT NULL,
+        Kind         CHAR(1) NOT NULL,
+        Item         INT     NOT NULL,
+        ActiveDays   TINYINT NOT NULL,   -- days of the week with an interaction in it
+        Interactions INT     NOT NULL,
+        Prompts      INT     NOT NULL,
+        Resources    INT     NOT NULL,
+        Web          INT     NOT NULL,
+        CONSTRAINT PK_DashUserItemWeek PRIMARY KEY (WeekEnding, Kind, Item, UserKey)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserItemWeek') AND name = N'NCCI_DashUserItemWeek')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashUserItemWeek ON dash.UserItemWeek
+          (WeekEnding, UserKey, Kind, Item, ActiveDays, Interactions, Prompts, Resources, Web);');
+
+IF OBJECT_ID(N'dash.UserItemPeriod', N'U') IS NULL
+    CREATE TABLE dash.UserItemPeriod
+    (
+        EndKey        INT      NOT NULL,   -- the period's last day
+        Days          SMALLINT NOT NULL,   -- as dash.UserPeriod's: 7 to 730 days, or 0 for All data
+        Kind          CHAR(1)  NOT NULL,
+        Item          INT      NOT NULL,
+        UserKey       INT      NOT NULL,
+        ActiveDays    SMALLINT NOT NULL,   -- days with an interaction in it
+        LastActiveKey INT      NOT NULL,   -- the last of them
+        Interactions  INT      NOT NULL,
+        Prompts       INT      NOT NULL,
+        Resources     INT      NOT NULL,
+        Web           INT      NOT NULL,
+        /* One row per period, kind, item and person, rebuilt whole by each refresh: a columnstore, which a page reading
+           one period scans in batches, and which takes a third of the space. */
+        INDEX CCI_DashUserItemPeriod CLUSTERED COLUMNSTORE
+    );
+
+/*
+    Each person and each site they read labeled content from (Kind S) or were blocked at (B), with the last day they
+    did and the last before the data's last day (AsOfKey): whether they reached it in a period that ends on either of
+    the two days a page's period can end on is one comparison, where Oversharing hotspots and Sensitive content
+    counted each site's people from every day of the period. Rebuilt whole by each refresh, from dash.ResourceDay.
+*/
+IF OBJECT_ID(N'dash.SitePerson', N'U') IS NULL
+    CREATE TABLE dash.SitePerson
+    (
+        Kind    CHAR(1) NOT NULL,   -- S: labeled content read there, B: blocked there (dash.ResourceDay's Site and Blocked)
+        SiteKey INT     NOT NULL,   -- bi.DimSite
+        UserKey INT     NOT NULL,
+        LastKey INT     NOT NULL,   -- the last day they did
+        PrevKey INT     NULL,       -- the last day they did before AsOfKey; NULL when only on it
+        AsOfKey INT     NOT NULL,   -- the data's last day when it was built
+        /* A rowstore: loaded in parallel into a columnstore, the load's own threads deadlocked on each other. */
+        CONSTRAINT PK_DashSitePerson PRIMARY KEY (Kind, SiteKey, UserKey)
+    );
+
+/*
+    Each person's bi.DimUser key and whether their account is enabled, on their rows of the closure, so the people in
+    a part of the organization are read from one index instead of looked up by sign-in, person by person, in
+    dash.Person and bi.DimUser. Filled here once for a closure built before, and by each refresh.
+*/
+IF COL_LENGTH(N'dash.OrgClosure', N'DescendantKey') IS NULL
+BEGIN
+    ALTER TABLE dash.OrgClosure ADD DescendantKey INT NULL, DescendantEnabled BIT NULL;
+    EXEC (N'UPDATE c SET DescendantKey = u.UserKey, DescendantEnabled = p.AccountEnabled
+            FROM dash.OrgClosure AS c
+            LEFT JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn
+            LEFT JOIN dash.Person AS p ON p.Upn = c.DescendantUpn;');
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.OrgClosure') AND name = N'IX_DashOrgClosure_Part')
+    EXEC (N'CREATE INDEX IX_DashOrgClosure_Part ON dash.OrgClosure (AncestorUpn, Depth) INCLUDE (DescendantKey, DescendantEnabled);');
+
 IF OBJECT_ID(N'dash.RefreshRun', N'U') IS NULL
     CREATE TABLE dash.RefreshRun
     (
@@ -586,17 +774,20 @@ IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
     The people a scope covers, as bi.DimUser keys: @RootUpn and everyone under
     them. The app passes the viewer's own UPN, or a manager inside their scope
     when they drill in; a whole-organization view with no drill-in does not
-    call it at all.
+    call it at all. The keys are the ones the refresh wrote on the closure, read
+    from one index (IX_DashOrgClosure_Part), where each was looked up in
+    bi.DimUser by sign-in. A row written without its key (by another tool, or
+    for a person bi gained after the refresh) is still looked up by sign-in.
 */
 EXEC (N'
 CREATE OR ALTER FUNCTION dash.fnScopeUsers (@RootUpn NVARCHAR(256))
 RETURNS TABLE
 AS
 RETURN
-SELECT u.UserKey
+SELECT COALESCE(c.DescendantKey, u.UserKey) AS UserKey
 FROM dash.OrgClosure AS c
-JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn
-WHERE c.AncestorUpn = @RootUpn;');
+LEFT JOIN bi.DimUser AS u ON c.DescendantKey IS NULL AND u.UserPrincipalName = c.DescendantUpn
+WHERE c.AncestorUpn = @RootUpn AND COALESCE(c.DescendantKey, u.UserKey) IS NOT NULL;');
 
 /*
     The agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per

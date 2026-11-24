@@ -15,7 +15,8 @@ public class MinimumGroupSizeTests
         var sql = ReportContextFactory.EnabledInPartSql("@root");
         Assert.Contains("dash.OrgClosure", sql);
         Assert.Contains("ec.AncestorUpn = @root", sql);
-        Assert.Contains("ep.AccountEnabled = 1", sql);
+        /* Enabled as the refresh wrote it on the closure, or as dash.Person has it for a row written without it. */
+        Assert.Contains("COALESCE(ec.DescendantEnabled, (SELECT ep.AccountEnabled FROM dash.Person AS ep WHERE ep.Upn = ec.DescendantUpn)) = 1", sql);
         /* Both the size check on a requested part and the list of parts to look inside use it; PeopleBelow counts leavers. */
         var context = Source.Read("Infrastructure", "ReportContext.cs");
         Assert.DoesNotContain("SELECT PeopleBelow + 1", context);

@@ -106,18 +106,31 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
 /// </summary>
 public static class RequestMemo
 {
+    /* A page may read its data side by side (InsightsPage.Queries), so two of its reads can ask for the same value at
+       once: the request's items are a plain dictionary, used under a lock, and the first read is the one both wait for. */
     public static async Task<T> GetAsync<T>(HttpContext request, string key, Func<Task<T>> read)
     {
         var k = "memo:" + key;
-        if (request.Items.TryGetValue(k, out var found) && found is Task<T> known) return await known;
-        var task = read();
-        request.Items[k] = task;
+        Task<T> task;
+        lock (request.Items)
+        {
+            if (request.Items.TryGetValue(k, out var found) && found is Task<T> known) task = known;
+            else request.Items[k] = task = read();
+        }
         try { return await task; }
-        catch { request.Items.Remove(k); throw; }
+        catch
+        {
+            lock (request.Items) { if (request.Items.TryGetValue(k, out var t) && ReferenceEquals(t, task)) request.Items.Remove(k); }
+            throw;
+        }
     }
 
     /// <summary>Read it again: this request changed it.</summary>
-    public static void Forget(HttpContext? request, string key) => request?.Items.Remove("memo:" + key);
+    public static void Forget(HttpContext? request, string key)
+    {
+        if (request is null) return;
+        lock (request.Items) request.Items.Remove("memo:" + key);
+    }
 }
 
 /// <summary>An org unit on the breadcrumb or in the drill-down list.</summary>
@@ -268,6 +281,142 @@ public sealed class ReportContext
     /// <summary>SQL for a trend point from a bi.DimDate alias: the date, or its week ending.</summary>
     public string BucketSql(string dimDateAlias) => Daily ? $"{dimDateAlias}.[Date]" : $"{dimDateAlias}.WeekEnding";
 
+    /* ---- The totals the refresh keeps --------------------------------------------------------------------------
+       dash.usp_RefreshDashboard keeps each person's sums per week (dash.UserWeek) and per period a page offers
+       (dash.UserPeriod), the same per app and per agent (dash.UserItemDay, dash.UserItemWeek, dash.UserItemPeriod), and
+       each person's last day at each site (dash.SitePerson). A page reads them through the helpers below, which fall
+       back to summing dash.UserDay or bi.FactInteraction where the refresh has not built them yet (a database upgraded
+       but not refreshed since) or for a period that ends on a day they were not built for. The answer is the same
+       either way: only the time differs. */
+
+    /// <summary>Whether the refresh has built the totals (dash.UserWeek, dash.UserPeriod, dash.AdoptionDay, dash.UserActivity, dash.UserItemDay).</summary>
+    public bool Rollups { get; init; }
+
+    /// <summary>The period choices (<see cref="DayChoices"/>, 0 for All data) dash.UserPeriod holds ending on this context's last day.</summary>
+    public IReadOnlySet<int> RolledDays { get; init; } = new HashSet<int>();
+
+    /// <summary>The period choices dash.UserItemPeriod holds ending on this context's last day.</summary>
+    public IReadOnlySet<int> RolledItemDays { get; init; } = new HashSet<int>();
+
+    /// <summary>The columns of <see cref="PerPerson"/> and <see cref="PerPoint"/>: dash.UserPeriod's and dash.UserWeek's sums.</summary>
+    public const string Sums = "Interactions, Prompts, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions";
+
+    static IEnumerable<string> SumColumns => Sums.Split(", ");
+
+    static string Summed(string alias) => string.Join(", ", SumColumns.Select(c => $"SUM({alias}.{c}) AS {c}"));
+
+    /// <summary>
+    /// Each person's sums over a period ending on the period's last day, as a derived table with dash.UserPeriod's
+    /// columns: UserKey, ActiveDays, PremiumDays, LastActiveKey, MostApps (the most apps in one day) and <see cref="Sums"/>.
+    /// <paramref name="choice"/> is the window: the period chosen by default, or a fixed one (30 or 90 days) ending on its
+    /// last day, whose first day key is in the parameter <paramref name="fromKey"/>. Read from dash.UserPeriod when the
+    /// refresh built that period, else summed from dash.UserDay. A person with no day in it has no row.
+    /// </summary>
+    public string PerPerson(int? choice = null, string fromKey = "@k0")
+    {
+        var c = choice ?? Choice;
+        return RolledDays.Contains(c)
+            ? $"(SELECT up.UserKey, CAST(up.ActiveDays AS INT) AS ActiveDays, CAST(up.PremiumDays AS INT) AS PremiumDays, up.LastActiveKey, up.MostApps, {string.Join(", ", SumColumns.Select(s => "up." + s))} FROM dash.UserPeriod AS up WHERE up.EndKey = @k1 AND up.Days = {c})"
+            : $@"(SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays,
+        MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastActiveKey, MAX(ud.AppsUsed) AS MostApps, {Summed("ud")}
+    FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN {fromKey} AND @k1 GROUP BY ud.UserKey)";
+    }
+
+    /// <summary>
+    /// Each person's sums at each trend point from <paramref name="from"/> (a date-key parameter) to the period's last
+    /// day, as a derived table: Bucket (the day, or the week's Friday), UserKey, ActiveDays and <see cref="Sums"/>. A day is
+    /// dash.UserDay's row; a week inside the range is dash.UserWeek's row, and a week the range cuts (the first or the last)
+    /// is summed from its days in it. Before the totals are built, every week is summed from its days.
+    /// </summary>
+    public string PerPoint(string from = "@k0")
+    {
+        if (Daily)
+            return $@"(SELECT d.[Date] AS Bucket, ud.UserKey, CASE WHEN ud.Interactions > 0 THEN 1 ELSE 0 END AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "ud." + c))}
+    FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE ud.DateKey BETWEEN {from} AND @k1)";
+        var cut = $"(SELECT w.WeekEnding FROM bi.DimDate AS w WHERE w.DateKey BETWEEN {from} AND @k1 GROUP BY w.WeekEnding HAVING COUNT(*) < 7)";
+        var days = $@"SELECT d.WeekEnding AS Bucket, ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, {Summed("ud")}
+    FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+    WHERE ud.DateKey BETWEEN {from} AND @k1{(Rollups ? $" AND d.WeekEnding IN {cut}" : "")}
+    GROUP BY d.WeekEnding, ud.UserKey";
+        if (!Rollups) return $"({days})";
+        /* A whole week inside the range has all seven of its days in it; the weeks are read between the first and the last
+           Friday the range can hold whole, so the columnstore skips the rest. */
+        return $@"(SELECT uw.WeekEnding AS Bucket, uw.UserKey, CAST(uw.ActiveDays AS INT) AS ActiveDays, {string.Join(", ", SumColumns.Select(c => "uw." + c))}
+    FROM dash.UserWeek AS uw
+    WHERE uw.WeekEnding BETWEEN DATEADD(DAY, 6, DATEFROMPARTS({from} / 10000, {from} / 100 % 100, {from} % 100)) AND DATEFROMPARTS(@k1 / 10000, @k1 / 100 % 100, @k1 % 100)
+      AND uw.WeekEnding NOT IN {cut}
+    UNION ALL
+    {days})";
+    }
+
+    /* An app is kind A, an agent kind G (dash.UserItemDay); before the totals, the same from bi.FactInteraction, an agent
+       being any but the "(none)" one. */
+    static (string Item, string Only) FactItem(char kind) => kind == 'A'
+        ? ("f.AppKey", "")
+        : ("f.AgentKey", " AND f.AgentKey IN (SELECT ag.AgentKey FROM bi.DimAgent AS ag WHERE ag.AgentId <> N'(none)')");
+
+    /// <summary>
+    /// Each person's use of each app (<paramref name="kind"/> 'A') or agent ('G') over the period, as a derived table:
+    /// UserKey, Item (the app's or the agent's key), ActiveDays, LastActiveKey, Interactions, Prompts, Resources
+    /// (resources read) and Web (interactions that searched the web). Read from dash.UserItemPeriod when the refresh built
+    /// that period, else summed from dash.UserItemDay, or before the totals from bi.FactInteraction.
+    /// <paramref name="choice"/> and <paramref name="fromKey"/> as for <see cref="PerPerson"/>.
+    /// </summary>
+    public string PerItem(char kind, int? choice = null, string fromKey = "@k0")
+    {
+        var c = choice ?? Choice;
+        if (RolledItemDays.Contains(c))
+            return $@"(SELECT ip.UserKey, ip.Item, CAST(ip.ActiveDays AS INT) AS ActiveDays, ip.LastActiveKey, ip.Interactions, ip.Prompts, ip.Resources, ip.Web
+    FROM dash.UserItemPeriod AS ip WHERE ip.EndKey = @k1 AND ip.Days = {c} AND ip.Kind = '{kind}')";
+        if (Rollups)
+            return $@"(SELECT ui.UserKey, ui.Item, COUNT(*) AS ActiveDays, MAX(ui.DateKey) AS LastActiveKey, SUM(ui.Interactions) AS Interactions,
+        SUM(ui.Prompts) AS Prompts, SUM(ui.Resources) AS Resources, SUM(ui.Web) AS Web
+    FROM dash.UserItemDay AS ui WHERE ui.Kind = '{kind}' AND ui.DateKey BETWEEN {fromKey} AND @k1 GROUP BY ui.UserKey, ui.Item)";
+        var (item, only) = FactItem(kind);
+        return $@"(SELECT f.UserKey, {item} AS Item, COUNT(DISTINCT f.DateKey) AS ActiveDays, MAX(f.DateKey) AS LastActiveKey, COUNT(*) AS Interactions,
+        ISNULL(SUM(f.PromptCount), 0) AS Prompts, ISNULL(SUM(f.AccessedResourceCount), 0) AS Resources, ISNULL(SUM(CAST(f.UsedWebSearch AS INT)), 0) AS Web
+    FROM bi.FactInteraction AS f WHERE f.DateKey BETWEEN {fromKey} AND @k1{only} GROUP BY f.UserKey, {item})";
+    }
+
+    /// <summary>
+    /// Each person's use of each app or agent at each trend point from <paramref name="from"/>, one row per point, person
+    /// and item: Bucket, UserKey, Item, Interactions. Counted, a point's rows are its people. A day is dash.UserItemDay's
+    /// row, a whole week dash.UserItemWeek's, and a week the range cuts is summed from its days.
+    /// </summary>
+    public string PerItemPoint(char kind, string from = "@k0")
+    {
+        if (!Rollups)
+        {
+            var (item, only) = FactItem(kind);
+            return $@"(SELECT {BucketSql("d")} AS Bucket, f.UserKey, {item} AS Item, COUNT(*) AS Interactions
+    FROM bi.FactInteraction AS f JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+    WHERE f.DateKey BETWEEN {from} AND @k1{only} GROUP BY {BucketSql("d")}, f.UserKey, {item})";
+        }
+        if (Daily)
+            return $@"(SELECT d.[Date] AS Bucket, ui.UserKey, ui.Item, ui.Interactions
+    FROM dash.UserItemDay AS ui JOIN bi.DimDate AS d ON d.DateKey = ui.DateKey WHERE ui.Kind = '{kind}' AND ui.DateKey BETWEEN {from} AND @k1)";
+        var cut = $"(SELECT w.WeekEnding FROM bi.DimDate AS w WHERE w.DateKey BETWEEN {from} AND @k1 GROUP BY w.WeekEnding HAVING COUNT(*) < 7)";
+        return $@"(SELECT uw.WeekEnding AS Bucket, uw.UserKey, uw.Item, uw.Interactions
+    FROM dash.UserItemWeek AS uw
+    WHERE uw.Kind = '{kind}' AND uw.WeekEnding BETWEEN DATEADD(DAY, 6, DATEFROMPARTS({from} / 10000, {from} / 100 % 100, {from} % 100)) AND DATEFROMPARTS(@k1 / 10000, @k1 / 100 % 100, @k1 % 100)
+      AND uw.WeekEnding NOT IN {cut}
+    UNION ALL
+    SELECT d.WeekEnding, ui.UserKey, ui.Item, SUM(ui.Interactions)
+    FROM dash.UserItemDay AS ui JOIN bi.DimDate AS d ON d.DateKey = ui.DateKey
+    WHERE ui.Kind = '{kind}' AND ui.DateKey BETWEEN {from} AND @k1 AND d.WeekEnding IN {cut}
+    GROUP BY d.WeekEnding, ui.UserKey, ui.Item)";
+    }
+
+    /// <summary>
+    /// Whether dash.SitePerson answers for this context: it holds each person's last day at each site and their last
+    /// before the data's last day, so it answers a period ending on either of the two days the totals end on, which the
+    /// item periods being built for this context's last day shows it is.
+    /// </summary>
+    public bool SitePeople => RolledItemDays.Count > 0;
+
+    /// <summary>SQL: the dash.SitePerson row under <paramref name="alias"/> reached its site between @k0 and @k1 (see <see cref="SitePeople"/>).</summary>
+    public static string Reached(string alias) => $"CASE WHEN @k1 >= {alias}.AsOfKey THEN {alias}.LastKey ELSE {alias}.PrevKey END >= @k0";
+
     /// <summary>A join restricting a fact to the scope, on the given UserKey expression; empty for the whole organization.</summary>
     public string Scope(string userKeyExpr) =>
         Root is null ? "" : $"JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = {userKeyExpr}";
@@ -332,10 +481,11 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
     /// people in it, the manager among them (dash.OrgClosure has a depth-0 row for each person). It was dash.Person's
     /// PeopleBelow + 1, which counts disabled accounts too, so a part of three people and five leavers was shown on its
     /// own where every other minimum counts only the people still here. A seek on the closure's key, which leads with
-    /// the ancestor.
+    /// the ancestor. Whether each person's account is enabled is on the closure itself (IX_DashOrgClosure_Part), written
+    /// by the refresh; a row written without it (by another tool) is looked up in dash.Person.
     /// </summary>
     public static string EnabledInPartSql(string upnExpr) =>
-        $"(SELECT COUNT(*) FROM dash.OrgClosure AS ec JOIN dash.Person AS ep ON ep.Upn = ec.DescendantUpn WHERE ec.AncestorUpn = {upnExpr} AND ep.AccountEnabled = 1)";
+        $"(SELECT COUNT(*) FROM dash.OrgClosure AS ec WHERE ec.AncestorUpn = {upnExpr} AND COALESCE(ec.DescendantEnabled, (SELECT ep.AccountEnabled FROM dash.Person AS ep WHERE ep.Upn = ec.DescendantUpn)) = 1)";
 
     /// <param name="forPage">
     /// A page a person is looking at: a part of the organization that is not in the directory falls back to the whole
@@ -459,12 +609,41 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
                     EnabledInPartSql("p.Upn") + " >= @min ORDER BY p.DisplayName",
                     new { p = childOf, min = minGroup })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
 
+        var (rollups, rolled, rolledItems) = await RollupsAsync(ReportContext.Key(end));
+
         return new ReportContext
         {
             Viewer = viewer, Days = days, Choice = choice, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
             PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
+            Rollups = rollups, RolledDays = rolled, RolledItemDays = rolledItems,
         };
+    }
+
+    /// <summary>
+    /// Whether the refresh has built the totals, and which period choices ending on <paramref name="endKey"/>
+    /// dash.UserPeriod and dash.UserItemPeriod hold: a seek or a short scan each, kept under the data stamp. A database
+    /// without them (its refresh has not run since the upgrade) has none, and the pages sum the days as before.
+    /// </summary>
+    async Task<(bool Built, IReadOnlySet<int> Days, IReadOnlySet<int> ItemDays)> RollupsAsync(int endKey)
+    {
+        try
+        {
+            IEnumerable<(int Which, int Days)> rows;
+            using (QueryCache.Use())
+                rows = await db.QueryAsync<(int Which, int Days)>(@"
+SELECT 1, p.Days FROM (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
+WHERE EXISTS (SELECT 1 FROM dash.UserPeriod AS up WHERE up.EndKey = @endKey AND up.Days = p.Days)
+UNION ALL
+SELECT 2, p.Days FROM (VALUES (7), (14), (30), (90), (180), (365), (730), (0)) AS p (Days)
+WHERE EXISTS (SELECT 1 FROM dash.UserItemPeriod AS ip WHERE ip.EndKey = @endKey AND ip.Days = p.Days)
+UNION ALL
+SELECT 0, 0 WHERE EXISTS (SELECT 1 FROM dash.UserActivity) AND EXISTS (SELECT 1 FROM dash.UserItemDay);", new { endKey });
+            var list = rows.ToList();
+            return (list.Any(r => r.Which == 0), list.Where(r => r.Which == 1).Select(r => r.Days).ToHashSet(),
+                    list.Where(r => r.Which == 2).Select(r => r.Days).ToHashSet());
+        }
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return (false, new HashSet<int>(), new HashSet<int>()); }
     }
 }
 
