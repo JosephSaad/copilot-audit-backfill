@@ -20,6 +20,9 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     /// </summary>
     public bool NoAccess { get; private set; }
 
+    /// <summary>The saving ledger's totals, for the viewers Costs and savings is for (whole organization, or Licensing); else null.</summary>
+    public CopilotInsights.Data.LedgerTotals? Ledger { get; private set; }
+
     protected override async Task BuildAsync()
     {
         NoAccess = !Viewer.SeesAny && !Viewer.AnyAdmin && !Viewer.Roles.Any(Roles.IsWorkbench);
@@ -34,6 +37,8 @@ SELECT (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = (SELECT MAX(ud.Da
                 Freshness = $"The reports hold Copilot use up to {day:d MMM yyyy}" + (refreshed is null ? "." : $", and were last refreshed {When(refreshed)}.");
         }
         catch (Microsoft.Data.SqlClient.SqlException) { /* a database not built yet: the page says nothing about dates */ }
+        if (Viewer.Admitted && (Viewer.OrgWide || Viewer.Has(Roles.Licensing)))
+            Ledger = await CopilotInsights.Data.SavingLedger.ReadAsync(Db);
     }
 
     public string AccessSummary =>

@@ -39,6 +39,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             return;
         }
         var v = await costs.BuildAsync(Ctx);
+        _ledger = await SavingLedger.ReadAsync(Db);
         if (v.Areas.Count == 0)
         {
             Notice = "No spend to show yet: none of the sources is loaded. An administrator loads them; the operations guide (docs\\OPERATIONS.md, Costs and savings) says what each needs.";
@@ -56,7 +57,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         _why["value"] = await WhyAsync($"Hours saved × what an hour is worth ({CostRules.Money(v.HourlyCost, cur)}): Copilot's interactions × the minutes one saves in each app, the flows' successful runs × the minutes a run saves, and Copilot in Power BI's requests × its minutes, ÷ 60.",
             "HourlyCost", "MinutesSavedDefault", "AppMinutes", "FlowMinutesPerRun", "PowerBiCopilotMinutes");
         _why["roi"] = await WhyAsync("Value a month ÷ spend a month: both rest on the assumptions above.", "HourlyCost", "LicenseMonthlyCost");
-        _why["done"] = await WhyAsync("Copilot licenses taken back after this dashboard's exports named them × the Copilot license price.", "LicenseMonthlyCost");
+        _why["done"] = await WhyAsync("Copilot licenses taken back after this dashboard's exports named them × the Copilot license price. Saved to date: each month since the first was taken back, the licenses gone by the month's end at the price then, added up (the saving ledger, dash.SavingLedger).", "LicenseMonthlyCost");
         var register = HttpContext.RequestServices.GetRequiredService<AssumptionData>();
         _conflicts = await register.ConflictsAsync(await register.AllAsync());
         var csv = new Table { Headers = ["Kind", "Area", "Opportunity", "Evidence", "What to do", $"Saving a month ({cur})", $"Saving a year ({cur})", $"At stake a month ({cur})", "Confidence"],
@@ -92,6 +93,8 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     /// <summary>How each headline tile's figure is worked out, by the tile's kind.</summary>
     readonly Dictionary<string, KpiWhy> _why = [];
     IReadOnlyList<string> _conflicts = [];
+    /// <summary>The saving ledger's totals: saved to date, under the Already saved tile. Null before it is installed.</summary>
+    LedgerTotals? _ledger;
 
     /// <summary>The area whose own view is shown, if any: nothing in it links to itself.</summary>
     string? OpenArea;
@@ -142,7 +145,8 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
             spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : "", why: WhyHtml(_why.GetValueOrDefault("roi"))));
         sb.Append(Tile($"Already saved a month ({cur})", "Copilot licenses taken back after this dashboard's exports named them, at their price a month.",
-            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Whole("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null), WhyHtml(_why.GetValueOrDefault("done"))));
+            N(v.RealizedSaving), "done", (v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet")
+                + (_ledger is { SavedToDate: > 0 } l ? $"; {M(l.SavedToDate, l.Currency)} saved to date since {l.SavedSince:MMM yyyy}" : ""), "", (Whole("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null), WhyHtml(_why.GetValueOrDefault("done"))));
         sb.Append("</div>");
 
         /* The cards, most important first, two to a row so the page reads in a few screens: what to take (with how sure it

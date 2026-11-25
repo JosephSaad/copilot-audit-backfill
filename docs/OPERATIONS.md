@@ -300,6 +300,7 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 - **Savings** are what would stop being spent if the action beside each were taken: High confidence where the data shows it outright (a seat nobody used in 30 days), Medium where it follows from a change you make (a smaller capacity), Low where it rests on a price or a discount. A capacity on a reservation saves nothing until renewal, so its idle cost is shown as at stake, not saved.
 - **Value** is time saved at the hourly cost: Copilot's interactions (as Leadership › Value counts them), the flows' successful runs, and Copilot in Power BI's requests. Areas whose value is not measured show a dash, so the return understates rather than flatters.
 - **Already saved** is the Copilot licenses exported from this dashboard to revoke, or from disabled accounts, that have since gone.
+- **Saved to date**, under it, adds up the saving ledger (`dash.SavingLedger`): each nightly refresh writes the month in progress as the licenses gone by then at the Copilot license price (`dash.usp_RefreshSavingLedger`), and a month gone by keeps what it was last written with, so a new price changes no past month. A license taken back counts from the month it is seen gone, each month it stays gone. The page also writes the month's savings found, by confidence, each time it works them out for the whole organization. Power BI and other tools can read the table; the start page and the weekly report (`WeeklyReportSavings`) show both figures, linked here.
 
 ## How figures are calculated
 

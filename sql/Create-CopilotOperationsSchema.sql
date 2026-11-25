@@ -864,6 +864,79 @@ IF OBJECT_ID(N'dash.CacheGeneration', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM dash.CacheGeneration)
     INSERT INTO dash.CacheGeneration (Id, N) VALUES (1, 0);
 
+/* ---- The saving ledger ---------------------------------------------------- */
+
+/* Money saved and found, a month at a time, so the history survives a change of price and Power BI can read it.
+   Saved: what the dashboard's own exports took back (dash.LicenseAction), written by dash.usp_RefreshSavingLedger
+   at each refresh: the month in progress is rewritten each night, a month gone by is kept as it was last written.
+   Found: the savings Leadership > Costs and savings finds, by confidence, written by the dashboard each time it works
+   them out for the whole organization (this month's rows replaced, earlier months kept). Amounts are a month's. */
+IF OBJECT_ID(N'dash.SavingLedger', N'U') IS NULL
+    CREATE TABLE dash.SavingLedger
+    (
+        [Month]     DATE            NOT NULL,   -- the first day of the month
+        Area        NVARCHAR(100)   NOT NULL,   -- as Costs and savings names it: Microsoft 365 Copilot, ...
+        Kind        VARCHAR(8)      NOT NULL,   -- Saved | Found
+        Confidence  VARCHAR(8)      NOT NULL CONSTRAINT DF_DashSavingLedger_Confidence DEFAULT (''),   -- High | Medium | Low; '' for Saved
+        Source      NVARCHAR(400)   NOT NULL,   -- what it is: the page that shows it, or a short name
+        Items       INT             NULL,       -- licenses, where it is a count of them
+        Amount      DECIMAL(19, 2)  NOT NULL,   -- a month's, in Currency
+        Currency    NVARCHAR(8)     NOT NULL,
+        Title       NVARCHAR(400)   NULL,       -- the saving as the page words it
+        WrittenUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashSavingLedger_Written DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_DashSavingLedger PRIMARY KEY ([Month], Kind, Area, Confidence, Source),
+        CONSTRAINT CK_DashSavingLedger_Kind CHECK (Kind IN ('Saved', 'Found'))
+    );
+
+/* Saved: each month, the Copilot licenses the dashboard's exports named (revoke, leaver, non-human) that were no longer
+   held on the month's last day with license data, at the Copilot license price. The same rule as the Already saved
+   tile on Costs and savings, which is the month in progress. Months before the first export are not written. */
+EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_RefreshSavingLedger
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF OBJECT_ID(N''dash.SavingLedger'', N''U'') IS NULL OR OBJECT_ID(N''dash.LicenseAction'', N''U'') IS NULL OR OBJECT_ID(N''bi.FactLicensedDay'', N''U'') IS NULL RETURN;
+    DECLARE @lastKey INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
+    DECLARE @firstExport DATETIME2(0) = (SELECT MIN(ExportedUtc) FROM dash.LicenseAction WHERE Kind IN (''revoke'', ''leaver'', ''nonhuman''));
+    IF @lastKey IS NULL OR @firstExport IS NULL RETURN;
+    DECLARE @price DECIMAL(19, 4) = ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N''LicenseMonthlyCost'') AS DECIMAL(19, 4)), 30);
+    DECLARE @cur NVARCHAR(8) = ISNULL(NULLIF(LTRIM(RTRIM((SELECT Value FROM dash.Setting WHERE Name = N''LicenseCurrency''))), N''''), N''USD'');
+    DECLARE @thisMonth DATE = DATEFROMPARTS(@lastKey / 10000, @lastKey / 100 % 100, 1);
+    DECLARE @month DATE = DATEFROMPARTS(YEAR(@firstExport), MONTH(@firstExport), 1);
+
+    DECLARE @m TABLE ([Month] DATE NOT NULL PRIMARY KEY, EndKey INT NULL, Before DATETIME2(0) NOT NULL);
+    WHILE @month <= @thisMonth
+    BEGIN
+        IF @month = @thisMonth OR NOT EXISTS (SELECT 1 FROM dash.SavingLedger WHERE [Month] = @month AND Kind = ''Saved'')
+            INSERT INTO @m ([Month], EndKey, Before)
+            SELECT @month,
+                   (SELECT MAX(DateKey) FROM bi.FactLicensedDay
+                    WHERE DateKey BETWEEN YEAR(@month) * 10000 + MONTH(@month) * 100 + 1 AND YEAR(@month) * 10000 + MONTH(@month) * 100 + 31),
+                   CAST(DATEADD(MONTH, 1, @month) AS DATETIME2(0));
+        SET @month = DATEADD(MONTH, 1, @month);
+    END;
+
+    DECLARE @rows TABLE ([Month] DATE NOT NULL PRIMARY KEY, Items INT NOT NULL);
+    INSERT INTO @rows ([Month], Items)
+    SELECT m.[Month],
+           (SELECT COUNT(DISTINCT la.Upn)
+            FROM dash.LicenseAction AS la JOIN bi.DimUser AS du ON du.UserPrincipalName = la.Upn
+            WHERE la.Kind IN (''revoke'', ''leaver'', ''nonhuman'') AND la.ExportedUtc < m.Before
+              AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = m.EndKey))
+    FROM @m AS m
+    WHERE m.EndKey IS NOT NULL;
+
+    MERGE dash.SavingLedger AS t
+    USING (SELECT [Month], N''Microsoft 365 Copilot'' AS Area, ''Saved'' AS Kind, '''' AS Confidence, N''/forecasting/outcomes'' AS Source,
+                  Items, CAST(Items * @price AS DECIMAL(19, 2)) AS Amount, @cur AS Currency,
+                  CONCAT(Items, N'' Copilot license'', CASE WHEN Items = 1 THEN N'''' ELSE N''s'' END, N'' reclaimed through this dashboard'') AS Title
+           FROM @rows) AS s
+       ON t.[Month] = s.[Month] AND t.Kind = s.Kind AND t.Area = s.Area AND t.Confidence = s.Confidence AND t.Source = s.Source
+    WHEN MATCHED THEN UPDATE SET Items = s.Items, Amount = s.Amount, Currency = s.Currency, Title = s.Title, WrittenUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT ([Month], Area, Kind, Confidence, Source, Items, Amount, Currency, Title)
+        VALUES (s.[Month], s.Area, s.Kind, s.Confidence, s.Source, s.Items, s.Amount, s.Currency, s.Title);
+END;');
+
 /* ---- The dashboard's database role ---------------------------------------- */
 
 IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NULL
@@ -892,6 +965,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.SavingLedger TO CopilotInsightsApp;   -- Costs and savings writes the month's savings found
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;

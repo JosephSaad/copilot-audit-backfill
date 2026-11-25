@@ -1084,6 +1084,10 @@ BEGIN
         ALTER INDEX CCI_DashCreditUsePeriod ON dash.CreditUsePeriod REORGANIZE WITH (COMPRESS_ALL_ROW_GROUPS = ON);
     END;
 
+    /* The month's money saved, in the saving ledger (Create-CopilotOperationsSchema.sql, installed after this file). */
+    IF OBJECT_ID(N'dash.usp_RefreshSavingLedger', N'P') IS NOT NULL
+        EXEC dash.usp_RefreshSavingLedger;
+
     INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows, BiRunId)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows, @biRun);
 

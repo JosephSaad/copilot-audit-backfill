@@ -13,6 +13,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the newest day it holds and the reports it opens (only those the viewer can open). A source not connected says what it
   would add and what it needs. The top line counts the sources connected and says which AI spend the costs cover. It names
   no one and reads only each load's own run table, so it needs no new table and no grant.
+- **Money found to date.** A saving ledger (`dash.SavingLedger`, new, additive) keeps the money saved and found a month
+  at a time. *Saved* is the Copilot licenses taken back after this dashboard's exports named them, written each night by
+  `dash.usp_RefreshSavingLedger` (called by `dash.usp_RefreshDashboard`): the month in progress is rewritten, a month gone
+  by keeps its amount, so a change of price never rewrites the past. *Found* is the savings Costs and savings finds, by
+  confidence, written each time the page works them out for the whole organization. Shown as *saved to date* under
+  Costs and savings' *Already saved* tile, as one line on the start page for the people that page is for (each figure
+  opens it), and as the weekly report's first line (`WeeklyReportSavings`, 1; 0 leaves it out). Suite moves are never
+  counted.
 
 ### Changed
 

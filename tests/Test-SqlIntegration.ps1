@@ -4914,6 +4914,56 @@ Assert-That ($set.Rows.Count -eq 2 -and [string] $set.Rows[0].Value -eq '3') 'St
 Invoke-SqlText -Sql "DELETE FROM dash.RoleGrant WHERE Principal = N'it-preview@contoso.com'; DELETE FROM dash.AccessProfile WHERE Name = N'it-stories';"
 
 # ---------------------------------------------------------------------------
+# 30. The saving ledger (dash.SavingLedger): dash.usp_RefreshSavingLedger, which dash.usp_RefreshDashboard calls, writes
+#     each month from the first export as the Copilot licenses exported and since gone; the month in progress matches
+#     the Already saved tile's rule; a second run changes nothing; a new price changes only the month in progress.
+# ---------------------------------------------------------------------------
+Write-Host "`n30. The saving ledger" -ForegroundColor Cyan
+$oldPrice = Invoke-SqlText -As Scalar -Sql "SELECT Value FROM dash.Setting WHERE Name = N'LicenseMonthlyCost';"
+Invoke-SqlText -Sql @"
+DELETE FROM dash.SavingLedger;
+DELETE FROM dash.LicenseAction WHERE ExportedBy = N'it-ledger';
+DECLARE @last INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
+DECLARE @at DATETIME2(0) = DATEADD(MONTH, -2, CONVERT(DATETIME2(0), CONVERT(CHAR(8), @last)));
+INSERT INTO dash.LicenseAction (Kind, Upn, ExportedUtc, ExportedBy)
+SELECT TOP (3) 'revoke', du.UserPrincipalName, @at, N'it-ledger' FROM bi.DimUser AS du
+WHERE EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey)
+  AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = @last)
+ORDER BY du.UserKey;
+INSERT INTO dash.LicenseAction (Kind, Upn, ExportedUtc, ExportedBy)
+SELECT TOP (2) 'revoke', du.UserPrincipalName, @at, N'it-ledger' FROM bi.DimUser AS du
+WHERE EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = @last)
+ORDER BY du.UserKey;
+"@
+Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = N'30' WHERE Name = N'LicenseMonthlyCost'; IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value) VALUES (N'LicenseMonthlyCost', N'30');"
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
+$ledgerSql = 'SELECT CONVERT(CHAR(7), [Month], 126) AS M, Items, Amount FROM dash.SavingLedger WHERE Kind = ''Saved'' ORDER BY [Month];'
+$l1 = Invoke-SqlText -As Table -Sql $ledgerSql
+$tile = [int] (Invoke-SqlText -As Scalar -Sql @"
+SELECT COUNT(DISTINCT la.Upn) FROM dash.LicenseAction AS la JOIN bi.DimUser AS du ON du.UserPrincipalName = la.Upn
+WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
+  AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = (SELECT MAX(DateKey) FROM bi.FactLicensedDay));
+"@)
+$months = [int] (Invoke-SqlText -As Scalar -Sql "SELECT DATEDIFF(MONTH, (SELECT MIN(ExportedUtc) FROM dash.LicenseAction WHERE Kind IN ('revoke', 'leaver', 'nonhuman')), CONVERT(DATE, CONVERT(CHAR(8), (SELECT MAX(DateKey) FROM bi.FactLicensedDay)))) + 1;")
+Assert-That ($l1.Rows.Count -ge 3 -and $l1.Rows.Count -le $months) "the refresh writes a Saved row a month from the first export to the month in progress ($($l1.Rows.Count) of up to $months)"
+$now = $l1.Rows[$l1.Rows.Count - 1]
+Assert-That ([int] $now.Items -eq $tile -and [decimal] $now.Amount -eq $tile * 30) "the month in progress is the Already saved tile's count at the license price ($($now.Items) licenses, $($now.Amount); the tile counts $tile)"
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshSavingLedger;'
+$l2 = Invoke-SqlText -As Table -Sql $ledgerSql
+$same = ($l1.Rows | ForEach-Object { "$($_.M)|$($_.Items)|$($_.Amount)" }) -join ','
+Assert-That ((($l2.Rows | ForEach-Object { "$($_.M)|$($_.Items)|$($_.Amount)" }) -join ',') -eq $same) 'a second run writes the same rows'
+Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = N'45' WHERE Name = N'LicenseMonthlyCost'; EXEC dash.usp_RefreshSavingLedger;"
+$l3 = Invoke-SqlText -As Table -Sql $ledgerSql
+$past = { param($t) (@($t.Rows) | Select-Object -SkipLast 1 | ForEach-Object { "$($_.M)|$($_.Amount)" }) -join ',' }
+Assert-That ((& $past $l3) -eq (& $past $l1) -and [decimal] $l3.Rows[$l3.Rows.Count - 1].Amount -eq [int] $now.Items * 45) 'a new price changes the month in progress only: the months gone by keep what they saved'
+Assert-That (Test-Refused "INSERT INTO dash.SavingLedger ([Month], Area, Kind, Source, Amount, Currency) VALUES ('2026-01-01', N'x', 'Maybe', N'x', 1, N'USD');") 'a ledger row is Saved or Found'
+Invoke-SqlText -Sql "INSERT INTO dash.SavingLedger ([Month], Area, Kind, Confidence, Source, Amount, Currency) VALUES ('2026-01-01', N'Microsoft 365 Copilot', 'Found', 'High', N'/licensing/leavers', 10, N'USD');"
+Assert-That (Test-Refused "INSERT INTO dash.SavingLedger ([Month], Area, Kind, Confidence, Source, Amount, Currency) VALUES ('2026-01-01', N'Microsoft 365 Copilot', 'Found', 'High', N'/licensing/leavers', 12, N'USD');") 'a saving is in the ledger once a month'
+Invoke-SqlText -Sql "DELETE FROM dash.SavingLedger; DELETE FROM dash.LicenseAction WHERE ExportedBy = N'it-ledger';"
+if ($null -eq $oldPrice -or $oldPrice -is [DBNull]) { Invoke-SqlText -Sql "DELETE FROM dash.Setting WHERE Name = N'LicenseMonthlyCost';" }
+else { Invoke-SqlText -Sql 'UPDATE dash.Setting SET Value = @v WHERE Name = N''LicenseMonthlyCost'';' -Parameters @{ '@v' = [string] $oldPrice } }
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

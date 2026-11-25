@@ -1162,6 +1162,9 @@ IF OBJECT_ID(N'dash.SuccessStorySend', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesPerReport')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'StoriesPerReport', N'3', N'The most success stories the weekly report quotes, oldest approved first (0 leaves them out).', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'WeeklyReportSavings')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'WeeklyReportSavings', N'1', N'1: the weekly report''s first line says the money saved to date through the dashboard and the high-confidence savings found a month (from dash.SavingLedger). 0 leaves it out.', N'install');
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesReminderTo')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'StoriesReminderTo', N'', N'Where the reminder goes the day before the weekly report, when stories wait for review or none is ticked: addresses separated by ; (empty: no reminder).', N'install');

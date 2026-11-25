@@ -642,8 +642,36 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     catch { Write-ReportLog "The success stories reminder was not sent: $($_.Exception.Message)" 'WARN' }
 }
 
-function New-ReportHtml {
-    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @())
+function Get-ReportSaving {
+    # The money line under the heading: saved to date through the dashboard, and the high-confidence savings found a
+    # month, from the saving ledger (dash.SavingLedger). Nothing when the ledger is not installed or holds nothing, or
+    # when the dashboard setting WeeklyReportSavings is 0.
+    param($Connection)
+    $sql = @"
+IF OBJECT_ID(N'dash.SavingLedger', N'U') IS NULL OR (SELECT Value FROM dash.Setting WHERE Name = N'WeeklyReportSavings') = N'0'
+BEGIN SELECT TOP (0) CAST(0 AS DECIMAL(19, 2)) AS Saved, CAST(0 AS DECIMAL(19, 2)) AS Found, N'' AS Currency; RETURN; END;
+DECLARE @fm DATE = (SELECT MAX([Month]) FROM dash.SavingLedger WHERE Kind = 'Found');
+SELECT ISNULL((SELECT SUM(Amount) FROM dash.SavingLedger WHERE Kind = 'Saved'), 0) AS Saved,
+       ISNULL((SELECT SUM(Amount) FROM dash.SavingLedger WHERE Kind = 'Found' AND [Month] = @fm AND Confidence = 'High'), 0) AS Found,
+       ISNULL((SELECT TOP (1) Currency FROM dash.SavingLedger ORDER BY [Month] DESC, WrittenUtc DESC), N'USD') AS Currency;
+"@
+    $t = (Invoke-ReportQuery $Connection $sql).Tables[0]
+    if ($t.Rows.Count -eq 0) { return $null }
+    $r = $t.Rows[0]
+    Format-SavingLine -Saved ([decimal] $r.Saved) -Found ([decimal] $r.Found) -Currency ([string] $r.Currency)
+}
+
+function Format-SavingLine {
+    param([decimal] $Saved, [decimal] $Found, [string] $Currency)
+    if ($Saved -le 0 -and $Found -le 0) { return $null }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $money = { param([decimal] $v) [Math]::Round($v, 0).ToString('#,0', $inv) + ' ' + $Currency }
+    $line = if ($Saved -gt 0) { "$(& $money $Saved) saved to date through the Copilot dashboard" } else { 'Nothing saved through the Copilot dashboard yet' }
+    if ($Found -gt 0) { $line += ", and $(& $money $Found) a month more found with high confidence (Leadership > Costs and savings)." } else { $line += '.' }
+    $line
+}
+
+function New-ReportHtml {    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)
@@ -655,6 +683,7 @@ function New-ReportHtml {
     [void] $sb.Append("<table role=`"presentation`" cellpadding=`"0`" cellspacing=`"0`" border=`"0`" width=`"920`" style=`"$f color:$($p.Text);`"><tr><td style=`"padding:16px 10px;`">")
     [void] $sb.Append("<div style=`"$f font-size:20px;font-weight:700;color:$($p.Navy);`">Copilot Chat and M365 Copilot: Adoption and Security</div>")
     [void] $sb.Append("<div style=`"$f font-size:13px;color:$($p.Muted);padding:4px 0 14px 0;`">Week of $weekLabel (Saturday to Friday, $zone). Data through $through.</div>")
+    if ($Saving) { [void] $sb.Append("<div style=`"$f font-size:14px;color:$($p.Text);padding:0 0 14px 0;`"><b>Money found.</b> $(ConvertTo-Html5Text $Saving)</div>") }
 
     foreach ($w in $Warnings) {
         [void] $sb.Append("<div style=`"$f font-size:13px;background:#FFF4CE;border-left:4px solid #E3A400;padding:8px 12px;margin:0 0 12px 0;`">$(ConvertTo-Html5Text $w)</div>")
@@ -721,9 +750,10 @@ function New-ReportHtml {
 }
 
 function New-ReportText {
-    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [object[]] $Stories = @())
+    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Copilot weekly report, week of $($Meta.WeekLabel)")
+    if ($Saving) { $lines.Add(''); $lines.Add("Money found. $Saving") }
     $lines.Add('')
     $lines.Add(('{0,-26}{1,14}{2,14}' -f '', 'M365 Copilot', 'Copilot Chat'))
     foreach ($r in $Table.Rows) {
@@ -1335,14 +1365,19 @@ try {
         $workbook = $null
     }
 
+    # Money found, from the saving ledger: never stops the email.
+    $saving = $null
+    try { $saving = Get-ReportSaving -Connection $conn; if ($saving) { Write-ReportLog "Money found: $saving" } }
+    catch { Write-ReportLog "Saving ledger not read, the email goes without its money line: $($_.Exception.Message)" 'WARN' }
+
     $subject = "$($setting.SubjectPrefix): week of $($meta.WeekLabel)"
-    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks -Stories $stories
+    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks -Stories $stories -Saving $saving
 
     if ($Preview) {
         $fileRefs = @{}
         foreach ($k in $images.Keys) { $fileRefs[$k] = [IO.Path]::GetFileName($images[$k]) }
         $htmlPath = Join-Path $outDir "Copilot weekly report $stamp.html"
-        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks -Stories $stories
+        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving
         [IO.File]::WriteAllText($htmlPath, $html, (New-Object Text.UTF8Encoding($false)))
         Write-ReportLog "Preview of the week ending ${stamp}: $htmlPath"
         if ($workbook) { Write-ReportLog "Workbook: $workbook" }
@@ -1354,7 +1389,7 @@ try {
 
     $cids = @{}; $cidFiles = @{}
     foreach ($k in $images.Keys) { $cids[$k] = "cid:chart$k"; $cidFiles["chart$k"] = $images[$k] }
-    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks -Stories $stories
+    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving
     if ($setting.KeepCopies) {
         [IO.File]::WriteAllText((Join-Path $outDir "Copilot weekly report $stamp.html"), $html, (New-Object Text.UTF8Encoding($false)))
     }

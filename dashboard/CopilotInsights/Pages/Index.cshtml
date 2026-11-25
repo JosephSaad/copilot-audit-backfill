@@ -38,6 +38,14 @@
         <div class="denied"><b>Set the top of the organization.</b> Nobody sees the whole organization by level until the CEO's sign-in (UPN) is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
     }
     var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
+    @* Money found: saved to date and the high-confidence savings found a month, each opening Costs and savings, which
+       shows the same figure. Only for those the page is for, and only once the ledger holds something. *@
+    @if (Model.Ledger is { Any: true } led && groups.Any(g => g.Pages.Any(p => p.Path == "/leadership/costs")))
+    {
+        <p class="notice ledger"><span><b>Money found.</b>
+            @if (led.SavedToDate > 0) { <a href="/leadership/costs">@CopilotInsights.Data.CostRules.Money(Math.Round(led.SavedToDate, 0), led.Currency) saved to date</a><text> through this dashboard</text> } else { <text>Nothing saved through this dashboard yet</text> }@if (led.FoundHigh > 0) { <text>, and </text><a href="/leadership/costs?conf=High#savings">@CopilotInsights.Data.CostRules.Money(Math.Round(led.FoundHigh, 0), led.Currency) a month more found</a><text> with high confidence.</text> } else { <text>.</text> }
+            <span class="sub">Saved: Copilot licenses taken back after this dashboard named them, each month they stay gone. Found: the savings Costs and savings finds today.</span></span></p>
+    }
     var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);
     @* The reports this person opens most, as a row of shortcuts rather than a card of their own. *@
     @if (mine.Count > 0)
