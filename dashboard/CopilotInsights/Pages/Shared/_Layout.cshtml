@@ -62,6 +62,8 @@
             <a class="home @(path == "/stories" ? "on" : "")" href="/stories">Success stories</a>
             @* My subscriptions: the reports this person gets by email (3.2.0). *@
             <a class="home @(path == "/subscriptions" ? "on" : "")" href="/subscriptions">My subscriptions</a>
+            @* Data sources: what the reports are built from; names no one, so open to everyone let in. *@
+            <a class="home @(path == "/sources" ? "on" : "")" href="/sources">Data sources</a>
         }
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).Concat(await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On)).ToList(); }
         @if (groups.Count > 0)

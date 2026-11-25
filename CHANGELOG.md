@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Data sources** (`/sources`, in the menu under *Start*): what the reports are built from, for everyone the dashboard
+  lets in. A card for each of nine sources says whether it is connected, late, failed or not connected, when it last loaded,
+  the newest day it holds and the reports it opens (only those the viewer can open). A source not connected says what it
+  would add and what it needs. The top line counts the sources connected and says which AI spend the costs cover. It names
+  no one and reads only each load's own run table, so it needs no new table and no grant.
+
 ### Changed
 
 - **A report subscribed to only once its choice is made.** A report that shows nothing until something is chosen on it,

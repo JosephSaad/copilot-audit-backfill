@@ -359,6 +359,10 @@ form.admin .card.pick label .sub { margin-left: auto; white-space: nowrap; }
 form.admin .card.pick li label:has(input:not(:checked)) { color: var(--muted); }
 form.admin .card.pick input[type=checkbox] { padding: 0; margin: 0; flex: none; }
 .status-ok { color: var(--good); } .status-warn { color: var(--warn); } .status-bad { color: var(--crit); }
+/* Data sources: each card's name and its state, the state as a badge that wraps under a long name. */
+.sources h3 { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 8px; margin: 0 0 6px; font-size: 14px; }
+.sources .pill { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--grid); white-space: nowrap; }
+.sources .pill.muted { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 form.pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 10px; }
