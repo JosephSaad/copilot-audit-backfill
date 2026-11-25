@@ -123,10 +123,31 @@ public static class DataSources
         foreach (var d in Defs)
         {
             var (last, newest, rows, failed, detail) = await ReadOneAsync(db, d.Key);
+            if (d.Key == "foundry" && await OutsideAsync(db) is { } outside) detail = detail is null ? outside : detail + " " + outside;
             list.Add(new(d.Key, d.Name, d.What, Classify(last, failed, nowUtc, d.FreshHours ?? freshHours), last, newest, rows, d.RowsNoun, detail, d.Opens, d.Needs, d.Optional));
         }
         return list;
     }
+
+    /// <summary>
+    /// The AI accounts the Foundry load saw in subscriptions it does not read (audit.FoundryAccountSeen, 3.3.0), in
+    /// words; null when there are none, or before the load has looked.
+    /// </summary>
+    static async Task<string?> OutsideAsync(Db db)
+    {
+        try
+        {
+            var r = (await db.QueryAsync<(int Accounts, int Subscriptions)>(@"
+IF OBJECT_ID(N'audit.FoundryAccountSeen', N'U') IS NULL BEGIN SELECT 0, 0; RETURN; END;
+SELECT COUNT(*), COUNT(DISTINCT SubscriptionId) FROM audit.FoundryAccountSeen WHERE Loaded = 0;")).Single();
+            return OutsideText(r.Accounts, r.Subscriptions);
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { return null; }
+    }
+
+    /// <summary>The line about AI accounts outside the subscriptions loaded: their usage and cost are not counted. Pure, for the tests.</summary>
+    public static string? OutsideText(int accounts, int subscriptions) => accounts <= 0 ? null
+        : $"{accounts} more AI account{(accounts == 1 ? "" : "s")} in {subscriptions} subscription{(subscriptions == 1 ? "" : "s")} not loaded: their usage and cost are not counted (add them to FoundrySubscriptions).";
 
     sealed class One
     {

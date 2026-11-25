@@ -70,3 +70,15 @@ public class Release330Tests
         Assert.Contains("'/licensing/license-for-credits|Cost of their credits'", Repo("tools", "dev", "ui", "Test-FigureLinks.ps1"));
     }
 }
+
+/// <summary>3.3.0, the loaders: the Data sources card names AI accounts in subscriptions the Foundry load does not read.</summary>
+public class Release330LoaderTests
+{
+    [Fact]
+    public void AI_accounts_outside_the_loaded_subscriptions_are_named_on_the_card()
+    {
+        Assert.Null(DataSources.OutsideText(0, 0));
+        Assert.Equal("1 more AI account in 1 subscription not loaded: their usage and cost are not counted (add them to FoundrySubscriptions).", DataSources.OutsideText(1, 1));
+        Assert.StartsWith("3 more AI accounts in 2 subscriptions", DataSources.OutsideText(3, 2));
+    }
+}

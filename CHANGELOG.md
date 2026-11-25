@@ -19,6 +19,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Platforms role (with *Named people*) opens its lists that name people, the GitHub Copilot seat holders, as they come.
   `dash.RoleGrant` and `dash.AccessProfileRole` accept it (widened, nothing removed).
 
+- **`-CheckOnly` on both loaders** (`tools\Import-FoundryUsage.ps1`, `tools\Import-GitHubCopilotUsage.ps1`): sign in, try
+  each read once, write nothing, and say per part OK, MISSING (with the role or scope to give, and where) or NOTE
+  (optional). Exit code 0 when everything the load needs can be read; no database is needed.
+- **Foundry: what each account is and how it is run.** The load also keeps each account's network access, key sign-in,
+  managed identity, logging (diagnostic settings) and tags, owner, cost center and app among them
+  (`audit.FoundryAccount`); its content filters and whether any is looser than Microsoft's default
+  (`audit.FoundryContentFilter`, and `RaiPolicy` on each deployment); when each deployed model retires
+  (`audit.FoundryModelCatalog`); a provisioned deployment's daily use of its capacity (`PtuUtilizationAvg`,
+  `PtuUtilizationMax` on `audit.FoundryUsageDay`); and every Azure OpenAI and Foundry account the app can see in any
+  subscription (`audit.FoundryAccountSeen`, from Azure Resource Graph). Data sources' Foundry card says how many sit in
+  subscriptions not loaded, whose usage and cost are not counted.
+- **GitHub: who each login is, and each organization's Copilot settings.** For an enterprise of managed users, its
+  SCIM identities (`audit.GitHubIdentity`: the UPN, and the login GitHub gives it, by GitHub's rule with the
+  enterprise's short code, `GitHubShortcode` or read from the seats); each organization's Copilot settings
+  (`audit.GitHubCopilotPolicy`); and `dash.GitHubIdentityMap`, an administrator's list of logins and people for
+  enterprises of personal accounts. The token needs `scim:enterprise` for the identities.
+- **The new parts never fail a load.** One Azure or GitHub refuses is named in the run's detail (*Not read
+  (optional)*) and the run ends as it would have; an install with only the 2.6.2 roles or scopes still ends Succeeded.
+
 ### Fixed
 
 - **License inventory's *Licensed today* opened a page with another number.** It linked to Licenses on disabled

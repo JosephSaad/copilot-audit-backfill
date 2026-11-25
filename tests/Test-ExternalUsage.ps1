@@ -101,6 +101,21 @@ Assert-That ($null -eq (ConvertTo-GitHubCostRow ('{"date":"2026-10-05T00:00:00Z"
 Assert-That ($null -ne (ConvertTo-GitHubCostRow ('{"date":"2026-10-05T00:00:00Z","product":"ai_credits","sku":"Copilot AI Credits","quantity":1,"netAmount":0.01}' | ConvertFrom-Json) 's')) 'one that is Copilot''s by its SKU alone is kept'
 Assert-That ($null -eq (ConvertTo-GitHubCostRow ('{"product":"copilot","sku":"x"}' | ConvertFrom-Json) 's')) 'and one with no date is left out'
 
+# 3.3.0: who each login is (SCIM, Enterprise Managed Users) and each organization's Copilot settings.
+Assert-That ((Get-ManagedLogin 'joseph.saad@cloudsconnected.com' 'cloudsc') -eq 'joseph-saad_cloudsc' -and (Get-ManagedLogin 'Ann_Lee+x@contoso.com' 'CON') -eq 'ann-lee-x_con' -and
+             $null -eq (Get-ManagedLogin 'a@b.com' '') -and $null -eq (Get-ManagedLogin '' 'x')) 'a managed user''s login: the sign-in before the @, other characters as hyphens, _ and the short code, in lower case'
+Assert-That ((Find-Shortcode @('mona_contoso', 'hubot_contoso', 'octocat', 'x_other')) -eq 'contoso' -and $null -eq (Find-Shortcode @('mona', 'hubot'))) 'the short code most managed logins share; none among personal logins'
+Assert-That ((Get-GitHubScope -Enterprise 'contoso').Scim -eq '/scim/v2/enterprises/contoso/Users' -and $null -eq (Get-GitHubScope -Organization 'octo').Scim -and (Get-GitHubScope -Organization 'octo').Organization -eq 'octo') `
+    'an enterprise reads its SCIM identities; an organization has none, and is its own organization for the settings'
+$idr = ConvertTo-GitHubIdentityRow ('{"userName":"ann.lee@contoso.com","externalId":"e-1","displayName":"Ann Lee","active":true}' | ConvertFrom-Json) 'enterprise:contoso' 'contoso'
+Assert-That ($idr.Upn -eq 'ann.lee@contoso.com' -and $idr.Login -eq 'ann-lee_contoso' -and $idr.ExternalId -eq 'e-1' -and $idr.DisplayName -eq 'Ann Lee' -and $idr.Active -eq $true -and $idr.Source -eq 'SCIM') `
+    'a SCIM user: the UPN, the login it gives, its id in Entra, its name and whether it is active'
+Assert-That ((ConvertTo-GitHubIdentityRow ('{"userName":"x@y.com","name":{"formatted":"X Y"}}' | ConvertFrom-Json) 's' $null).DisplayName -eq 'X Y' -and $null -eq (ConvertTo-GitHubIdentityRow ('{"active":true}' | ConvertFrom-Json) 's' 'c')) `
+    'the name from name.formatted where there is no display name; a user with no user name is left out'
+$pol = ConvertTo-GitHubPolicyRow ('{"seat_breakdown":{"total":3},"seat_management_setting":"assign_selected","ide_chat":"enabled","platform_chat":"disabled","cli":"enabled","public_code_suggestions":"block","plan_type":"business"}' | ConvertFrom-Json) 'enterprise:contoso' 'octo'
+Assert-That ($pol.Count -eq 6 -and ($pol | Where-Object Policy -eq 'public_code_suggestions').State -eq 'block' -and -not ($pol | Where-Object Policy -eq 'seat_breakdown') -and $pol[0].Organization -eq 'octo') `
+    'an organization''s Copilot settings: one row per setting that is a word, the seat counts left out'
+
 # ---- 3. Foundry ----------------------------------------------------------------------------------
 Write-Host "`n3. tools\Import-FoundryUsage.ps1" -ForegroundColor Cyan
 . (Join-Path $root 'tools' 'Import-FoundryUsage.ps1')
@@ -184,6 +199,40 @@ $dated = ConvertFrom-CostQuery ('{"properties":{"columns":[{"name":"ResourceId"}
 Assert-That ($dated[0].Day -eq [datetime] '2026-10-05' -and $dated[0].Cost -eq 3 -and $dated[0].Meter -eq '' -and $null -eq $dated[0].Currency) 'a day sent as a date is read too, and a column it lacks is empty'
 Assert-That (Test-Throw { ConvertFrom-CostQuery ('{"properties":{"columns":[{"name":"Meter"}],"rows":[]}}' | ConvertFrom-Json) }) 'an answer with no cost, day or resource column is refused, naming the columns it has'
 Assert-That ((ConvertFrom-CostQuery $null).Count -eq 0) 'and no answer is no rows'
+
+# 3.3.0: what each account is and how it is run.
+$acc = ('{"id":"' + $id + '","name":"foundry-east","kind":"AIServices","location":"eastus","sku":{"name":"S0"},"identity":{"type":"SystemAssigned"},
+          "tags":{"Owner":"ann.lee@contoso.com","Cost-Center":"CC-42","Application":"claims-bot","env":"prod"},
+          "properties":{"publicNetworkAccess":"Enabled","disableLocalAuth":false,"networkAcls":{"defaultAction":"Allow"},"privateEndpointConnections":[{"id":"pe1"}]}}') | ConvertFrom-Json
+$ar = ConvertTo-FoundryAccountRow $acc $where
+Assert-That ($ar.Account -eq 'foundry-east' -and $ar.PublicNetworkAccess -eq 'Enabled' -and $ar.NetworkDefaultAction -eq 'Allow' -and $ar.PrivateEndpoints -eq 1 -and $ar.DisableLocalAuth -eq $false -and
+             $ar.IdentityType -eq 'SystemAssigned' -and $ar.SkuName -eq 'S0' -and $ar.Owner -eq 'ann.lee@contoso.com' -and $ar.CostCenter -eq 'CC-42' -and $ar.App -eq 'claims-bot' -and $ar.Tags -like '*"env":"prod"*') `
+    'an account: its network access, key sign-in, identity, and owner, cost center and app from its tags, whatever their case'
+$bareAcc = ConvertTo-FoundryAccountRow ('{"id":"x","name":"a","kind":"OpenAI"}' | ConvertFrom-Json) $where
+Assert-That ($null -eq $bareAcc.DisableLocalAuth -and $bareAcc.PrivateEndpoints -eq 0 -and $null -eq $bareAcc.Owner -and $null -eq $bareAcc.Tags) 'an account Azure says little of: unknown stays empty, not false'
+$diag = ConvertFrom-DiagnosticSetting ('{"value":[{"properties":{"logs":[{"categoryGroup":"audit","enabled":true},{"category":"RequestResponse","enabled":true},{"category":"Trace","enabled":false}]}}]}' | ConvertFrom-Json)
+Assert-That ($diag.Count -eq 1 -and $diag.Categories -eq 'audit, RequestResponse' -and (ConvertFrom-DiagnosticSetting ('{"value":[]}' | ConvertFrom-Json)).Count -eq 0) 'its logging: how many settings send logs, and which categories are on'
+$strict = '{"name":"Default","properties":{"basePolicyName":"Microsoft.Default","mode":"Default","contentFilters":[{"name":"hate","severityThreshold":"Medium","blocking":true,"enabled":true,"source":"Prompt"}]}}' | ConvertFrom-Json
+$loose = '{"name":"Loose","properties":{"basePolicyName":"Microsoft.Default","mode":"Default","contentFilters":[{"name":"selfharm","severityThreshold":"High","blocking":true,"enabled":true,"source":"Completion"}]}}' | ConvertFrom-Json
+$off = '{"name":"Off","properties":{"contentFilters":[{"name":"jailbreak","blocking":false,"enabled":true,"source":"Prompt"}]}}' | ConvertFrom-Json
+$fr = ConvertTo-FoundryFilterRow $loose $where
+Assert-That (-not (Test-RelaxedFilter $strict) -and (Test-RelaxedFilter $loose) -and (Test-RelaxedFilter $off) -and $fr.Policy -eq 'Loose' -and $fr.Relaxed -and $fr.BasePolicy -eq 'Microsoft.Default' -and $fr.Detail -like '*selfharm*') `
+    'a content filter is relaxed when a harm category blocks only high severity, or a filter is off or not blocking; the default is not'
+$deployedSet = [System.Collections.Generic.HashSet[string]]::new([string[]] @('gpt-4o|2024-11-20'))
+$models = ConvertFrom-FoundryModelList ('{"value":[{"model":{"name":"gpt-4o","version":"2024-11-20","lifecycleStatus":"GenerallyAvailable","deprecation":{"inference":"2026-12-01T00:00:00Z"},
+    "skus":[{"name":"Standard","deprecationDate":"2026-11-15T00:00:00Z"},{"name":"GlobalStandard"}]}},{"model":{"name":"gpt-35-turbo","version":"0125","deprecation":{"inference":"2026-01-01T00:00:00Z"}}}]}' | ConvertFrom-Json) 'eastus' $deployedSet
+Assert-That ($models.Count -eq 2 -and $models[0].SkuName -eq '' -and $models[0].RetiresDate -eq [datetime] '2026-12-01' -and $models[1].SkuName -eq 'Standard' -and $models[1].RetiresDate -eq [datetime] '2026-11-15') `
+    'when each deployed model retires, and a SKU of it that retires sooner; models not deployed there are left out'
+$stat = ConvertFrom-ArmMetricStat ('{"value":[{"name":{"value":"AzureOpenAIProvisionedManagedUtilizationV2"},"timeseries":[{"metadatavalues":[{"name":{"value":"ModelDeploymentName"},"value":"ptu"}],
+    "data":[{"timeStamp":"2026-10-05T00:00:00Z","average":21.5,"maximum":64.25},{"timeStamp":"2026-10-06T00:00:00Z"}]}]}]}' | ConvertFrom-Json)
+Assert-That ($stat.Count -eq 1 -and $stat[0].Deployment -eq 'ptu' -and $stat[0].Average -eq 21.5 -and $stat[0].Maximum -eq 64.25) 'a provisioned deployment''s daily use: its average and highest, a day with neither left out'
+$urows = [System.Collections.Generic.List[object]]::new(); $urows.Add([pscustomobject]@{ Account = 'foundry-east'; Deployment = 'chat'; Day = [datetime] '2026-10-05'; Requests = 5 })
+Add-PtuUtilization -Rows $urows -Stat $stat -Where $where -ModelOf @{ ptu = [pscustomobject]@{ ModelName = 'gpt-4o'; ModelVersion = '2024-11-20' } }
+Assert-That ($urows.Count -eq 2 -and $urows[1].Deployment -eq 'ptu' -and $urows[1].ModelName -eq 'gpt-4o' -and $urows[1].PtuUtilizationAvg -eq 21.5 -and $null -eq $urows[1].Requests) 'it goes on the deployment''s day, a new row where that day had no requests'
+$gb = Get-ResourceGraphBody -SkipToken 'next'
+Assert-That ($gb.query -like "*microsoft.cognitiveservices/accounts*OpenAI*AIServices*" -and $gb.options['$skipToken'] -eq 'next' -and -not (Get-ResourceGraphBody).options.Contains('$skipToken')) 'Resource Graph is asked for every Azure OpenAI and Foundry account, page by page'
+$seen = ConvertFrom-ResourceGraph ('{"data":[{"id":"' + $id + '","kind":"AIServices","location":"eastus"},{"id":"/subscriptions/CCCC/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/other","kind":"OpenAI"},{"id":"/x"}]}' | ConvertFrom-Json) @('AAAA1111-0000-0000-0000-000000000000')
+Assert-That ($seen.Count -eq 2 -and $seen[0].Loaded -and -not $seen[1].Loaded -and $seen[1].Account -eq 'other') 'each account seen, marked loaded when its subscription is one the load reads'
 
 # ---- 4. The nightly run --------------------------------------------------------------------------
 Write-Host "`n4. Invoke-CopilotPipeline.ps1" -ForegroundColor Cyan

@@ -36,7 +36,7 @@ We load GitHub Copilot's usage figures and its cost into our own reporting datab
 |---|---|
 | Note | `Copilot usage reporting (read-only)` |
 | Expiration | A date you will renew by. One year is usual; we are warned 14 days before it. |
-| Scopes | `manage_billing:copilot` and `read:enterprise`. Nothing else. |
+| Scopes | `manage_billing:copilot` and `read:enterprise`. From 3.3.0 add `scim:enterprise` for an enterprise of managed users (Enterprise Managed Users), so the load can say who each login is. Nothing else. |
 
 Use a classic token: GitHub's enterprise endpoints for Copilot seats and billing take those. If the enterprise's organizations enforce SAML single sign-on, choose **Configure SSO** next to the token afterwards and authorize it for them.
 
@@ -102,13 +102,25 @@ From the next night, the run has a last step, *GitHub Copilot usage*, which load
 | `audit.GitHubCopilotDay` | UTC day, for the enterprise: active people, interactions, code generated and accepted, lines of code, and the whole record as JSON | The days loaded are written again; older days stay |
 | `audit.GitHubCopilotUserDay` | Person per UTC day they used it: interactions, code, AI credits used, chat, agent, command line | The same |
 | `audit.GitHubCopilotCost` | Billing line for Copilot: day, product, SKU, model, organization, quantity, price, gross, discount and net (US dollars) | This month and the last, replaced whole |
+| `audit.GitHubIdentity` (3.3.0) | Person in the enterprise's SCIM identities: their sign-in in Entra (UPN), the login GitHub gives them, their id in Entra, whether active | Replaced whole each run |
+| `audit.GitHubCopilotPolicy` (3.3.0) | Organization and Copilot setting (public code suggestions, chat in the editor and on github.com, the command line, how seats are assigned, the plan) | Replaced whole each run |
 | `audit.ExternalUsageRun` | Run: when, the days covered, status, rows, what was loaded or why not, the token's expiry | Every run kept |
 
 [SCHEMA.md](SCHEMA.md#ai-usage-outside-microsoft-365-copilot-262) has every column.
 
-**What it does not give.** Prompts, responses and code are not in GitHub's reports. A person is a GitHub login, which is not a Microsoft 365 sign-in: nothing here joins a login to the directory yet, so these figures cannot be cut by department. Days are UTC days, not the reporting time zone's.
+**Who each login is (3.3.0).** In an enterprise of managed users, every person comes from Entra through SCIM, and the load reads those identities: the person's UPN, and the login GitHub gives them, worked out by GitHub's rule (the UPN before the @, any character other than a letter, a digit or a hyphen made a hyphen, then `_` and the enterprise's short code: `joseph.saad@contoso.com` is `joseph-saad_contoso`). The short code is read from the seats' logins, or set as `GitHubShortcode` in the settings. An enterprise of personal accounts has no SCIM identities; an administrator's list (`dash.GitHubIdentityMap`, login and UPN) takes their place.
+
+**What it does not give.** Prompts, responses and code are not in GitHub's reports. Days are UTC days, not the reporting time zone's.
 
 ## 5. Checking it
+
+**Before the first load**, try each read without writing anything:
+
+```powershell
+.\tools\Import-GitHubCopilotUsage.ps1 -CheckOnly
+```
+
+One line a part: OK, MISSING (the load needs it, and what to give) or NOTE (optional). The exit code is 0 when everything the load needs can be read. No database is needed.
 
 **Admin › Health**, panel *Other AI usage: GitHub Copilot and Foundry*: when it last loaded, the days and rows, the newest day held, and when the token expires. It turns amber for a partial load, a token within 14 days of expiry, or no load for two days; red when the last run failed, with GitHub's own message.
 
@@ -172,3 +184,5 @@ A run that ends **Partial** loaded what it could: its detail names the part it c
 | `-ApiBase` | `https://api.github.com` | The API host, for data residency |
 | `-ApiVersion` | `2026-03-10` | GitHub's API version |
 | `-SettingsPath` | `copilot-audit.settings.psd1` in the scripts' folder | Another settings file |
+| `-Shortcode` | `GitHubShortcode`, else read from the seats' logins | The enterprise's short code, for working out a managed user's login (3.3.0) |
+| `-CheckOnly` | | Tries each read once and writes nothing; exit code 0 when everything the load needs can be read (3.3.0) |

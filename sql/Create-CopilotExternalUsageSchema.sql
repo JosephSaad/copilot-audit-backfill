@@ -14,6 +14,8 @@
                                      with the AI credits they used
         audit.GitHubCopilotCost      what GitHub billed for Copilot, a row per
                                      day, product, SKU and model
+        audit.GitHubIdentity         who each login is, from SCIM (3.3.0)
+        audit.GitHubCopilotPolicy    each organization's Copilot settings (3.3.0)
 
       Microsoft Foundry and Azure OpenAI (tools/Import-FoundryUsage.ps1), for
       the subscriptions named, from Azure Resource Manager, Azure Monitor and
@@ -23,6 +25,12 @@
                                      requests, input and output tokens
         audit.FoundryCostDay         one row per resource and meter per day:
                                      what Azure charged
+        audit.FoundryAccount         each account's network, sign-in, logging
+                                     and tags (3.3.0)
+        audit.FoundryContentFilter   each account's content filters (3.3.0)
+        audit.FoundryModelCatalog    when each deployed model retires (3.3.0)
+        audit.FoundryAccountSeen     every AI account the app can see, and
+                                     whether its subscription is loaded (3.3.0)
 
       audit.ExternalUsageRun         one row per run of either tool, for
                                      Admin > Health
@@ -143,6 +151,38 @@ IF OBJECT_ID(N'audit.GitHubCopilotCost', N'U') IS NULL
         INDEX IX_GitHubCopilotCost_Date (Scope, UsageDate)
     );
 
+/* Who each GitHub login is (3.3.0), for the seats and usage by person: an enterprise's SCIM identities (Enterprise
+   Managed Users: userName is the person's sign-in in the identity provider, the UPN). The login is worked out by
+   GitHub's rule for managed users: the userName before any @, its characters other than letters, digits and
+   hyphens made hyphens, then _ and the enterprise's short code. Replaced whole for a scope by each load. */
+IF OBJECT_ID(N'audit.GitHubIdentity', N'U') IS NULL
+    CREATE TABLE audit.GitHubIdentity
+    (
+        Scope        NVARCHAR(120)  NOT NULL,
+        Upn          NVARCHAR(256)  NOT NULL,   -- the SCIM userName: the sign-in in Entra
+        Login        NVARCHAR(100)  NULL,       -- the GitHub login it gives, where the short code is known
+        ExternalId   NVARCHAR(256)  NULL,       -- the identity provider's id of the person
+        DisplayName  NVARCHAR(256)  NULL,
+        Active       BIT            NULL,       -- 0: deprovisioned, the account suspended
+        Source       VARCHAR(16)    NOT NULL,   -- SCIM
+        LoadedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubIdentity_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GitHubIdentity PRIMARY KEY (Scope, Upn)
+    );
+
+/* Each organization's Copilot settings as GitHub reports them (3.3.0): one row per organization and setting
+   (public_code_suggestions, ide_chat, platform_chat, cli, seat_management_setting, plan_type), its state as GitHub
+   words it. Replaced whole for a scope by each load. */
+IF OBJECT_ID(N'audit.GitHubCopilotPolicy', N'U') IS NULL
+    CREATE TABLE audit.GitHubCopilotPolicy
+    (
+        Scope        NVARCHAR(120)  NOT NULL,
+        Organization NVARCHAR(100)  NOT NULL,
+        Policy       NVARCHAR(100)  NOT NULL,
+        [State]      NVARCHAR(100)  NULL,       -- enabled, disabled, allow, block, unconfigured ...
+        LoadedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubCopilotPolicy_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GitHubCopilotPolicy PRIMARY KEY (Scope, Organization, Policy)
+    );
+
 /* ---- Microsoft Foundry and Azure OpenAI ----------------------------------- */
 
 /* Every model deployment of the accounts read, as it stands. Replaced whole for a subscription by each load. */
@@ -199,6 +239,91 @@ IF OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NULL
         Currency       NVARCHAR(8)    NULL,
         LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryCostDay_Loaded DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT PK_FoundryCostDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Meter, [Day])
+    );
+
+/* The content filter (RAI policy) each deployment uses, by name (3.3.0); NULL where Azure names none. */
+IF COL_LENGTH(N'audit.FoundryDeployment', N'RaiPolicy') IS NULL ALTER TABLE audit.FoundryDeployment ADD RaiPolicy NVARCHAR(200) NULL;
+
+/* How much of a provisioned (PTU) deployment's capacity was used each day, in percent (3.3.0): Azure Monitor's
+   AzureOpenAIProvisionedManagedUtilizationV2, its daily average and highest. At 100 requests are refused (429).
+   NULL for a deployment that is not provisioned. */
+IF COL_LENGTH(N'audit.FoundryUsageDay', N'PtuUtilizationAvg') IS NULL ALTER TABLE audit.FoundryUsageDay ADD PtuUtilizationAvg DECIMAL(9, 4) NULL;
+IF COL_LENGTH(N'audit.FoundryUsageDay', N'PtuUtilizationMax') IS NULL ALTER TABLE audit.FoundryUsageDay ADD PtuUtilizationMax DECIMAL(9, 4) NULL;
+
+/* Every account read, as it stands (3.3.0): how it is reached and signed in to, its logging, and its tags (owner,
+   cost center and app read from them, whatever their case). Replaced whole for a subscription by each load. */
+IF OBJECT_ID(N'audit.FoundryAccount', N'U') IS NULL
+    CREATE TABLE audit.FoundryAccount
+    (
+        SubscriptionId       VARCHAR(36)    NOT NULL,
+        ResourceGroup        NVARCHAR(90)   NOT NULL,
+        Account              NVARCHAR(64)   NOT NULL,
+        Kind                 NVARCHAR(50)   NULL,       -- OpenAI | AIServices
+        Location             NVARCHAR(50)   NULL,
+        SkuName              NVARCHAR(50)   NULL,
+        PublicNetworkAccess  VARCHAR(16)    NULL,       -- Enabled | Disabled
+        NetworkDefaultAction VARCHAR(16)    NULL,       -- Allow | Deny: what a network not listed may do
+        PrivateEndpoints     INT            NULL,
+        DisableLocalAuth     BIT            NULL,       -- 1: keys refused, Entra sign-in only
+        IdentityType         VARCHAR(40)    NULL,       -- the account's own managed identity, if any
+        Owner                NVARCHAR(256)  NULL,       -- from an owner tag
+        CostCenter           NVARCHAR(256)  NULL,       -- from a cost-center tag
+        App                  NVARCHAR(256)  NULL,       -- from an app or application tag
+        Tags                 NVARCHAR(4000) NULL,       -- every tag, as JSON
+        DiagnosticSettings   INT            NULL,       -- how many send its logs somewhere; NULL: could not be read
+        LogCategories        NVARCHAR(1000) NULL,       -- the log categories or groups they send
+        LoadedUtc            DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryAccount_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryAccount PRIMARY KEY (SubscriptionId, ResourceGroup, Account)
+    );
+
+/* Each account's content filters (RAI policies) (3.3.0): the base it starts from, its mode, and whether any
+   filter is set looser than Microsoft's default (off, not blocking, or blocking only high severity). Detail keeps
+   every filter as JSON. Replaced whole for a subscription by each load. */
+IF OBJECT_ID(N'audit.FoundryContentFilter', N'U') IS NULL
+    CREATE TABLE audit.FoundryContentFilter
+    (
+        SubscriptionId VARCHAR(36)    NOT NULL,
+        ResourceGroup  NVARCHAR(90)   NOT NULL,
+        Account        NVARCHAR(64)   NOT NULL,
+        Policy         NVARCHAR(200)  NOT NULL,
+        BasePolicy     NVARCHAR(200)  NULL,
+        Mode           NVARCHAR(50)   NULL,       -- Default | Asynchronous_filter | Blocking ...
+        Relaxed        BIT            NOT NULL,
+        Detail         NVARCHAR(MAX)  NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryContentFilter_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryContentFilter PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Policy)
+    );
+
+/* The lifecycle of each model a deployment uses, where it is deployed (3.3.0): from Azure's model list of the
+   location. SkuName '' is the model's own retirement; a row per SKU where that SKU retires on a date of its own.
+   Replaced for a location by each load that reads it. */
+IF OBJECT_ID(N'audit.FoundryModelCatalog', N'U') IS NULL
+    CREATE TABLE audit.FoundryModelCatalog
+    (
+        Location        NVARCHAR(50)   NOT NULL,
+        ModelName       NVARCHAR(100)  NOT NULL,
+        ModelVersion    NVARCHAR(32)   NOT NULL,
+        SkuName         NVARCHAR(50)   NOT NULL,   -- '' for the model as a whole
+        LifecycleStatus NVARCHAR(50)   NULL,       -- GenerallyAvailable | Preview | Deprecating | Deprecated ...
+        RetiresDate     DATE           NULL,       -- inference stops on this day
+        LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryModelCatalog_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryModelCatalog PRIMARY KEY (Location, ModelName, ModelVersion, SkuName)
+    );
+
+/* Every Azure OpenAI and Foundry account the app can see, in any subscription (3.3.0), from Azure Resource Graph:
+   Loaded says whether its subscription is one the load reads (FoundrySubscriptions). An account with Loaded 0 has
+   usage and cost the dashboard does not count. Replaced whole by each load that reads it. */
+IF OBJECT_ID(N'audit.FoundryAccountSeen', N'U') IS NULL
+    CREATE TABLE audit.FoundryAccountSeen
+    (
+        SubscriptionId VARCHAR(36)    NOT NULL,
+        ResourceGroup  NVARCHAR(90)   NOT NULL,
+        Account        NVARCHAR(64)   NOT NULL,
+        Kind           NVARCHAR(50)   NULL,
+        Location       NVARCHAR(50)   NULL,
+        Loaded         BIT            NOT NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryAccountSeen_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryAccountSeen PRIMARY KEY (SubscriptionId, ResourceGroup, Account)
     );
 
 /* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform ---- */
@@ -352,4 +477,10 @@ BEGIN
     GRANT SELECT ON audit.PowerPlatformUserActivity TO CopilotInsightsApp;
     GRANT SELECT ON audit.PowerPlatformCapacityDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.PowerPlatformCreditDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GitHubIdentity TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GitHubCopilotPolicy TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryAccount TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryContentFilter TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryModelCatalog TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryAccountSeen TO CopilotInsightsApp;
 END;
