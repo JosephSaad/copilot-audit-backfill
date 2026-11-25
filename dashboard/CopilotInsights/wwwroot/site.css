@@ -43,6 +43,8 @@ main:focus { outline: none; }
 header.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--rule); }
 .brand { font-weight: 700; font-size: 16px; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
+.brand-wrap { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tagline { font-size: 12px; color: var(--muted); }
 .who { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
 .scope-pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 10px; font-weight: 600; }
 .as { background: var(--warn-soft); color: var(--ink); border-radius: 6px; padding: 2px 8px; }
@@ -159,6 +161,14 @@ details.notice.access summary::-webkit-details-marker { display: none; }
 details.notice.access .more { color: var(--accent); font-weight: 600; margin-left: 6px; white-space: nowrap; }
 details.notice.access[open] .more { display: none; }
 .jump { margin: 18px 0 6px; }
+/* The start page's three questions: a card each, its figure large, the pages that answer it under it. */
+.questions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 16px 0 8px; }
+.qcard { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.qcard h2 { margin: 0; font-size: 14px; color: var(--muted); font-weight: 600; }
+.qcard .qfig { font-size: 26px; font-weight: 700; color: var(--ink); text-decoration: none; }
+.qcard a.qfig:hover { color: var(--accent); }
+.qcard p { margin: 0; font-size: 13px; color: var(--muted); }
+.qcard ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
 .jump h2, .hgrid-title { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-block; padding: 7px 14px; border: 1px solid var(--rule); border-radius: 999px; background: var(--surface); color: var(--ink);
@@ -359,6 +369,12 @@ form.admin .card.pick label .sub { margin-left: auto; white-space: nowrap; }
 form.admin .card.pick li label:has(input:not(:checked)) { color: var(--muted); }
 form.admin .card.pick input[type=checkbox] { padding: 0; margin: 0; flex: none; }
 .status-ok { color: var(--good); } .status-warn { color: var(--warn); } .status-bad { color: var(--crit); }
+/* AI apps beyond Copilot: the apps a resource's calls name, whole, wrapping in a column of their own width. */
+.apps-named { display: inline-block; min-width: 16ch; max-width: 40ch; white-space: normal; }
+/* Data sources: each card's name and its state, the state as a badge that wraps under a long name. */
+.sources h3 { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 8px; margin: 0 0 6px; font-size: 14px; }
+.sources .pill { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--grid); white-space: nowrap; }
+.sources .pill.muted { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 form.pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 10px; }
@@ -710,5 +726,8 @@ form.admin:has(label.quote) > .row { flex: 0 0 100%; display: flex; flex-wrap: w
 .page-head a.subscribe { float: right; margin: 0 0 6px 12px; padding: 3px 10px; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface);
   border: 1px solid var(--rule); border-radius: 6px; text-decoration: none; white-space: nowrap; }
 .page-head a.subscribe:hover { border-color: var(--accent); background: var(--accent-soft); }
-@media (max-width: 600px) { .page-head a.subscribe { float: none; display: inline-block; margin: 0 0 8px; } }
+/* Not offered yet: the report needs something chosen on it first. */
+.page-head span.subscribe.off { float: right; margin: 0 0 6px 12px; padding: 3px 10px; font-size: 13px; color: var(--muted); background: var(--surface);
+  border: 1px dashed var(--rule); border-radius: 6px; cursor: help; }
+@media (max-width: 600px) { .page-head a.subscribe, .page-head span.subscribe.off { float: none; display: inline-block; margin: 0 0 8px; } }
 form.admin label[hidden] { display: none; }

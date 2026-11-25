@@ -4,6 +4,75 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] - 2026-11-25
+
+The AI ledger: the dashboard now says what it is and answers three questions on its start page, what is spent on AI,
+whether it is worth it, and whether it is under control. It keeps the money saved and found month by month, shows what
+each report is built from on a new Data sources page, and names the apps behind each Azure AI resource. Report
+subscriptions now wait for a report's choice before they can be made.
+
+**Install over 3.2.0:**
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds one table (`dash.SavingLedger`), one procedure
+   (`dash.usp_RefreshSavingLedger`) and one setting (`WeeklyReportSavings`); nothing is removed. The next nightly
+   refresh fills the ledger's past months from the first license export.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added, and `Program.cs` and the project
+   file are unchanged.
+4. Optional: change or blank the header's line with `Insights:Tagline` in `appsettings.Production.json`.
+
+### Added
+
+- **Data sources** (`/sources`, in the menu under *Start*): what the reports are built from, for everyone the dashboard
+  lets in. A card for each of nine sources says whether it is connected, late, failed or not connected, when it last loaded,
+  the newest day it holds and the reports it opens (only those the viewer can open). A source not connected says what it
+  would add and what it needs. The top line counts the sources connected and says which AI spend the costs cover. It names
+  no one and reads only each load's own run table, so it needs no new table and no grant.
+- **Money found to date.** A saving ledger (`dash.SavingLedger`, new, additive) keeps the money saved and found a month
+  at a time. *Saved* is the Copilot licenses taken back after this dashboard's exports named them, written each night by
+  `dash.usp_RefreshSavingLedger` (called by `dash.usp_RefreshDashboard`): the month in progress is rewritten, a month gone
+  by keeps its amount, so a change of price never rewrites the past. *Found* is the savings Costs and savings finds, by
+  confidence, written each time the page works them out for the whole organization. Shown as *saved to date* under
+  Costs and savings' *Already saved* tile, as one line on the start page for the people that page is for (each figure
+  opens it), and as the weekly report's first line (`WeeklyReportSavings`, 1; 0 leaves it out). Suite moves are never
+  counted.
+- **The three questions.** The start page opens with three cards, *What are we spending on AI?*, *Is it worth it?* and *Are
+  we in control?*, each with one figure that opens the page showing the same number (Costs and savings' spend and return,
+  the licenses on disabled accounts) and the pages that answer it, shown only to those who may open them. The header
+  says what the product is under its name: *The ledger of AI use, cost and control, kept in your own SQL Server*
+  (`Insights:Tagline`; empty leaves it out).
+
+### Changed
+
+- **AI apps beyond Copilot names each resource's apps.** The *Apps named* column of *Each resource* lists the apps the
+  calls name (`ApplicationName`), most calls first, each with its calls on hover, and says how many calls name no app;
+  it was a count. The CSV has the names too.
+- **A report subscribed to only once its choice is made.** A report that shows nothing until something is chosen on it,
+  *Compare two teams* (its two managers), *Agent detail* (an agent) and *App detail* (an app), offers *Email me this
+  report* only once the choice is made, and the subscription keeps it. Until then the report's top says what to choose.
+  A subscription without its choice is refused, and one made in 3.2.0 pauses at its next send, saying what to choose.
+  *Person record* would need a person chosen too, but it names a person, so it is still not sent.
+
+### Known limits
+
+- **Tested on the lab's demo data, not the client's.** The start page's figures, the ledger's first fill and the Data
+  sources cards were checked against the pages they open on a copy of the demo database; the ledger's back-fill of past
+  months has not run against a long history of license exports.
+- **Saved counts a whole month** from the month a license is seen gone, at the price that month; a license given back
+  stops counting from the month it is held again.
+- **Found is written when Costs and savings is worked out for the whole organization** (each morning's pre-cache does
+  it); a site without the pre-cache writes it on the first visit after the data changes.
+- **The figure-link audit does not read the start page's cards or the money line**: each figure was checked by hand
+  against its page (spend, return, licenses on disabled accounts, saved to date, found with high confidence).
+- **Four figure links on pages this release does not touch** do not find their number on the demo data: Licensing ›
+  License inventory's *Licensed today* (3 periods) against Licenses on disabled accounts, and Better with a license's
+  *Cost of their credits* against Credit use. Neither page nor its data changed since 3.2.0; they are left for a later
+  release.
+- **Data sources leaves out the AI gateway** (not built yet) and the Workbench's own sources, which keep their page in
+  the Workbench (Sync and freshness).
+
 ## [3.2.0] - 2026-11-24
 
 Report subscriptions: anyone can have a report sent to them by email, on a schedule they set themselves. The email

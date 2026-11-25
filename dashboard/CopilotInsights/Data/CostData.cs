@@ -561,6 +561,9 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
             suiteSummary = SuiteData.Summarize(fit, suiteCopilotValue, sparePercent);
         }
         var ordered = areas.OrderBy(a => CostAreas.Slot(a.Name)).ToList();
+        /* The month's savings found, into the saving ledger: worked out for the whole organization only, each time the
+           model is worked out afresh (kept until the data changes, so about once a night, by the morning's pre-cache). */
+        if (c.Root is null) await SavingLedger.RecordFoundAsync(db, c.End, cur, SavingLedger.FoundRows(opps));
         return new(cur, ordered, CostRules.Ranked(opps), await monthsTask, cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary, details);
     }
 

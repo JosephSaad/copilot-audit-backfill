@@ -17,7 +17,16 @@
     {
         @* Email me this report: My subscriptions, with this report, its period and its filters ready to subscribe. *@
         var keep = string.Concat(Context.Request.Query.Where(q => q.Key is not ("d" or "handler" or "p" or "tenant" or "add")).Select(q => "&" + Uri.EscapeDataString(q.Key) + "=" + Uri.EscapeDataString(q.Value.ToString())));
-        <a class="subscribe" href="@($"/subscriptions?add={Uri.EscapeDataString(path)}&d={c.Choice}{keep}")" title="Get this report's figures and charts by email, daily, weekly or monthly, at the time you choose">Email me this report</a>
+        @* A report that means nothing until something is chosen on it (two managers, an agent, an app) offers it only then. *@
+        var missing = CopilotInsights.Data.Subscriptions.Missing(path, Context.Request.QueryString.Value);
+        if (missing is null)
+        {
+            <a class="subscribe" href="@($"/subscriptions?add={Uri.EscapeDataString(path)}&d={c.Choice}{keep}")" title="Get this report's figures and charts by email, daily, weekly or monthly, at the time you choose">Email me this report</a>
+        }
+        else
+        {
+            <span class="subscribe off" title="@(char.ToUpperInvariant(missing[0]) + missing[1..]) Then Email me this report sends it with what you chose.">Choose @CopilotInsights.Data.Subscriptions.NeedsOf(path)!.Value.Short to email this report</span>
+        }
     }
     <div class="eyebrow">@Model.Persona@if (Model.IsBeta) { <span class="beta" title="A beta report: open to administrators and to the people given a preview of it (Admin › Access)">Beta</span> }</div>
     @if (guide is not null)

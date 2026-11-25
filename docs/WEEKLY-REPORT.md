@@ -61,6 +61,8 @@ Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both 
 
 **In their words** (3.1.6): up to three success stories, as people wrote them on the dashboard (menu: *Success stories*), approved and ticked for the report by a curator (the Stories role). Each names the person only where they agreed and privacy mode is off; otherwise "a colleague in" their department, or "a colleague" where it is smaller than the minimum group size. The workbook's *Stories* sheet lists every approved story to date, with when each was sent. A report sent marks its stories sent and clears their ticks, so each goes out once unless a curator ticks it again; a preview (`-Preview`) or a test (`-To`) quotes them and marks nothing. Without a ticked story, the email has no such part. `StoriesPerReport` (dashboard setting, 3) sets how many; 0 leaves them out.
 
+**Money found**: under the heading, one line with the money saved to date through the dashboard (Copilot licenses taken back after its exports named them, each month they stay gone) and the savings found a month with high confidence, as Leadership › Costs and savings has them (the saving ledger, `dash.SavingLedger`). Without either, the email has no such line. `WeeklyReportSavings` (dashboard setting, 1) set to 0 leaves it out.
+
 **Days are in the reporting time zone** (`audit.ReportingTimeZone()`, the dashboard's), the same days `bi.Calendar` and every report use.
 
 **The figures come from the Copilot database and AD**, not the Microsoft 365 admin center, so they differ from its reports, which count activity their own way.

@@ -94,6 +94,14 @@ public sealed class InsightsOptions
     public bool Notifications { get; set; } = true;
 
     /// <summary>
+    /// The line under the name in the header, saying what the product is. Empty leaves it out.
+    /// </summary>
+    public string? Tagline { get; set; } = DefaultTagline;
+
+    /// <summary>The tagline when the configuration names none.</summary>
+    public const string DefaultTagline = "The ledger of AI use, cost and control, kept in your own SQL Server";
+
+    /// <summary>
     /// Several Microsoft 365 tenants, each with its own Copilot database: a name and a connection
     /// string each. The first is shown by default; viewers switch in the header. Empty for one
     /// tenant, from ConnectionString.

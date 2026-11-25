@@ -183,6 +183,9 @@ WHERE SubscriptionId = @id AND (@recordLast = 1 OR @status IN ('Sent', 'Paused')
         {
             if (Subscriptions.Report(s.Path) is not { } report)
                 return new("Paused", "Paused: this report can no longer be sent by email.", 0, 0);
+            /* One made before a report had to have its choice made first (two managers, an agent, an app) would be empty. */
+            if (Subscriptions.Missing(s.Path, s.Query) is { } missing)
+                return new("Paused", "Paused: " + char.ToUpperInvariant(missing[0]) + missing[1..] + " Stop this one, then subscribe again from the report once it is chosen.", 0, 0);
             var person = (await db.QueryAsync<(string? DisplayName, bool? Enabled)>("SELECT DisplayName, AccountEnabled FROM dash.Person WHERE Upn = @upn;", new { upn = s.Upn })).FirstOrDefault();
             if (person == default || person.Enabled == false)
                 return new("Paused", "Paused: the account is disabled or no longer in the people directory.", 0, 0);

@@ -79,7 +79,12 @@ SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT CAS
 FROM audit.AIAppUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Caller
 WHERE a.CallerKind = 'Person' AND a.[Day] BETWEEN @d0 AND @d1
 GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
-        await Task.WhenAll(rowsTask, peopleTask, trendTask, silentTask, deptsTask);
+        /* The apps each resource's calls name (ApplicationName), with their calls: the Apps named column lists them. */
+        var appsTask = Db.QueryAsync<(string Resource, string App, long Calls)>(@"
+SELECT [Resource], ApplicationName, SUM(CAST(Calls AS BIGINT)) FROM audit.AIAppUserDay
+WHERE [Day] BETWEEN @d0 AND @d1 GROUP BY [Resource], ApplicationName;", Ctx.Args());
+        await Task.WhenAll(rowsTask, peopleTask, trendTask, silentTask, deptsTask, appsTask);
+        var apps = (await appsTask).ToLookup(a => a.Resource, StringComparer.OrdinalIgnoreCase);
         var rows = await rowsTask;
         var people = await peopleTask;
         long calls = rows.Sum(r => r.Calls), unattributed = rows.Sum(r => r.Unattributed), failures = rows.Sum(r => r.Failures);
@@ -114,20 +119,21 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
         var t = new Table
         {
             Headers = ["Resource", "Line of business", "Environment", "Owner", "Calls", "Prompts", "Conversations", "People", "Without a user identity", "Failed", "Apps named", "First seen", .. (hasCost ? new[] { $"Azure cost ({cur})" } : [])],
-            Numeric = new HashSet<int> { 4, 5, 6, 8, 9, 10, 12 },
+            Numeric = new HashSet<int> { 4, 5, 6, 8, 9, 12 },
         };
         var silent = await silentTask;
         if (silent.Count > 0)
             Kpis.Add(new("Billed, no calls recorded", Num(silent.Count), $"{CostRules.Money(Math.Round(silent.Sum(s => s.Cost)), cur)} charged in the period: idle, or Purview does not collect them", "warn"));
         foreach (var r in rows)
             t.Rows.Add([r.Resource, r.LineOfBusiness ?? "(not set)", r.Environment ?? "Unknown", r.Owner, r.Calls, r.Prompts, r.Threads, PeopleText(r.People),
-                Pct(Ratio(r.Unattributed, r.Calls)), Pct(Ratio(r.Failures, r.Calls)), r.Apps, r.FirstSeen, .. (hasCost ? new object?[] { r.Cost is { } c ? Math.Round(c) : null } : [])]);
+                Pct(Ratio(r.Unattributed, r.Calls)), Pct(Ratio(r.Failures, r.Calls)), AppsNamed(apps[r.Resource].Select(a => (a.App, a.Calls))), r.FirstSeen, .. (hasCost ? new object?[] { r.Cost is { } c ? Math.Round(c) : null } : [])]);
         foreach (var s in silent)
-            t.Rows.Add([s.Account + " (no calls recorded)", "(not set)", "Unknown", null, 0, 0, 0, "none", "", "", 0, null, Math.Round(s.Cost)]);
+            t.Rows.Add([s.Account + " (no calls recorded)", "(not set)", "Unknown", null, 0, 0, 0, "none", "", "", "", null, Math.Round(s.Cost)]);
         CsvTable = t;
         Panels.Add(new("Each resource", t.Render(),
             "A resource is the Azure AI Foundry or Azure OpenAI account the call went to. People: those whose own identity reached it, never named, and only from " + min + " up. " +
             "Without a user identity: the app called with its own key or managed identity, so Purview's per-user policies and this count cannot see who asked. " +
+            "Apps named: the apps the calls name, most calls first (hover for each one's calls); a call that names no app is noted, not listed. " +
             (hasCost ? "Azure cost: what Cost Management charged the account of the same name in the period (the Foundry loader)." : "Azure's cost per resource shows here once the Foundry loader is set up (FoundrySubscriptions)."),
             "full", CsvUrl()));
 
@@ -167,4 +173,23 @@ UPDATE audit.AIAppResource SET LineOfBusiness = @lob, Environment = @env, Owner 
 WHERE [Resource] = @resource;", new { resource, lob = Opt(lob, 100), env, owner = Opt(owner, 256), notes = Opt(notes, 400), by = Viewer.Upn ?? Viewer.WindowsName });
         return n == 0 ? "No such resource." : $"{resource}: {Opt(lob, 100) ?? "no line of business"}, {env}{(Opt(owner, 256) is { } o ? $", owned by {o}" : "")}.";
     });
-}
+
+    /// <summary>
+    /// The Apps named cell: every app the resource's calls name, most calls first, each whole and wrapping; each app's
+    /// calls on hover; a line when some calls name no app (they are not one app, so they are not listed or counted).
+    /// </summary>
+    public static HtmlString AppsNamed(IEnumerable<(string App, long Calls)> calls)
+    {
+        var all = calls.ToList();
+        var named = all.Where(a => !string.IsNullOrWhiteSpace(a.App)).GroupBy(a => a.App.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (App: g.Key, Calls: g.Sum(x => x.Calls))).OrderByDescending(a => a.Calls).ThenBy(a => a.App, StringComparer.OrdinalIgnoreCase).ToList();
+        var unnamed = all.Where(a => string.IsNullOrWhiteSpace(a.App)).Sum(a => a.Calls);
+        static string E(string s) => System.Net.WebUtility.HtmlEncode(s);
+        var names = named.Count == 0 ? "none named"
+            : string.Join(", ", named.Select(a => $"<span title=\"{E(a.App)}: {a.Calls:#,0} calls\">{E(a.App)}</span>"));
+        var notes = new List<string>();
+        if (named.Count > 3) notes.Add($"{named.Count:#,0} apps");
+        if (unnamed > 0 && named.Count > 0) notes.Add($"{unnamed:#,0} calls name no app");
+        else if (unnamed > 0) notes.Add($"{unnamed:#,0} calls, none naming an app");
+        return new HtmlString($"<span class=\"apps-named\" data-v=\"{named.Count}\">{names}</span>" + (notes.Count == 0 ? "" : $"<span class=\"cellnote\">{E(string.Join("; ", notes))}</span>"));
+    }}
