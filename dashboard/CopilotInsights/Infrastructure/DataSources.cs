@@ -96,7 +96,7 @@ public static class DataSources
         new("sessions", "Copilot sessions", "Interactions grouped into sessions, for how long and how deep people work with Copilot", "sessions written by the last run",
             ["/enablement/depth", "/enablement"],
             "Nothing new: the nightly run builds them from the audit log.", false),
-        new("activity", "Other Microsoft 365 activity", "Power BI, Power Apps and Teams AI notes use, from the same audit log", "person-days",
+        new("activity", "AI apps and other Microsoft 365 activity", "Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, and Power BI, Power Apps and Teams AI notes use, from the same audit log", "person-days",
             ["/apps", "/governance/ai-apps"],
             "An activity database named in the nightly run's settings (ActivityDatabase; docs/OPERATIONS.md).", true),
         new("powerplatform", "Power Platform usage", "Who uses Power Apps, Power Automate and Copilot Studio, and the tenant's Dataverse capacity", "people and products",
