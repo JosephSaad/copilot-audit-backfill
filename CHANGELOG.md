@@ -24,6 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **AI apps beyond Copilot names each resource's apps.** The *Apps named* column of *Each resource* lists the apps the
+  calls name (`ApplicationName`), most calls first, each with its calls on hover, and says how many calls name no app;
+  it was a count. The CSV has the names too.
 - **A report subscribed to only once its choice is made.** A report that shows nothing until something is chosen on it,
   *Compare two teams* (its two managers), *Agent detail* (an agent) and *App detail* (an app), offers *Email me this
   report* only once the choice is made, and the subscription keeps it. Until then the report's top says what to choose.
