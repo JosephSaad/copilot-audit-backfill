@@ -1,4 +1,4 @@
-# release 3.2.0
+# release 3.2.1
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1534,6 +1534,16 @@ C	copilot	dash.SavedView	U	3	Name	nvarchar(100)	0
 C	copilot	dash.SavedView	U	4	Url	nvarchar(600)	0	
 C	copilot	dash.SavedView	U	5	IsStart	bit	0	D
 C	copilot	dash.SavedView	U	6	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.SavingLedger	U	1	Month	date	0	
+C	copilot	dash.SavingLedger	U	10	WrittenUtc	datetime2(0)	0	D
+C	copilot	dash.SavingLedger	U	2	Area	nvarchar(100)	0	
+C	copilot	dash.SavingLedger	U	3	Kind	varchar(8)	0	
+C	copilot	dash.SavingLedger	U	4	Confidence	varchar(8)	0	D
+C	copilot	dash.SavingLedger	U	5	Source	nvarchar(400)	0	
+C	copilot	dash.SavingLedger	U	6	Items	int	1	
+C	copilot	dash.SavingLedger	U	7	Amount	decimal(19,2)	0	
+C	copilot	dash.SavingLedger	U	8	Currency	nvarchar(8)	0	
+C	copilot	dash.SavingLedger	U	9	Title	nvarchar(400)	1	
 C	copilot	dash.Secret	U	1	Name	varchar(64)	0	
 C	copilot	dash.Secret	U	2	Cipher	varbinary(8000)	0	
 C	copilot	dash.Secret	U	3	UpdatedBy	nvarchar(256)	0	
@@ -1998,6 +2008,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.Reservation
 G	copilot	CopilotInsightsApp	DELETE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	DELETE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	DELETE	dash.SavedView
+G	copilot	CopilotInsightsApp	DELETE	dash.SavingLedger
 G	copilot	CopilotInsightsApp	DELETE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	DELETE	dash.Setting
 G	copilot	CopilotInsightsApp	DELETE	dash.SkuName
@@ -2042,6 +2053,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.Reservation
 G	copilot	CopilotInsightsApp	INSERT	dash.ReservationRate
 G	copilot	CopilotInsightsApp	INSERT	dash.RoleGrant
 G	copilot	CopilotInsightsApp	INSERT	dash.SavedView
+G	copilot	CopilotInsightsApp	INSERT	dash.SavingLedger
 G	copilot	CopilotInsightsApp	INSERT	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	INSERT	dash.Setting
 G	copilot	CopilotInsightsApp	INSERT	dash.SkuName
@@ -2118,6 +2130,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.Reservation
 G	copilot	CopilotInsightsApp	UPDATE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	UPDATE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	UPDATE	dash.SavedView
+G	copilot	CopilotInsightsApp	UPDATE	dash.SavingLedger
 G	copilot	CopilotInsightsApp	UPDATE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	UPDATE	dash.Setting
 G	copilot	CopilotInsightsApp	UPDATE	dash.SkuName
@@ -2331,6 +2344,7 @@ O	copilot	dash.ResourceItem	U
 O	copilot	dash.ResourcePeriod	U
 O	copilot	dash.RoleGrant	U
 O	copilot	dash.SavedView	U
+O	copilot	dash.SavingLedger	U
 O	copilot	dash.Secret	U
 O	copilot	dash.SensitivityLabel	U
 O	copilot	dash.SessionPeriod	U
@@ -2362,6 +2376,7 @@ O	copilot	dash.usp_ApplyRetention	P
 O	copilot	dash.usp_GetSecret	P
 O	copilot	dash.usp_RefreshDashboard	P
 O	copilot	dash.usp_RefreshResourceTotals	P
+O	copilot	dash.usp_RefreshSavingLedger	P
 O	copilot	dash.usp_SetPrivacyMode	P
 O	copilot	dash.usp_SetSecret	P
 O	copilot	dash.usp_TakeCreditChargeSnapshot	P

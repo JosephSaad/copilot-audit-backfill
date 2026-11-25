@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-136 tables (plus 2 left over from 1.x), 39 views, 1668 columns, from 22 scripts.
+137 tables (plus 2 left over from 1.x), 39 views, 1678 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -26,7 +26,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.ReadMix`](#dashreadmix), [`dash.ReadMixPeriod`](#dashreadmixperiod), [`dash.ResourceItem`](#dashresourceitem), [`dash.ResourcePeriod`](#dashresourceperiod), [`dash.SiteReader`](#dashsitereader), [`dash.SessionSpan`](#dashsessionspan), [`dash.SuccessStory`](#dashsuccessstory), [`dash.SuccessStorySend`](#dashsuccessstorysend), [`dash.ReportSubscription`](#dashreportsubscription), [`dash.ReportSubscriptionSend`](#dashreportsubscriptionsend), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
-- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
+- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract), [`dash.SavingLedger`](#dashsavingledger)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -4556,6 +4556,30 @@ Indexes and constraints:
 
 - `PK_DashExtract`: primary key, clustered (ExtractId)
 - `CK_DashExtract_Frequency`: check `([Frequency]='Monthly' OR [Frequency]='Weekly' OR [Frequency]='Daily')`
+
+### dash.SavingLedger
+
+*Table.* Money saved and found, a month at a time (3.2.1), so the history survives a change of price and Power BI can read it. Saved: the Copilot licenses the dashboard's own exports took back (dash.LicenseAction), written by dash.usp_RefreshSavingLedger at each refresh, the month in progress rewritten each night and a month gone by kept as it was last written. Found: the savings Leadership > Costs and savings finds, by confidence, written each time the dashboard works them out for the whole organization (the month's rows replaced, earlier months kept). Amounts are a month's.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Month` | date | **no** | PK | the first day of the month |
+| 2 | `Area` | nvarchar(100) | **no** | PK | as Costs and savings names it: Microsoft 365 Copilot, ... |
+| 3 | `Kind` | varchar(8) | **no** | PK | Saved or Found |
+| 4 | `Confidence` | varchar(8) | **no** | `''`, PK | High, Medium or Low; empty for Saved |
+| 5 | `Source` | nvarchar(400) | **no** | PK | what it is: the page that shows it, or a short name |
+| 6 | `Items` | int | yes |  | licenses, where it is a count of them |
+| 7 | `Amount` | decimal(19,2) | **no** |  | a month's, in Currency |
+| 8 | `Currency` | nvarchar(8) | **no** |  | |
+| 9 | `Title` | nvarchar(400) | yes |  | the saving as the page words it |
+| 10 | `WrittenUtc` | datetime2(0) | **no** | `sysutcdatetime` | |
+
+Indexes and constraints:
+
+- `PK_DashSavingLedger`: primary key on `Month`, `Kind`, `Area`, `Confidence`, `Source`
+- `CK_DashSavingLedger_Kind`: `Kind` is Saved or Found
 
 ## Left over from 1.x
 
