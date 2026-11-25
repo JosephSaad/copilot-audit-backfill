@@ -671,7 +671,8 @@ function Format-SavingLine {
     $line
 }
 
-function New-ReportHtml {    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
+function New-ReportHtml {
+    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)

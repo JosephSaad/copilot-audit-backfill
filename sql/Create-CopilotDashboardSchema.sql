@@ -335,6 +335,13 @@ BEGIN
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
 END;
+/* Then Platforms, the AI platforms section's lists that name people (the GitHub Copilot seats). Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%''Platforms''%')
+BEGIN
+    ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
+    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories', 'Platforms'));
+END;
 
 /* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
    of its own and the group's name as it was when granted, for the lists. NULL on every grant to a UPN or to DOMAIN\name. */
@@ -390,6 +397,13 @@ BEGIN
     ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
     ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
+END;
+/* And Platforms. Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%''Platforms''%')
+BEGIN
+    ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
+    ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories', 'Platforms'));
 END;
 /* A profile's Sections row names its sections and whether the named lists show, as a Sections grant does. */
 IF COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL ALTER TABLE dash.AccessProfileRole ADD Sections NVARCHAR(1000) NULL;

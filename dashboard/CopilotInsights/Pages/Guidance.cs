@@ -113,6 +113,7 @@ public static class Guidance
 
         // Governance
         ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Check the share of web search against your policy."),
+        ["/governance/ai-apps/resource"] = new("See which apps call one AI resource, how often they fail, and what it costs.", "Ask the owner of an app that fails often, or calls with no person's identity, what changed."),
         ["/governance/ai-apps"] = new("See which of the organization's own AI apps are used, by whom, and in which environment.", "Ask the owners of production resources with no user identity how their callers are governed."),
     };
 }

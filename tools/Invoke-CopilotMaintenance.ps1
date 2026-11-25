@@ -73,9 +73,9 @@ param(
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
     [string] $Principal,
-    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Sections', 'Preview', 'Stories')][string] $Role,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Sections', 'Preview', 'Stories', 'Platforms')][string] $Role,
     # GrantRole: the menu sections to grant, by key (the dashboard's Admin > Access page names them).
-    [ValidateSet('leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'wb-ownership', 'wb-registry')]
+    [ValidateSet('leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'platforms', 'wb-ownership', 'wb-registry')]
     [string[]] $Sections,
     # GrantRole -Sections: show the lists that name people in them.
     [switch] $NamedPeople,
@@ -235,7 +235,7 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
         }
         if ($Role -eq 'Sections') {
             # In the menu's order, each once: what the dashboard stores.
-            $order = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'wb-ownership', 'wb-registry'
+            $order = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'people', 'app-owners', 'governance', 'platforms', 'wb-ownership', 'wb-registry'
             $list = ($order | Where-Object { $Sections -contains $_ }) -join ','
             $has = [int] (Invoke-Sql -Scalar -Sql "SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Sections') IS NULL THEN 0 ELSE 1 END")
             if ($has -eq 0) { throw 'Granting sections needs the 3.1.0 schema: run Install-CopilotAudit.ps1 -Dashboard first.' }

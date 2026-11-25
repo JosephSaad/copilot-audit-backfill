@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **AI resource detail** (`/governance/ai-apps/resource`): each resource's name on AI apps beyond Copilot opens a page of
+  its own, with the apps that call it (calls, identity share, failures, first and last day, and an estimated cost each:
+  the resource's cost shared by calls), calls and failures over time, the departments calling with their own identity
+  (counts only), and, where the Foundry loader runs, its deployments, models, tokens and Azure cost by meter. It can be
+  subscribed to once a resource is chosen.
+- **The AI platforms section and the Platforms role.** A menu section of its own for the Foundry and GitHub Copilot
+  platform teams, granted like every section (Admin › Access, access profiles, `Invoke-CopilotMaintenance.ps1 -Sections
+  platforms`). It lists AI apps beyond Copilot and AI resource detail now; the Foundry and GitHub pages join it. The
+  Platforms role (with *Named people*) opens its lists that name people, the GitHub Copilot seat holders, as they come.
+  `dash.RoleGrant` and `dash.AccessProfileRole` accept it (widened, nothing removed).
+
+### Fixed
+
+- **License inventory's *Licensed today* opened a page with another number.** It linked to Licenses on disabled
+  accounts, which counts something else. It now links nowhere, and a figure of its own, *On disabled accounts*, counts
+  the add-on licenses on disabled or departed accounts as that page does and opens it; its note says how many more hold
+  Copilot only inside a suite (Suite fit's).
+- **Admin › Access's section boxes lowercased product names** in their information (*copilot studio makers*,
+  *microsoft 365 workload owners*): each now reads *Agents (Copilot Studio makers and the center of excellence): ...*.
+- **The figure-link audit's list of deliberately related links** named Better with a license's figure by an old label,
+  so *Cost of their credits* was reported as not found; it is listed by its current name.
+
 ## [3.2.1] - 2026-11-25
 
 The AI ledger: the dashboard now says what it is and answers three questions on its start page, what is spent on AI,

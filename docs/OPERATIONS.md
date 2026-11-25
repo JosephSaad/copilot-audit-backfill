@@ -82,6 +82,7 @@ The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` a
 | Compliance | Named people who worked with labeled content; one person's full record (works in privacy mode) |
 | Agents | Named users of an agent |
 | Enablement | Named champions and engagement segments |
+| Platforms (3.3.0) | The AI platforms section's lists that name people: who holds each GitHub Copilot seat, idle seats, and seats held by people who have left (as the GitHub pages come). A Sections grant ticking *AI platforms* with *Named people* gives it; `M -Task GrantRole -Role Platforms` grants it alone |
 | Governance, GovernanceOperator, GovernanceAuditor | Pages of the Governance Workbench (3.0.0), when it is turned on: see [Governance Workbench](#governance-workbench). No usage data |
 | Preview (3.1.6; every beta report from 3.2.0) | Every report marked Beta in Admin › Reports shown, inside the sections the person sees already. Ticked in *Grant access* › *Other roles*. A grant made in 3.1.6 that names some reports opens those only, until Preview is ticked for them again. Opens no section and lets no one past the level limit |
 | Stories (3.1.6) | Curates the success stories: sees every story, edits, approves or declines it, and ticks the ones the weekly report quotes. No usage data; lets no one past the level limit |

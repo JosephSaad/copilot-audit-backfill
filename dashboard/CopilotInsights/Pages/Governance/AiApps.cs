@@ -125,7 +125,7 @@ WHERE [Day] BETWEEN @d0 AND @d1 GROUP BY [Resource], ApplicationName;", Ctx.Args
         if (silent.Count > 0)
             Kpis.Add(new("Billed, no calls recorded", Num(silent.Count), $"{CostRules.Money(Math.Round(silent.Sum(s => s.Cost)), cur)} charged in the period: idle, or Purview does not collect them", "warn"));
         foreach (var r in rows)
-            t.Rows.Add([r.Resource, r.LineOfBusiness ?? "(not set)", r.Environment ?? "Unknown", r.Owner, r.Calls, r.Prompts, r.Threads, PeopleText(r.People),
+            t.Rows.Add([new Link(r.Resource, Ctx.Url("/governance/ai-apps/resource", extra: $"r={Uri.EscapeDataString(r.Resource)}")), r.LineOfBusiness ?? "(not set)", r.Environment ?? "Unknown", r.Owner, r.Calls, r.Prompts, r.Threads, PeopleText(r.People),
                 Pct(Ratio(r.Unattributed, r.Calls)), Pct(Ratio(r.Failures, r.Calls)), AppsNamed(apps[r.Resource].Select(a => (a.App, a.Calls))), r.FirstSeen, .. (hasCost ? new object?[] { r.Cost is { } c ? Math.Round(c) : null } : [])]);
         foreach (var s in silent)
             t.Rows.Add([s.Account + " (no calls recorded)", "(not set)", "Unknown", null, 0, 0, 0, "none", "", "", "", null, Math.Round(s.Cost)]);

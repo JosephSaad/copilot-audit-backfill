@@ -96,7 +96,11 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")], Key: Sections.AppOwners),
         new("Governance", "AI governance and architecture", [
-            new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps")], Key: Sections.Governance),
+            new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource")], Key: Sections.Governance),
+        /* AI platforms: the Foundry and GitHub Copilot platform teams' section. Its own grant gives them exactly these pages;
+           AI apps beyond Copilot and a resource's detail are listed here too, as in Governance. */
+        new("AI platforms", "Foundry and GitHub Copilot platform teams", [
+            new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource")], Roles.Platforms, Sections.Platforms),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Access profiles", "/admin/profiles", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),

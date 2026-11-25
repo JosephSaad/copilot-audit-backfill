@@ -27,7 +27,7 @@ public static class SectionPicker
     {
         var named = s.NamedRole is null ? []
             : Nav.Groups.FirstOrDefault(g => g.Key == s.Key)?.Pages.Where(p => p.Role is not null).Select(p => p.Title).ToList() ?? [];
-        return $"{s.Name}, for {s.Who.ToLowerInvariant()}: {string.Join(", ", Reports(s.Key))}." +
+        return $"{s.Name} ({s.Who}): {string.Join(", ", Reports(s.Key))}." +
                (named.Count > 0 ? $" Lists that name people, shown with Named people ticked: {string.Join(", ", named)}." : s.Workbench ? "" : " It has no list that names people.") +
                (s.Workbench ? " The Governance and Governance operator roles, and Admin, open it without a tick." : "");
     }

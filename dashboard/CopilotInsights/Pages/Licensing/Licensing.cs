@@ -55,8 +55,17 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
            accounts are still paid seats, so they are named beside it, not hidden. */
         var seats = t.LicensedNow + t.LicensedNotEnabled;
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"enabled accounts; {(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period" +
-            (t.LicensedNotEnabled > 0 ? $"; {t.LicensedNotEnabled:#,0} more on disabled accounts, seats to reclaim" : ""),
-            Href: t.LicensedNotEnabled > 0 ? Open("/licensing/leavers") : null));
+            (t.LicensedNotEnabled > 0 ? $"; {t.LicensedNotEnabled:#,0} more on disabled accounts" : "")));
+        /* The licenses on disabled accounts to take back, as Licenses on disabled accounts counts and lists them: the
+           add-ons only. Licensed today's link went there with a different number; this figure has the same one. */
+        if (t.LicensedNotEnabled > 0)
+        {
+            var leavers = (await ops.LeaversAsync(Ctx.Root)).Count;
+            var inSuite = t.LicensedNotEnabled - leavers;
+            Kpis.Add(new("On disabled accounts", Num(leavers),
+                "add-on licenses on disabled or departed accounts, to take back" + (inSuite > 0 ? $"; {inSuite:#,0} more hold Copilot only inside a suite (Licensing › Suite fit)" : ""),
+                leavers > 0 ? "warn" : null, Href: Open("/licensing/leavers")));
+        }
         Kpis.Add(new("Assigned in the period", Num(added), Href: Open("/licensing/changes")));
         Kpis.Add(new("Removed in the period", Num(removed), Href: Open("/licensing/changes")));
         /* Of every license held, those on disabled accounts included (idle counts them too), the share used. */

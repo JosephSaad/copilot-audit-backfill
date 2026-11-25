@@ -121,6 +121,7 @@ public static class NavText
 
         ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
         ["/governance/ai-apps"] = ("Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps.", null),
+        ["/governance/ai-apps/resource"] = ("One AI resource: the apps that call it, its failures, models, tokens and cost.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),

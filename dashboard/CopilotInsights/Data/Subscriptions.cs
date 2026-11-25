@@ -37,6 +37,7 @@ public static class Subscriptions
             ["/leadership/compare"] = ("two managers", [("the first manager", ["a"]), ("the second manager", ["b"])]),
             ["/agents/detail"] = ("an agent", [("an agent", ["agent", "inv"])]),
             ["/apps/detail"] = ("an app", [("an app", ["app"])]),
+            ["/governance/ai-apps/resource"] = ("a resource", [("a resource", ["r"])]),
             ["/compliance/person"] = ("a person", [("a person", ["upn"])]),
         };
 
