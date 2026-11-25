@@ -2,7 +2,7 @@
 @model IndexModel
 @inject CopilotInsights.Infrastructure.TenantAccessor Tenants
 <div class="page-head">
-    <div class="eyebrow">Microsoft 365 Copilot usage</div>
+    <div class="eyebrow">AI use, cost and control</div>
     <h1>Copilot Insights</h1>
     <p class="intro">Choose an area to see its reports, or type a report's name in <i>Find a report</i> on the left.</p>
 </div>
@@ -45,6 +45,24 @@
         <p class="notice ledger"><span><b>Money found.</b>
             @if (led.SavedToDate > 0) { <a href="/leadership/costs">@CopilotInsights.Data.CostRules.Money(Math.Round(led.SavedToDate, 0), led.Currency) saved to date</a><text> through this dashboard</text> } else { <text>Nothing saved through this dashboard yet</text> }@if (led.FoundHigh > 0) { <text>, and </text><a href="/leadership/costs?conf=High#savings">@CopilotInsights.Data.CostRules.Money(Math.Round(led.FoundHigh, 0), led.Currency) a month more found</a><text> with high confidence.</text> } else { <text>.</text> }
             <span class="sub">Saved: Copilot licenses taken back after this dashboard named them, each month they stay gone. Found: the savings Costs and savings finds today.</span></span></p>
+    }
+    @* The three questions the dashboard answers, each with one figure that opens the page showing the same number. *@
+    @if (Model.Questions.Count > 0)
+    {
+        <section class="questions" aria-label="The three questions">
+            @foreach (var q in Model.Questions)
+            {
+                <div class="qcard">
+                    <h2>@q.Ask</h2>
+                    @if (q.Figure is not null)
+                    {
+                        @if (q.Href is not null) { <a class="qfig" href="@q.Href">@q.Figure</a> } else { <span class="qfig">@q.Figure</span> }
+                    }
+                    <p>@q.Line</p>
+                    <ul>@foreach (var (text, href) in q.Links) { <li><a href="@href">@text</a></li> }</ul>
+                </div>
+            }
+        </section>
     }
     var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);
     @* The reports this person opens most, as a row of shortcuts rather than a card of their own. *@

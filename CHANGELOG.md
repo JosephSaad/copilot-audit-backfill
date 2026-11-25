@@ -22,6 +22,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   opens it), and as the weekly report's first line (`WeeklyReportSavings`, 1; 0 leaves it out). Suite moves are never
   counted.
 
+- **The three questions.** The start page opens with three cards, *What are we spending on AI?*, *Is it worth it?* and *Are
+  we in control?*, each with one figure that opens the page showing the same number (Costs and savings' spend and return,
+  the licenses on disabled accounts) and the pages that answer it, shown only to those who may open them. The header
+  says what the product is under its name: *The ledger of AI use, cost and control, kept in your own SQL Server*
+  (`Insights:Tagline`; empty leaves it out).
+
 ### Changed
 
 - **AI apps beyond Copilot names each resource's apps.** The *Apps named* column of *Each resource* lists the apps the

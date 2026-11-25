@@ -1,5 +1,7 @@
 # Copilot Insights dashboard
 
+**The ledger of AI use, cost and control, kept in your own SQL Server.** It answers three questions: what are we spending on AI, is it worth it, and are we in control. The start page opens with one figure for each, for those who may open the page behind it.
+
 A web dashboard over the Copilot audit data. Everyone signs in with their Windows account, or through Microsoft Entra ID where the site is set up for it ([ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md), 2.8.0), and sees the part of the organization they are entitled to. Executives and anyone granted it see everything; a manager sees their own people; everyone else sees their own use. Pages are grouped by persona. A web-based admin module holds every setting: access, email, alerts, digests and the webhook, targets and assumptions, privacy and retention, reference data and value names, classifications and events, scheduled extracts, training records, directory quality, health and the audit log. One dashboard can span several Microsoft 365 tenants.
 
 It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022 or later. It reads the Copilot database the pipeline already fills: the `bi` star schema, plus its own `dash` schema of settings, roles, the org chart and daily rollups. It has no other data store.
@@ -252,6 +254,10 @@ Anything refused is logged as a warning, and the viewer is treated as not in the
 ### Report subscriptions (3.2.0)
 
 **Email me this report**, at the top of a report, sends it to you by email on a schedule you set: daily (every weekday) for a period of up to 30 days, or weekly or monthly for any period, at a time you choose on the hour or half hour. *My subscriptions* (in the menu under *Start*) lists yours: change, pause, stop, or **Send me one now** to see how it looks. The email holds the report's headline figures and its charts, with their legend, events and notes, and a button that opens the report with the same period and filters. Its tables and lists are never emailed, and the reports that are lists of named people cannot be subscribed to (54 of the 77 reports can). A report that shows nothing until you choose on it (the two managers on *Compare two teams*, the agent on *Agent detail*, the app on *App detail*) offers **Email me this report** only once you have chosen, and the subscription keeps your choice. It goes only to you, at your address from the directory, and it is built at each send with your access as it is then: if you can no longer open the report, nothing is sent and the subscription pauses saying why. If the night's refresh is late, the email waits for it until midday, then goes with a line saying how old its figures are.
+
+### The start page's three questions
+
+Under the menu's *Start*, three cards: **What are we spending on AI?** (Costs and savings' spend a month), **Is it worth it?** (its return on the spend, with the value of the time saved) and **Are we in control?** (the licenses on disabled or departed accounts, with links to the flagged interactions, the agents without an owner and Models and controls). Each figure opens the page that shows the same number, and each card shows only to those who may open the pages behind it: the first two to whole-organization viewers and the Licensing role, the third with the Licensing role or with any of its links. The line under the product's name in the header is `Insights:Tagline` in the site's settings (empty leaves it out).
 
 ### Data sources
 

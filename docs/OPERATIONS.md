@@ -146,6 +146,8 @@ M -Task SetOrgTop -Clear
 
 A new top takes effect at once: the org chart is rebuilt as it is saved.
 
+**The line under the name.** The header shows *The ledger of AI use, cost and control, kept in your own SQL Server* under *Copilot Insights*. Change it with `Insights:Tagline` in `appsettings.Production.json`, or set it to an empty string to leave it out; restart the site to apply.
+
 **The first administrator, or a way back in.** The site's configuration names bootstrap administrators, who cannot be removed from the Admin pages: run the IIS installer with `-AdminPrincipal`, or edit `Insights:BootstrapAdmins` in `appsettings.Production.json` and recycle the app pool (with several web servers, on every one: each has its own file). From the job server, `M -Task GrantRole -Principal 'USERS\Copilot-Insights-Admins' -PrincipalType Group -Role Admin`.
 
 **The other access settings** (Admin › Access › *Settings*): the minimum group size (no breakdown shows a group smaller than this), the default period, the days after which a license counts as unused, and the license's monthly price and currency.

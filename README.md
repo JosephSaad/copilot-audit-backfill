@@ -1,5 +1,7 @@
 # Copilot audit backfill → SQL Server
 
+*The pipeline behind Copilot Insights, the ledger of AI use, cost and control, kept in your own SQL Server.*
+
 Pulls every `CopilotInteraction` audit record for a date range out of Microsoft Purview and into SQL Server, using the Purview Audit Search Graph API. Downloads and SQL loading run in parallel with no CSV files in between, it stays inside Microsoft's published Audit Search API limits, and it resumes after any interruption.
 
 ```
