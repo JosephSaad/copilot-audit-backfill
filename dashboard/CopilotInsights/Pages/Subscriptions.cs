@@ -79,6 +79,14 @@ public sealed class SubscriptionsModel(PageServices s) : InsightsPage(s)
         {
             if (Subscriptions.Report(addPath) is not { } report)
                 Panels.Add(new("Not a report that can be emailed", new HtmlString("<p>That report cannot be sent by email: lists that name people, Admin pages and pages that are not reports are not sent. Open a report and choose <b>Email me this report</b>.</p>")));
+            else if (Subscriptions.Missing(report.Path, Request.QueryString.Value) is { } missing)
+            {
+                /* Compare two teams, an agent's or an app's detail: nothing to send until it is chosen on the report. */
+                var back = Subscriptions.Address(report.Path, int.TryParse(Request.Query["d"], out var bd) && ReportContext.DayChoices.Contains(bd) ? bd : 30,
+                    Subscriptions.KeepQuery(Request.Query.Where(kv => kv.Key is not ("add" or "d")).Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value.ToString()))));
+                Panels.Add(new($"Choose on the report first: {report.Title}", new HtmlString(
+                    $"<p>{E(Cap(missing))} Open <a href=\"{E(back)}\">{E(report.Title)}</a>, make the choice, then choose <b>Email me this report</b> there.</p>")));
+            }
             else if (mine.Count >= cap)
                 Panels.Add(new("Too many subscriptions", new HtmlString($"<p>You have {mine.Count:#,0} subscriptions, the most one person may have ({cap:#,0}). Stop one below to add this one.</p>")));
             else
@@ -177,6 +185,7 @@ SELECT Status, COUNT(*) FROM dash.ReportSubscriptionSend WHERE ClaimedUtc >= DAT
         int? dom = frequency == Subscriptions.Monthly ? dayOfMonth : null;
         if (Subscriptions.Problem(days, frequency, dow, dom, at == TimeSpan.MinValue ? null : at, earliest) is { } problem) throw new ArgumentException(problem);
         var kept = Subscriptions.KeepQuery(Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query ?? "").Select(kv => new KeyValuePair<string, string>(kv.Key, kv.Value.ToString())));
+        if (Subscriptions.Missing(report.Path, kept) is { } missing) throw new ArgumentException(missing);
 
         /* Whether it can be sent: the access the sender will find without their sign-in must open the report. */
         var later = await S.Viewers.WithoutSignInAsync(me, Viewer.WindowsName, Viewer.SignedInWith);

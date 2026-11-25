@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A report subscribed to only once its choice is made.** A report that shows nothing until something is chosen on it,
+  *Compare two teams* (its two managers), *Agent detail* (an agent) and *App detail* (an app), offers *Email me this
+  report* only once the choice is made, and the subscription keeps it. Until then the report's top says what to choose.
+  A subscription without its choice is refused, and one made in 3.2.0 pauses at its next send, saying what to choose.
+  *Person record* would need a person chosen too, but it names a person, so it is still not sent.
+
 ## [3.2.0] - 2026-11-24
 
 Report subscriptions: anyone can have a report sent to them by email, on a schedule they set themselves. The email

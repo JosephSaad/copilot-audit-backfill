@@ -710,5 +710,8 @@ form.admin:has(label.quote) > .row { flex: 0 0 100%; display: flex; flex-wrap: w
 .page-head a.subscribe { float: right; margin: 0 0 6px 12px; padding: 3px 10px; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface);
   border: 1px solid var(--rule); border-radius: 6px; text-decoration: none; white-space: nowrap; }
 .page-head a.subscribe:hover { border-color: var(--accent); background: var(--accent-soft); }
-@media (max-width: 600px) { .page-head a.subscribe { float: none; display: inline-block; margin: 0 0 8px; } }
+/* Not offered yet: the report needs something chosen on it first. */
+.page-head span.subscribe.off { float: right; margin: 0 0 6px 12px; padding: 3px 10px; font-size: 13px; color: var(--muted); background: var(--surface);
+  border: 1px dashed var(--rule); border-radius: 6px; cursor: help; }
+@media (max-width: 600px) { .page-head a.subscribe, .page-head span.subscribe.off { float: none; display: inline-block; margin: 0 0 8px; } }
 form.admin label[hidden] { display: none; }

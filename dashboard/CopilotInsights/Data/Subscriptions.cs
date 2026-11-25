@@ -25,6 +25,40 @@ public static class Subscriptions
             .FirstOrDefault(p => string.Equals(p.Path, bare, StringComparison.OrdinalIgnoreCase) && !p.Admin && p.Role is null && !p.ManyTenants);
     }
 
+    /// <summary>
+    /// What a report needs chosen on it before it means anything, so before it may be subscribed to: in short (for the
+    /// report's top), then each thing in words with the filters that give it (any one of them). A report that shows only its
+    /// picker until then would send an empty email. Person record names a person, so it is not sent; it is listed should
+    /// that change.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, (string Short, (string What, string[] Keys)[] Items)> Needs =
+        new Dictionary<string, (string Short, (string What, string[] Keys)[] Items)>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["/leadership/compare"] = ("two managers", [("the first manager", ["a"]), ("the second manager", ["b"])]),
+            ["/agents/detail"] = ("an agent", [("an agent", ["agent", "inv"])]),
+            ["/apps/detail"] = ("an app", [("an app", ["app"])]),
+            ["/compliance/person"] = ("a person", [("a person", ["upn"])]),
+        };
+
+    /// <summary>
+    /// What is still to be chosen on the report before it may be subscribed to, in words ("choose the first manager and the
+    /// second manager on the report first: ..."); null when nothing is missing. <paramref name="query"/> is the report's own
+    /// query string or a subscription's kept filters, with or without the leading "?".
+    /// </summary>
+    public static string? Missing(string? path, string? query)
+    {
+        if (NeedsOf(path) is not { } needs) return null;
+        var given = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(query ?? "");
+        var missing = needs.Items.Where(n => !n.Keys.Any(k => given.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v.ToString())))
+            .Select(n => n.What).ToList();
+        return missing.Count == 0 ? null
+            : $"choose {(missing.Count == 1 ? missing[0] : string.Join(", ", missing[..^1]) + " and " + missing[^1])} on the report first: until then it has nothing to send.";
+    }
+
+    /// <summary>What the report needs chosen on it, or null when it needs nothing.</summary>
+    public static (string Short, (string What, string[] Keys)[] Items)? NeedsOf(string? path) =>
+        path is { Length: > 0 } && Needs.TryGetValue(path.Length > 1 ? path.TrimEnd('/') : path, out var n) ? n : null;
+
     /// <summary>The longest period that may be sent daily.</summary>
     public const int DailyUpTo = 30;
 
