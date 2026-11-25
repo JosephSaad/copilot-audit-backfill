@@ -66,6 +66,10 @@ subscriptions now wait for a report's choice before they can be made.
   it); a site without the pre-cache writes it on the first visit after the data changes.
 - **The figure-link audit does not read the start page's cards or the money line**: each figure was checked by hand
   against its page (spend, return, licenses on disabled accounts, saved to date, found with high confidence).
+- **Four figure links on pages this release does not touch** do not find their number on the demo data: Licensing ›
+  License inventory's *Licensed today* (3 periods) against Licenses on disabled accounts, and Better with a license's
+  *Cost of their credits* against Credit use. Neither page nor its data changed since 3.2.0; they are left for a later
+  release.
 - **Data sources leaves out the AI gateway** (not built yet) and the Workbench's own sources, which keep their page in
   the Workbench (Sync and freshness).
 
