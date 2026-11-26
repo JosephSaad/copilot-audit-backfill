@@ -54,6 +54,9 @@ builder.Services.AddScoped<CopilotInsights.Data.SuiteData>();
 builder.Services.AddScoped<CopilotInsights.Data.CreditData>();
 builder.Services.AddScoped<CopilotInsights.Data.ReservationData>();
 builder.Services.AddScoped<CopilotInsights.Data.CreditChargeData>();   // Credit chargeback and the commitment
+builder.Services.AddScoped<CopilotInsights.Data.GatewayTokens>();   // Model tokens by business unit
+builder.Services.AddScoped<CopilotInsights.Data.SpendLimitData>();   // Spend limits
+builder.Services.AddScoped<CopilotInsights.Data.AgentPolicies>();   // Agent policies
 builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // The assumptions register
 /* A background service that fails is logged, and the site goes on: .NET's default stops the whole site,
    which a mail server that did not answer once did, again after every restart. */

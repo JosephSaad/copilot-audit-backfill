@@ -140,21 +140,23 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
         /// state moved on whatever happened, so that day's security alert or that pipeline failure was never emailed. True
         /// when the state has moved on; false when the alert waits for another try or another server raised it.
         /// </summary>
-        async Task<bool> RaiseAsync(string key, string? seen, string? value, string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link = null)
+        async Task<bool> RaiseAsync(string key, string? seen, string? value, string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link = null,
+                                    IReadOnlyList<string>? alsoTo = null)
         {
             var (tries, waiting) = await RetryAsync(key);
             if (waiting) return false;
             if (!await ClaimStateAsync(key, seen, value)) return false;
-            return await SendOnceAsync(key, tries, () => SetStateAsync(key, seen), kind, recipientsSetting, subject, lines, link);
+            return await SendOnceAsync(key, tries, () => SetStateAsync(key, seen), kind, recipientsSetting, subject, lines, link, alsoTo);
         }
 
         /// <summary>Sends a claimed alert, and puts the claim back (<paramref name="release"/>) when it is to be tried again.</summary>
-        async Task<bool> SendOnceAsync(string name, byte tries, Func<Task> release, string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link)
+        async Task<bool> SendOnceAsync(string name, byte tries, Func<Task> release, string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link,
+                                       IReadOnlyList<string>? alsoTo = null)
         {
             bool delivered;
             /* Nothing has gone when this throws: everything is read before the email, an email the site was stopped during
                is not sent (Mailer), and nothing after the email throws. So the claim is given back, for the next round. */
-            try { delivered = await AlertAsync(kind, recipientsSetting, subject, lines, link, eventLog: tries == 0); }
+            try { delivered = await AlertAsync(kind, recipientsSetting, subject, lines, link, eventLog: tries == 0, alsoTo); }
             catch (Exception) { await release(); throw; }
             var next = Retry.After(delivered, tries, DateTime.UtcNow);
             if (!next.Retry) { await ForgetAsync("retry:" + name); return true; }
@@ -169,7 +171,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
         /// posts it to the webhook. True when it reached someone, or when sending again would change nothing: email off or
         /// no recipients.
         /// </summary>
-        async Task<bool> AlertAsync(string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link, bool eventLog)
+        async Task<bool> AlertAsync(string kind, string recipientsSetting, string subject, IReadOnlyList<string> lines, string? link, bool eventLog, IReadOnlyList<string>? alsoTo = null)
         {
             var email = new Email(subject);
             foreach (var l in lines) email.Paragraph(l);
@@ -180,6 +182,8 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var to = new List<string>();
             foreach (var setting in recipientsSetting.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                 if (await _settings.StringAsync(setting) is { } v) to.Add(v);
+            /* Addresses the alert names itself, such as a spend limit's executives. */
+            if (alsoTo is not null) to.AddRange(alsoTo);
             var toLog = eventLog && await _settings.StringAsync("EventLogAlerts") != "0";
             var webhook = await sp.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
             var format = await _settings.StringAsync("AlertWebhookFormat") is "Json" ? "Json" : "Teams";
@@ -250,7 +254,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var last = await StateAsync("refresh");
             /* Done for this refresh, unless one of its alerts waits to be emailed again: each check below keeps its own state, so running them again repeats nothing. */
             if (last == runId.Value.ToString(CultureInfo.InvariantCulture)
-                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment', N'retry:budget') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
+                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment', N'retry:budget', N'retry:limits') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
                 return;
             var first = last is null;
 
@@ -260,6 +264,8 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             await PoolAsync();
             await CommitmentAsync();
             await BudgetAsync();
+            await SpendLimitsAsync();
+            await AgentPoliciesAsync();
             await LeaversAsync(first);
             await NonHumanAsync();
             await SetStateAsync("refresh", runId.Value.ToString(CultureInfo.InvariantCulture));
@@ -366,6 +372,78 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
                 over.Count == 1 ? $"The Azure budget {over[0].Budget} is forecast to go over" : $"{over.Count} Azure budgets are forecast to go over",
                 over.Select(b => $"{b.Budget}: forecast {M(b.Forecast, b.Currency)} against {M(b.Amount, b.Currency)}, {M(b.Spent, b.Currency)} spent so far.")
                     .Append("Each is a budget set in Azure at a scope the AI bill is read at, counting what its own filter says. Leadership › AI spend across Azure shows what grew fastest, service by service.").ToList(), "/leadership/ai-spend");
+        }
+
+        /* A spend limit reached, or projected to be before its period ends: once a day while it lasts, to SpendLimitAlertTo,
+           and, once SpendLimitAlertToExecutives is 1, also to each such limit's L2 and L3 executives. The month-end
+           snapshots are kept here too. */
+        async Task SpendLimitsAsync()
+        {
+            var data = sp.GetRequiredService<SpendLimitData>();
+            if (!await data.ReadyAsync()) return;
+            await data.SyncAsync();
+            var limits = await data.LimitsAsync();
+            if (limits.Count == 0) return;
+            var whole = await sp.GetRequiredService<OpsReports>().ContextAsync(30, null);
+            var measured = await data.MeasureAsync(limits.Where(l => l.GoneUtc is null).ToList(), whole);
+            await data.SnapshotAsync(measured);
+            var warn = measured.Where(m => m.Warn).ToList();
+            if (warn.Count == 0) { await SetStateAsync("limits", null); return; }
+            var seen = await StateAsync("limits");
+            var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
+            if (DateTime.UtcNow - last < TimeSpan.FromHours(20)) return;
+            var execs = await _settings.StringAsync("SpendLimitAlertToExecutives") == "1"
+                ? warn.SelectMany(m => new[] { m.Limit.L2Upn, m.Limit.L3Upn }).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [];
+            if (await _settings.StringAsync("SpendLimitAlertTo") is null && execs.Count == 0) return;
+            await RaiseAsync("limits", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "SpendLimit", "SpendLimitAlertTo",
+                warn.Count == 1 ? $"A spend limit will be reached: {warn[0].Limit.Name}" : $"{warn.Count} spend limits will be reached",
+                warn.Take(10).Select(m => SpendLimitLine(m)).Append("Forecasting › Spend limits shows each one's spend against it, and what to set it to next quarter. The dashboard never changes a limit.").ToList(),
+                "/forecasting/spend-limits", execs);
+        }
+
+        /* The agent rules, once a refresh: what they find is proposed (dash.AgentAction), and each approved Notify is
+           emailed to the agent's owner (to AlertAdminTo when it has none) and marked done. Quarantines, releases and new
+           owners are tools\Invoke-AgentActions.ps1's. */
+        async Task AgentPoliciesAsync()
+        {
+            var policies = sp.GetRequiredService<AgentPolicies>();
+            if (!await policies.ReadyAsync()) return;
+            var made = await policies.ProposeAsync(await sp.GetRequiredService<OpsReports>().ContextAsync(30, null));
+            if (made > 0) done.Add($"Agent policies: {made:#,0} new proposal(s).");
+            var notify = await _db.QueryAsync<(int Id, string? Agent, string? Owner, string? Reason)>(@"
+SELECT TOP (50) a.ActionId, ISNULL(a.AgentName, a.InventoryAgentId), p.Upn, a.Reason
+FROM dash.AgentAction AS a
+LEFT JOIN dash.AgentInventory AS i ON i.InventoryAgentId = a.InventoryAgentId
+LEFT JOIN dash.Person AS p ON p.Upn = i.OwnerUpn AND p.AccountEnabled = 1
+WHERE a.Status = 'Approved' AND a.ActionKind = 'Notify' AND a.DoneUtc IS NULL ORDER BY a.DecidedUtc;");
+            foreach (var n in notify)
+            {
+                /* Not before a failed send's next try; then claimed by its row, so two web servers never both send it, and
+                   given back when it is to be tried again. */
+                var (tries, waiting) = await RetryAsync("agentnotify:" + n.Id.ToString(CultureInfo.InvariantCulture));
+                if (waiting) continue;
+                if (await _db.ExecuteAsync("UPDATE dash.AgentAction SET DoneUtc = SYSUTCDATETIME(), Result = N'Sending' WHERE ActionId = @id AND Status = 'Approved' AND DoneUtc IS NULL;", new { id = n.Id }) != 1)
+                    continue;
+                var sent = await SendOnceAsync("agentnotify:" + n.Id.ToString(CultureInfo.InvariantCulture), tries,
+                    async () => await _db.ExecuteAsync("UPDATE dash.AgentAction SET DoneUtc = NULL, Result = NULL WHERE ActionId = @id AND Status = 'Approved';", new { id = n.Id }),
+                    "AgentPolicy", n.Owner is null ? "AlertAdminTo" : "", $"Your agent {n.Agent} needs attention",
+                    [$"{n.Reason} An administrator asked that its owner be told.",
+                     "Look at it in Copilot Studio: keep it in use, hand it to someone, or retire it yourself. Agents › My agents shows its use."],
+                    "/agents/mine", n.Owner is null ? null : [n.Owner]);
+                if (sent)
+                    await _db.ExecuteAsync("UPDATE dash.AgentAction SET Status = 'Done', Result = @r WHERE ActionId = @id AND Status = 'Approved';",
+                        new { id = n.Id, r = $"Emailed to {n.Owner ?? "the administrators (no owner)"}." });
+            }
+        }
+
+        static string SpendLimitLine(SpendLimitData.Measured m)
+        {
+            var p = m.Position!;
+            var unit = m.Limit.Unit == "USD" ? " USD" : m.Limit.Unit == "Tokens" ? " tokens" : " credits";
+            string N(decimal? v) => v is null ? "-" : Math.Round(v.Value, 0).ToString("#,0", CultureInfo.InvariantCulture) + unit;
+            return p.Reached ? $"{m.Limit.Name}: reached, {N(p.Spent)} of {N(p.Limit)} this {m.Limit.Period.ToLowerInvariant()} period."
+                 : p.ReachedOn is { } on ? $"{m.Limit.Name}: projected to reach {N(p.Limit)} on {on:d MMM}; {N(p.Spent)} spent so far."
+                 : $"{m.Limit.Name}: {N(p.Spent)} of {N(p.Limit)} spent, past the share set to warn at.";
         }
 
         async Task LeaversAsync(bool first)

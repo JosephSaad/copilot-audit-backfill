@@ -84,7 +84,9 @@ public class Release273Tests
         var page = Read("dashboard", "CopilotInsights", "Pages", "Licensing", "Operations.cs");
         Assert.Contains("var unallocated = Math.Max(0, await heldTask - licensed);", page);
         Assert.Contains("Kpis.Add(new(\"Charged to no group\", Num(unallocated),", page);
-        Assert.Contains("Href: Open(\"/licensing/leavers\")", page);
+        /* 3.5.0: no link. It counts every license on a disabled or missing account, those still in their grace period and
+           those inside a suite included; Licenses on disabled accounts counts the add-ons to take back now, another number. */
+        Assert.DoesNotContain("on disabled or missing accounts\", \"warn\", Href:", page);
     }
 
     [Fact]

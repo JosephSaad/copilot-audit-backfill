@@ -23,6 +23,7 @@ public static class Guidance
         ["/leadership/brief"] = new("Start the day with the week in AI: use, cost, return, the bill and the risks.", "Act on the first saving listed; open any figure that moved against you."),
         ["/leadership/ai-spend"] = new("See the whole AI bill in Azure, by service, against this month's forecast and the budgets.", "Ask the owner of any service growing fastest why; set a budget where there is none."),
         ["/leadership/costs"] = new("See what AI and automation cost, what can be saved, and what they return, in one view.", "Take the top three savings this month; send the growth items to their owners."),
+        ["/leadership/model-tokens"] = new("See which business units use the models through the AI gateway, and how much.", "Route every value in no business unit; then ask the largest units what the tokens bought."),
         ["/leadership/credit-chargeback"] = new("See each line of business's Copilot Credits by path, and what they charge it.", "Route every environment first; then send each line of business its month."),
         ["/leadership/reservations"] = new("See reserved Copilot seats against licenses held, and what each part of the organization is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
         ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
@@ -49,6 +50,7 @@ public static class Guidance
         ["/licensing/swap"] = new("Reassign idle licenses instead of buying new ones.", "Apply the take-back file, then the give-out file."),
         ["/licensing/license-for-credits"] = new("Spot people whose Copilot Credits cost more than a license.", "License them: the cost falls and they gain Copilot in the apps."),
         ["/licensing/fading"] = new("Catch license holders drifting away before the license goes idle.", "Ask their managers to check in, or offer a refresher session."),
+        ["/licensing/agent-365"] = new("Size the Agent 365 purchase from who owns, delegates to and uses agents.", "License the owners first; confirm with Microsoft who else must be, before licensing everyone."),
         ["/licensing/demand"] = new("See who already relies on the free Copilot Chat.", "License these people first when seats come free."),
         ["/licensing/changes"] = new("Audit license assignments and removals.", "Look into licenses removed while still in use, and ones that came back."),
         ["/licensing/pool"] = new("Know the seats you pay for, assigned or not.", "Assign or give up seats bought but not assigned before the renewal."),
@@ -95,6 +97,7 @@ public static class Guidance
         // Forecasting
         ["/forecasting"] = new("See where use and licenses are heading.", "Plan purchases and renewals on the projection, with its range."),
         ["/forecasting/optimize"] = new("Weigh every license action and what it is worth.", "Start with the action worth the most."),
+        ["/forecasting/spend-limits"] = new("Know which spending limits will be reached before their period ends.", "Raise or keep each one where it is set; take next quarter's list to the admin center, the gateway and GitHub."),
         ["/forecasting/credit-commitment"] = new("Know how much of the credit commitment is left, and when it runs out.", "Act before it runs out early or is left unused: move work onto it, or plan the renewal smaller."),
         ["/forecasting/budget"] = new("Prepare the renewal with the seats to renew.", "Renew at the seats to renew, License optimization's right size, not the current count."),
         ["/forecasting/actions"] = new("Act on named upgrade, train and revoke recommendations.", "Export each list and hand it to the license team."),
@@ -123,6 +126,7 @@ public static class Guidance
         ["/platforms/github/seats"] = new("See every seat and its person, and the seats held by leavers or nobody matched.", "Remove seats from leavers first, then idle ones; match the logins nobody claims."),
         ["/platforms/github/posture"] = new("See each organization's Copilot settings beside GitHub's recommendation.", "Block suggestions matching public code, and settle settings that differ between organizations."),
         ["/governance/ai-apps/resource"] = new("See which apps call one AI resource, how often they fail, and what it costs.", "Ask the owner of an app that fails often, or calls with no person's identity, what changed."),
+        ["/governance/agent-policies"] = new("Keep the agents owned, used and certified, by rules checked every night.", "Decide each proposal; turn on actions in Microsoft 365 only once the agent actions app is set up."),
         ["/governance/ai-apps"] = new("See which of the organization's own AI apps are used, by whom, and in which environment.", "Ask the owners of production resources with no user identity how their callers are governed."),
     };
 }

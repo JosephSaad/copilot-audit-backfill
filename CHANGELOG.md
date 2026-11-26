@@ -4,6 +4,97 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0] - 2026-11-26
+
+Control of AI spend, and of the agents. Leadership sees the model tokens each business unit (its L2 and L3
+executives) uses through the AI gateway; Forecasting puts every spending limit on AI beside its spend, says which
+will be reached before their period ends, and suggests next quarter's; Governance checks rules over the agents each
+night and proposes what to do (tell the owner, quarantine, a new owner), for an administrator to decide. Licensing
+sizes an Agent 365 purchase from who owns, delegates to and uses the agents, and a disabled account's license now
+counts as reclaimable only after a grace period from its last use (90 days by default).
+
+**Install over 3.4.0** (the change bundle runs from v3.4.0):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds seven tables (`audit.GatewayTokenDay`,
+   `audit.SpendLimitSource`, `dash.TokenRoute`, `dash.SpendLimit`, `dash.SpendLimitSnapshot`, `dash.AgentPolicyRule`,
+   `dash.AgentAction`), one procedure (`dash.usp_SyncSpendLimits`), their grants and nine settings; nothing is
+   removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added; `Program.cs` registers three
+   more services.
+4. Check Admin › Access › *Disabled accounts: reclaim after* (90 days): from this release the reclaim counts, lists
+   and files leave out disabled accounts used within it.
+5. Optional, each when you are ready (docs\GATEWAY-LIMITS-AGENTS.md): the AI gateway (`GatewayServices`,
+   `GatewayWorkspaceId`), the spending limits (`SpendLimitSources`), and agent actions (an app of their own, then
+   `AgentActionsEnabled` 1). Until then each is a skipped step with a note, and the pages say what they need.
+
+### Added
+
+- **Agent 365 sizing** (Licensing, `/licensing/agent-365`): how many Agent 365 licenses the organization needs and
+  what each way of buying costs. Agent 365 is licensed per user; Microsoft requires it for agents' owners and for people
+  who let agents act with their access, and recommends it for everyone who uses a managed agent. The page counts each
+  person once, in the narrowest of three tiers (owners; people who used an agent that signs them in with their own
+  account; everyone else using agents), prices each option at `Agent365MonthlyPrice` (Admin › Targets and
+  assumptions, 15 a user a month), shows the saving against licensing everyone, counts Microsoft 365 E7 holders apart,
+  and lists the owners by name for the Licensing role.
+- **A grace period before a disabled account's license is reclaimable** (`DisabledGraceDays`, Admin › Access,
+  default 90 days, 0 to 365): a Copilot license on a disabled account counts as reclaimable only once that many days
+  have passed since its last Copilot use, so someone on leave or disabled by mistake keeps it meanwhile. A license
+  never used, or on an account gone from the directory, is reclaimable at once. Licenses on disabled accounts shows
+  both (In the grace period, and a Reclaimable from column); its headline, its removal files and every other count of
+  licenses to take back (Licensing, Unused licenses, the Forecast, Suite fit, Costs and savings, the daily brief, the start page,
+  the leavers alert, the data API) count only those past it.
+- **Model tokens by business unit** (Leadership, `/leadership/model-tokens`): the model tokens each business unit
+  used through the organization's AI gateway, counts only. A business unit is an L2 and L3 executive pair
+  (`TokenUnitLevels`, 2,3). A value the gateway stamps that is a person's sign-in is put in their unit by the org chart;
+  any other value (a cost-center code) is routed once on the page, dated (`dash.TokenRoute`). Prompt and completion
+  tokens, calls and models by unit; by L2 unit by month; by model; Foundry's tokens that did not go through the
+  gateway; the values in no business unit, each with a Route form.
+- **`tools/Import-GatewayTokenUsage.ps1`** (optional nightly step): the gateway's token metric (API Management's
+  `llm-emit-token-metric` or `azure-openai-emit-token-metric`, from Application Insights) by day, gateway, business
+  unit, model, agent and API into `audit.GatewayTokenDay`, and the gateway's `llm-token-limit` and
+  `azure-openai-token-limit` policies into `audit.SpendLimitSource`. Settings `GatewayServices`, `GatewayWorkspaceId`
+  (or `GatewayAppInsights`), `Gateway*Dimension`; delete guard `GatewayLimitMaxDropPercent`.
+- **Spend limits** (Forecasting, `/forecasting/spend-limits`): every spending limit set on AI beside its spend, read
+  only: Copilot spending policies (per person, environment, agent), the gateway's token quotas and rates, GitHub
+  budgets, and limits an administrator enters. Each one's spend in its own period, its share, the projection at the
+  last seven days' pace, the day it is reached, and next quarter's suggested value (the forecast at P80 or P95 plus
+  headroom); one limit's burn-up and twelve months; each limit's business unit and warning share. The new alert
+  *A spend limit will be reached* goes once a day to `SpendLimitAlertTo`, and, once `SpendLimitAlertToExecutives` is
+  1, to each limit's L2 and L3 executives. Each period's end is kept in `dash.SpendLimitSnapshot`.
+- **`tools/Import-SpendLimits.ps1`** (optional nightly step, `SpendLimitSources = @('Graph', 'GitHub')`): Microsoft
+  365 Copilot spending policies from Microsoft Graph beta (`CopilotCostManagement-Policy.Read.All`,
+  `CopilotCostManagement-Assignment.Read.All`) and GitHub enterprise budgets, into `audit.SpendLimitSource`; a change
+  in the beta's shape is a note, not a failure. Delete guard `SpendLimitMaxDropPercent`.
+- **Agent policies** (Governance, `/governance/agent-policies`): four rules checked each night over the Copilot Studio
+  agents (no owner with an enabled account, unused, costly for few people, shared and not certified), each match a
+  proposal (notify the owner, quarantine, give an orphaned agent to its former owner's manager) an administrator
+  approves or rejects; a rule may approve its own Notify or Quarantine, never a new owner. Notify is emailed by the
+  dashboard. Nothing deletes an agent.
+- **`tools/Invoke-AgentActions.ps1`** (optional nightly step, off by default): carries out the approved quarantines,
+  releases and new owners through the Power Platform API, with an app registration of its own
+  (`AgentActions*` settings, `CopilotStudio.AdminActions.Invoke`), only when `AgentActionsEnabled` is 1, at most 50 a
+  night; a second step checks the last week's quarantines and releases still hold. `-CheckOnly` and `-WhatIf`.
+- Setup for the three: `docs/GATEWAY-LIMITS-AGENTS.md`.
+
+### Known limits
+
+- No AI gateway, Copilot spending policy, GitHub enterprise billing or Power Platform admin API in the lab: the three
+  loaders are tested against local stand-ins shaped from Microsoft's and GitHub's documentation, and the pages
+  against the demo data. To confirm in the first tenant: the dimension names API Management writes into Application
+  Insights; the Graph beta's permissions being grantable to an app; the GitHub budgets response.
+- Agent actions: Microsoft documents the quarantine and reassign calls for an administrator's own sign-in. Whether
+  they accept the app's certificate sign-in (and whether the app must be registered as a Power Platform management
+  app) is to be proven in a lab tenant before `AgentActionsEnabled` is turned on; `-CheckOnly` reports it. The
+  concept pages give `api-version=1`, the API reference `2024-10-01` (used; `-ApiVersion` changes it). That the agent
+  workbook's AgentId is the API's bot id, and its environment name the API's display name, is assumed.
+- Spend limits: a gateway quota's counter key is taken to be the business unit the gateway stamps; a limit a minute
+  or an hour is listed but not measured (the gateway's counts are by day); an agent's or a GitHub cost center's limit
+  is not measured (their spend is not loaded at that level); a group's per-person policy is measured over everyone.
+- Agent 365 sizing: who must be licensed for delegation is Microsoft's to confirm; the page names it an assumption.
+
 ## [3.4.0] - 2026-11-26
 
 Every day, for the people who run AI. Executives get a daily brief (the week against the one before, what AI costs and

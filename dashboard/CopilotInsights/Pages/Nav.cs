@@ -56,7 +56,7 @@ public static class Nav
     [
         new("Leadership", "Executives and department heads", [
             new("Daily brief", "/leadership/brief"), new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
-            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("AI spend across Azure", "/leadership/ai-spend"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("AI spend across Azure", "/leadership/ai-spend"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"), new("Model tokens by business unit", "/leadership/model-tokens"),
             new("Board pack", "/leadership/boardpack"), new("How figures are calculated", "/leadership/assumptions")], Key: Sections.Leadership),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"),
@@ -64,7 +64,7 @@ public static class Nav
             new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption, Sections.Adoption),
         new("Licensing", "Licensing, IT asset management and FinOps", [
             new("License inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
-            new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"),
+            new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"), new("Agent 365 sizing", "/licensing/agent-365"),
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
@@ -86,7 +86,7 @@ public static class Nav
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People by engagement", "/enablement/people", Roles.Enablement)], Roles.Enablement, Sections.Enablement),
         new("Forecasting", "Finance, licensing and program leads", [
-            new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"), new("Credit commitment", "/forecasting/credit-commitment"),
+            new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"), new("Credit commitment", "/forecasting/credit-commitment"), new("Spend limits", "/forecasting/spend-limits"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing), new("Rollout waves", "/forecasting/waves", Roles.Licensing),
             new("License action outcomes", "/forecasting/outcomes", Roles.Licensing)], Roles.Licensing, Sections.Forecasting),
         new("Regions", "Country, office and site leads", [
@@ -96,7 +96,7 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")], Key: Sections.AppOwners),
         new("Governance", "AI governance and architecture", [
-            new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource")], Key: Sections.Governance),
+            new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource"), new("Agent policies", "/governance/agent-policies")], Key: Sections.Governance),
         /* AI platforms: the Foundry and GitHub Copilot platform teams' section. Its own grant gives them exactly these pages;
            AI apps beyond Copilot and a resource's detail are listed here too, as in Governance. */
         new("AI platforms", "Teams running Foundry and GitHub Copilot", [

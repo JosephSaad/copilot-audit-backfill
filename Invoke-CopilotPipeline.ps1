@@ -283,6 +283,32 @@ function Get-PipelineStep {
                            CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
             Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' (Drop $f 'FoundryDeploymentMaxDropPercent') -Optional
         }
+        # The AI gateway's model tokens by business unit, and its token limits: with a certificate of its own or the pipeline's.
+        if (((Has 'GatewayServices') -or (Has 'GatewayWorkspaceId') -or (Has 'GatewayAppInsights')) -and ((Has 'GatewayCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+            $gw = $sql + @{ Database = $Setting.Database
+                            TenantId = $(if (Has 'GatewayTenantId') { $Setting.GatewayTenantId } else { $Setting.TenantId })
+                            ClientId = $(if (Has 'GatewayClientId') { $Setting.GatewayClientId } else { $Setting.ClientId })
+                            CertificateThumbprint = $(if (Has 'GatewayCertificateThumbprint') { $Setting.GatewayCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
+            if (Has 'GatewayServices') { $gw.GatewayService = @($Setting.GatewayServices) }
+            if (Has 'GatewayWorkspaceId') { $gw.WorkspaceId = [string] $Setting.GatewayWorkspaceId } elseif (Has 'GatewayAppInsights') { $gw.AppInsights = [string] $Setting.GatewayAppInsights }
+            foreach ($k in 'BusinessUnitDimension', 'ModelDimension', 'AgentDimension', 'Table') { if (Has "Gateway$k") { $gw[$k] = [string] $Setting["Gateway$k"] } }
+            Add 'AI gateway tokens and limits' 'tools/Import-GatewayTokenUsage.ps1' (Drop $gw 'GatewayLimitMaxDropPercent') -Optional
+        }
+        # Spending limits at their sources: Copilot spending policies (Graph beta, the pipeline's app) and GitHub budgets.
+        if (Has 'SpendLimitSources') {
+            $sl = $sql + @{ Database = $Setting.Database; Source = @($Setting.SpendLimitSources) }
+            if (Has 'GitHubTokenPath') { $sl.TokenPath = [string] $Setting.GitHubTokenPath }
+            if (Has 'GitHubEnterprise') { $sl.Enterprise = [string] $Setting.GitHubEnterprise }
+            Add 'Spending limits' 'tools/Import-SpendLimits.ps1' (Drop $sl 'SpendLimitMaxDropPercent') -Optional
+        }
+        # Approved agent actions (quarantine, release, a new owner), with the agent actions app of their own, and the
+        # check that the last week's still hold. The tool does nothing unless the dashboard's AgentActionsEnabled is 1.
+        if ((Has 'AgentActionsClientId') -and (Has 'AgentActionsCertificateThumbprint')) {
+            $aa = $sql + @{ Database = $Setting.Database; ClientId = $Setting.AgentActionsClientId; CertificateThumbprint = $Setting.AgentActionsCertificateThumbprint
+                            TenantId = $(if (Has 'AgentActionsTenantId') { $Setting.AgentActionsTenantId } else { $Setting.TenantId }) }
+            Add 'Agent actions' 'tools/Invoke-AgentActions.ps1' $aa -Optional
+            Add 'Agent actions check' 'tools/Invoke-AgentActions.ps1' ($aa + @{ Check = $true }) -Optional
+        }
     }
     , $steps.ToArray()
 }
@@ -304,6 +330,18 @@ function Get-PipelineSkipNote {
     }
     elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
         $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    if (-not ((Has 'GatewayServices') -or (Has 'GatewayWorkspaceId') -or (Has 'GatewayAppInsights'))) {
+        $notes.Add('AI gateway tokens and limits: skipped, not configured (set GatewayWorkspaceId and GatewayServices in the settings file to load them).')
+    }
+    elseif (-not ((Has 'GatewayCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+        $notes.Add('AI gateway tokens and limits: skipped, the gateway is set but there is no certificate to sign in with (GatewayCertificateThumbprint, or CertificateThumbprint).')
+    }
+    if (-not (Has 'SpendLimitSources')) {
+        $notes.Add("Spending limits: skipped, not configured (set SpendLimitSources = @('Graph', 'GitHub') in the settings file to read them).")
+    }
+    if (-not ((Has 'AgentActionsClientId') -and (Has 'AgentActionsCertificateThumbprint'))) {
+        $notes.Add('Agent actions: skipped, not configured (an app of its own: AgentActionsClientId and AgentActionsCertificateThumbprint; and AgentActionsEnabled 1 in Admin).')
     }
     if (-not (Has 'ActivityDatabase')) {
         $notes.Add('AI apps, Power BI and Power Apps activity: skipped, not configured (set ActivityDatabase in the settings file, install it with Install-CopilotAudit.ps1 -ActivityDatabase, then load its history with Invoke-CopilotPipeline.ps1 -ActivityHistory).')

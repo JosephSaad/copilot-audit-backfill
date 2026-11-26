@@ -157,6 +157,8 @@ $(if ($adminSections) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, R
                     $r.Agents, $r.Matched, $r.InProduction, $r.Links, $r.AuthoringEvents)
     }
     Step 'Dashboard refresh' { Invoke-Batch $conn 'EXEC dash.usp_RefreshDashboard;' }
+    # After the refresh: the business units are read from the org chart it builds (dash.Person).
+    Step 'AI gateway tokens, spending limits and agent rules' { Invoke-Batch $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoGateway.sql') -Raw) }
     $cmd = $conn.CreateCommand()
     $cmd.CommandText = @'
 SELECT g.Role, g.Principal, p.DisplayName, p.Level FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal

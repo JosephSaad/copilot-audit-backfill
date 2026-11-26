@@ -45,6 +45,7 @@ public static class NavText
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/credit-chargeback"] = ("Each line of business's Copilot Credits by path, and what they charge it.", "Cost savings"),
+        ["/leadership/model-tokens"] = ("The model tokens each business unit used through the AI gateway, by its L2 and L3 executives.", "Cost savings"),
         ["/leadership/boardpack"] = ("The program on one page: change on the period before, by unit, targets, value and risk.", "Reporting"),
         ["/leadership/assumptions"] = ("Every price and assumption a cost, saving or value rests on, and where it is set.", "Reporting"),
 
@@ -63,6 +64,7 @@ public static class NavText
         ["/licensing/changes"] = ("Every Copilot license assigned and removed in the period.", "Inventory and pool"),
         ["/licensing/chargeback"] = ("The monthly license cost each group holds, and how much of it is used.", "Inventory and pool"),
         ["/licensing/demand"] = ("People without a license who use the free Copilot Chat: where demand is.", "Inventory and pool"),
+        ["/licensing/agent-365"] = ("Who must, likely and could hold an Agent 365 license, and what each way of buying costs.", "Inventory and pool"),
         ["/licensing/unused"] = ("License holders who have not used Copilot recently: reclaim or follow up.", "Cost savings"),
         ["/licensing/ranking"] = ("Everyone ranked by all use, free use, and use that needs the license.", "Cost savings"),
         ["/licensing/payg"] = ("License holders whose use would cost less on pay-as-you-go credits.", "Cost savings"),
@@ -107,6 +109,7 @@ public static class NavText
         ["/forecasting"] = ("Where use and licenses are heading, from the last year of weekly history.", "Forecast and budget"),
         ["/forecasting/optimize"] = ("What to do with licenses: reclaim, reassign, coach or buy, and what each is worth.", "Forecast and budget"),
         ["/forecasting/budget"] = ("The Copilot contracts, their cost, renewal dates, and the seats to renew.", "Forecast and budget"),
+        ["/forecasting/spend-limits"] = ("Every spending limit on AI beside its spend: which will be reached, and next quarter's.", "Forecast and budget"),
         ["/forecasting/credit-commitment"] = ("A prepaid Copilot Credit commitment: drawn, left, and when it runs out.", "Forecast and budget"),
         ["/forecasting/actions"] = ("Named people to upgrade to a license, to train, or to take a license back from.", "Actions"),
         ["/forecasting/waves"] = ("Everyone without a license, in the order to license them, split into waves.", "Actions"),
@@ -124,6 +127,7 @@ public static class NavText
 
         ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
         ["/governance/ai-apps"] = ("Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps.", null),
+        ["/governance/agent-policies"] = ("Nightly rules over the agents, and the actions they propose: notify, quarantine, a new owner.", null),
         ["/platforms/foundry"] = ("What Foundry and Azure OpenAI cost, what is idle, and what retires soon.", null),
         ["/platforms/foundry/deployments"] = ("Every model deployment: use, last used, reserved capacity, retirement and filter.", null),
         ["/platforms/foundry/posture"] = ("Each Foundry account's network, sign-in, logging, filters and owner.", null),

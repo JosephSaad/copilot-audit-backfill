@@ -793,7 +793,13 @@ Each guide lists the values to collect, has a part written to hand to the admini
     FoundrySubscriptions = @('1f2e3d4c-0000-0000-0000-000000000000')
     # 3.4.0, optional: read the whole AI bill where it is billed, not only in those subscriptions
     # AiCostScopes       = @('/providers/Microsoft.Billing/billingAccounts/12345678')
+    # 3.5.0, optional: the AI gateway's tokens and limits, and the spending limits at their sources
+    # GatewayServices    = @('/subscriptions/<id>/resourceGroups/<rg>/providers/Microsoft.ApiManagement/service/<name>')
+    # GatewayWorkspaceId = '<workspace-id>'
+    # SpendLimitSources  = @('Graph', 'GitHub')
 ```
+
+The AI gateway, the spending limits and the agent actions (3.5.0) each have their setup in docs/GATEWAY-LIMITS-AGENTS.md: the permissions, the first run and the settings. Agent actions change Microsoft 365, so they need an app of their own and stay off until `AgentActionsEnabled` is 1.
 
 With a setting in place, the nightly run loads that source as a last step. Without it, the run skips the step with a line in its log. A loader that fails is recorded and does not fail the night. Admin › Health shows each one's last run.
 

@@ -699,9 +699,10 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             Input("CreditsPerAction", "Credits an agent action adds", V("CreditsPerAction"), 4) +
             Input("TokensPerTurn", "Tokens a turn takes", V("TokensPerTurn"), 7, "number") +
             Input("TokensPerResource", "Tokens each resource read adds", V("TokensPerResource"), 7, "number") +
-            Input("TokensPerAnswer", "Tokens an answer gives back", V("TokensPerAnswer"), 7, "number") + Button("Save"))),
+            Input("TokensPerAnswer", "Tokens an answer gives back", V("TokensPerAnswer"), 7, "number") +
+            Input("Agent365MonthlyPrice", "Agent 365, a user a month", V("Agent365MonthlyPrice") ?? CopilotInsights.Data.AgentLicensing.DefaultPrice.ToString(CultureInfo.InvariantCulture), 6) + Button("Save"))),
             "What Licensing › Credit use estimates with. Credits: Microsoft's list rates are 2 for a generative answer, 10 more for grounding in the organization's data, 5 for an action; " +
-            "a credit's price is the Copilot Credit, pay-as-you-go, under Costs and savings. Tokens are a rough figure (Microsoft reports none for Microsoft 365 Copilot): what a turn takes before grounding, what each file or mail read adds, and an answer.", "half"));
+            "a credit's price is the Copilot Credit, pay-as-you-go, under Costs and savings. Tokens are a rough figure (Microsoft reports none for Microsoft 365 Copilot): what a turn takes before grounding, what each file or mail read adds, and an answer. Agent 365: its price a user a month, for Licensing › Agent 365 sizing.", "half"));
 
         /* The suites, their price, what they include, and on or off. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostSuite', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
@@ -721,7 +722,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         }
     }
 
-    public Task<IActionResult> OnPostCreditsAsync(string? CreditsPerAnswer, string? CreditsPerGrounding, string? CreditsPerAction, string? TokensPerTurn, string? TokensPerResource, string? TokensPerAnswer) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostCreditsAsync(string? CreditsPerAnswer, string? CreditsPerGrounding, string? CreditsPerAction, string? TokensPerTurn, string? TokensPerResource, string? TokensPerAnswer, string? Agent365MonthlyPrice) => AdminChangeAsync(async () =>
     {
         static decimal Num(string? v, string what, decimal min, decimal max) =>
             decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) && d >= min && d <= max ? d : throw new ArgumentException($"{what} is a number from {min} to {max}.");
@@ -733,6 +734,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             ["TokensPerTurn"] = SettingWriter.Int(TokensPerTurn, "Tokens a turn", 0, 200000).ToString(CultureInfo.InvariantCulture),
             ["TokensPerResource"] = SettingWriter.Int(TokensPerResource, "Tokens a resource", 0, 200000).ToString(CultureInfo.InvariantCulture),
             ["TokensPerAnswer"] = SettingWriter.Int(TokensPerAnswer, "Tokens an answer", 0, 200000).ToString(CultureInfo.InvariantCulture),
+            ["Agent365MonthlyPrice"] = string.IsNullOrWhiteSpace(Agent365MonthlyPrice) ? null : Num(Agent365MonthlyPrice, "Agent 365's price", 0, 1000).ToString(CultureInfo.InvariantCulture),
         }));
     });
 
