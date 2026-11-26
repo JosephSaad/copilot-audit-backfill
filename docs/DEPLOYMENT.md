@@ -174,7 +174,7 @@ Save-Module PnP.PowerShell -Path .\Modules -Repository PSGallery      # only for
 4. **Databases.** Runs step 4's `Install-CopilotAudit.ps1` with the service account.
 5. **App registration.** With `-RegisterApp`, runs step 2's script with the new certificate.
 6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them. The delete guard's percentages (2.6.5) are not written: each load that replaces a whole table refuses one 15% smaller than the last unless you add its own setting, such as `UserDirectoryMaxDropPercent = 10`. [OPERATIONS.md](OPERATIONS.md#the-pipeline) lists the five.
-7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13).
+7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13), and *Copilot audit - directory on request* (3.5.1), every 15 minutes, which loads the directory only when an administrator asks for it on Admin › Directory quality.
 
 It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. A new certificate is made only with `-RegisterApp`, which uploads it to the app of every tenant in the settings: without it, a certificate within 30 days of expiry is kept, and the list says to renew it (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed). `-SkipDatabase` and `-RegisterApp` aren't saved in the settings, so pass them again on each run that needs them.
 

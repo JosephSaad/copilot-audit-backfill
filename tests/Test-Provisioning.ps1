@@ -199,6 +199,10 @@ Assert-That ($other[1].TenantId -eq 'fabrikam.onmicrosoft.com') 'a workbook in a
 $share = Get-PipelineCertificateUse ($s + @{ AgentWorkbookUrl = '\\fileserver\agents.xlsx'; AgentWorkbookCertificateThumbprint = 'CD' })
 Assert-That ($share.Count -eq 1) 'a workbook from a share signs in as the task''s account: no certificate of its own to track'
 
+$dir = Get-DirectoryStep -Setting $s
+Assert-That ($dir.Count -eq 1 -and $dir[0].Name -eq 'User directory from AD' -and $dir[0].Script -like '*Export-UsersWithHierarchy-ToSql.ps1') 'a directory load asked for on the dashboard runs the nightly user directory step alone'
+$noDomain = [ordered] @{}; foreach ($k in $s.Keys) { if ($k -ne 'TargetDomain') { $noDomain[$k] = $s[$k] } }
+Assert-That ((Get-DirectoryStep -Setting $noDomain).Count -eq 0) 'and nothing when no users'' domain is set'
 $n = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That (($n.Name -join '|') -eq 'User directory from AD|Copilot licenses from Graph|License events|Copilot interactions') 'nightly: the four steps, in the documented order'
 $i = $n[3].Arguments
@@ -563,6 +567,8 @@ Assert-That ($mergeCall.Count -eq 1 -and $mergeCall[0].Extent.Text -match '-Insi
 $wg = Get-WorkerInsightsGrant -Database 'CopilotAudit' -Account 'CONTOSO\gmsa-cgw-worker$'
 Assert-That ($wg -match "CREATE LOGIN \[CONTOSO\\gmsa-cgw-worker\$\] FROM WINDOWS" -and $wg -match 'USE \[CopilotAudit\]' -and $wg -match 'GRANT SELECT ON dash\.UserDay' -and $wg -match 'GRANT SELECT ON bi\.DimUser' -and
              $wg -notmatch 'GRANT (INSERT|UPDATE|DELETE|EXECUTE)|ALTER ROLE') 'the worker''s account gets read on dash.UserDay and bi.DimUser in the Copilot database, and nothing more'
+Assert-That ($wg -match 'GRANT SELECT ON dash\.WorkbenchDirectory' -and $wg -match 'GRANT SELECT ON dash\.Person \(Upn, Sid, ObjectId\)' -and $wg -notmatch 'ON dash\.Setting') `
+    'for seat groups read from AD: the users'' domain through its view, never dash.Setting, and three columns of dash.Person'
 
 $digestArgs = Get-LedgerDigestArgument -Script 'C:\CopilotGovernance\Worker\Save-LedgerDigest.ps1' -SqlServer 'SQLPROD01' -Database 'CopilotGovernance' -DigestPath '\\worm01\Ledger$\' -TrustServerCertificate $true
 Assert-That ($digestArgs -eq '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\CopilotGovernance\Worker\Save-LedgerDigest.ps1" -SqlServer "SQLPROD01" -Database CopilotGovernance -DigestPath "\\worm01\Ledger$" -TrustServerCertificate') `

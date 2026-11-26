@@ -38,6 +38,8 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IEntitlementApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<IAccessReviewApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<ISeatLicenseApi>(sp => sp.GetRequiredService<GraphClient>());
+        // Seat groups from on-premises AD when Graph's group permission is not granted (Seats.GroupMembersFrom).
+        if (OperatingSystem.IsWindows()) services.AddSingleton<IAdGroupApi, AdGroupReader>();
         // Copilot activity from the Copilot Insights database, when its connection is given: the seat read prefers it.
         if (configuration.GetConnectionString("Insights") is { Length: > 0 } insights)
             services.AddSingleton<IInsightsActivitySource>(new InsightsActivitySource(insights));

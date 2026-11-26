@@ -418,6 +418,14 @@ public sealed class RaciMatrix
 
 public sealed class AdminQueries(Db db)
 {
+    /// <summary>The settings changed on Workbench settings › Settings: all but the seat settings, intake and the setup records.</summary>
+    public async Task<IReadOnlyList<SettingRow>> EditableSettingsAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<SettingRow>("SELECT SettingKey, SettingValue, Description FROM ref.Setting ORDER BY SettingKey"))
+            .Where(s => Commands.WorkbenchSettings.OnSettingsPage(s.SettingKey)).ToList();
+    }
+
     public async Task<IReadOnlyList<RaciVersionRow>> RaciVersionsAsync()
     {
         await using var c = await db.OpenSystemAsync();

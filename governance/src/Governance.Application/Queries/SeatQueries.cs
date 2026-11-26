@@ -264,7 +264,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             """
             SELECT p.FundingOwnerId, fo.PublicId, p.Code, p.Name, p.TrackingGroup, p.ReservedSeats, p.TrackingMembers, p.AssignedSeats, p.OverSeats,
                    (SELECT COUNT(*) FROM intg.GroupMember gm
-                    JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.SeatGroupId = p.SeatGroupId
+                    JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.SeatGroupId = p.SeatGroupId
                     JOIN rpt.fn_SeatHolders() h ON h.MemberObjectId = gm.MemberObjectId
                     LEFT JOIN sec.Person pe ON pe.EntraObjectId = gm.MemberObjectId
                     LEFT JOIN intg.CopilotActivity a ON a.UserPrincipalName = pe.UserPrincipalName
@@ -308,7 +308,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             LEFT JOIN wf.Request rq ON rq.RequestId = r.RequestId
             WHERE r.FundingOwnerId = @id ORDER BY r.EffectiveFrom DESC, r.SeatReservationId DESC
             """, new { id = fo.FundingOwnerId })).ToList();
-        var holders = (await c.QueryAsync<SeatHolderRow>(HoldersSql("gm.GroupId = (SELECT TOP (1) EntraGroupId FROM core.SeatGroup WHERE FundingOwnerId = @id AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL)"),
+        var holders = (await c.QueryAsync<SeatHolderRow>(HoldersSql("gm.GroupId IN (SELECT k.GroupKey FROM core.SeatGroup CROSS APPLY (VALUES (EntraGroupId), (AdObjectGuid)) AS k (GroupKey) WHERE FundingOwnerId = @id AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL AND k.GroupKey IS NOT NULL)"),
             new { id = fo.FundingOwnerId })).ToList();
         var reclaims = (await c.QueryAsync<SeatReclaimRow>(
             """
@@ -351,7 +351,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             OUTER APPLY (SELECT TOP (1) * FROM intg.SeatHolder s WHERE s.MemberObjectId = h.MemberObjectId ORDER BY s.State) x
             LEFT JOIN sec.Person p ON p.EntraObjectId = h.MemberObjectId
             LEFT JOIN intg.CopilotActivity a ON a.UserPrincipalName = COALESCE(p.UserPrincipalName, x.UserPrincipalName)
-            WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING' AND g.EffectiveTo IS NULL
+            WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.Purpose = 'LOB_TRACKING' AND g.EffectiveTo IS NULL
                               WHERE gm.MemberObjectId = h.MemberObjectId)
             ORDER BY p.DisplayName
             """)).ToList();

@@ -8,7 +8,7 @@
     <div>
         <div class="crumbs">Workbench settings</div>
         <h1>Copilot seat groups</h1>
-        <p class="lead">The groups behind Copilot seats. One shared license group gives the license; each LOB's tracking group says whose seat it is. The groups live in on-premises AD and are provisioned by OIM roles through ServiceNow: the Workbench only reads them. <help>The worker finds each group in Entra by its name, reads its members, and reports whether it is synced from AD and whether it nests other groups (group-based licensing ignores members of nested groups).</help></p>
+        <p class="lead">The groups behind Copilot seats. One shared license group gives the license; each LOB's tracking group says whose seat it is. The groups live in on-premises AD and are provisioned by OIM roles through ServiceNow: the Workbench only reads them. <help>The seat read finds each group by its name in Entra, or in on-premises AD when Microsoft Graph's group permission is not granted (Seats.GroupMembersFrom, below), reads its members, and reports whether it nests other groups (group-based licensing ignores members of nested groups).</help></p>
     </div>
 </div>
 <div class="table-wrap">
@@ -59,7 +59,7 @@
         <idem />
         <h2>@(e is null ? "Add a group" : "Change " + e.DisplayName)</h2>
         <div class="form-grid">
-            <div class="field"><label for="gn" class="req">Group name <help>Exactly as it shows in Entra, for example GSGu_MCO_RetailTracking.</help></label><input id="gn" name="displayName" value="@e?.DisplayName" maxlength="256" required /></div>
+            <div class="field"><label for="gn" class="req">Group name <help>The group's name, for example GSGu_MCO_RetailTracking: its AD account name when the seat read takes members from AD (Seats.GroupMembersFrom), else its name in Entra. A DOMAIN\ in front is left out.</help></label><input id="gn" name="displayName" value="@e?.DisplayName" maxlength="256" required /></div>
             <div class="field"><label for="gp" class="req">Purpose <help>License: gives the seat. LOB tracking: says whose seat it is. Exclusion: people who must not hold a seat. The others are for reference.</help></label>
                 <select id="gp" name="purpose" required>@foreach (var kv in Governance.Web.Pages.Admin.SeatGroupsModel.Purposes) { <option value="@kv.Key" selected="@(e?.Purpose == kv.Key)">@kv.Value.Label</option> }</select></div>
             <div class="field"><label for="gl">LOB <help>Only for a tracking group: the LOB its members are charged to. One tracking group per LOB.</help></label>
@@ -67,7 +67,7 @@
             <div class="field"><label for="go">OIM role <help>The OIM role that puts people in this group, for example "Retail . M365 Copilot License . Role". Reclaim tasks name it.</help></label><input id="go" name="oimRoleName" value="@e?.OimRoleName" maxlength="300" /></div>
             <div class="field"><label for="gs" class="req">Source <help>On-premises AD groups are synced to Entra and can only be changed in AD.</help></label>
                 <select id="gs" name="source"><option value="ON_PREM_AD" selected="@(e is null || e.Source == "ON_PREM_AD")">On-premises AD</option><option value="CLOUD" selected="@(e?.Source == "CLOUD")">Cloud</option></select></div>
-            <div class="field"><label for="ge">Entra object ID <help>Optional. Leave empty and the worker finds the group by name.</help></label><input id="ge" name="entraGroupId" value="@e?.EntraGroupId" maxlength="36" /></div>
+            <div class="field"><label for="ge">Entra object ID <help>Optional. Leave empty and the seat read finds the group by name, in Entra or AD.</help></label><input id="ge" name="entraGroupId" value="@e?.EntraGroupId" maxlength="36" /></div>
             <div class="field"><label class="check"><input type="checkbox" name="purposeConfirmed" value="true" checked="@(e?.PurposeConfirmed ?? false)" /> Purpose confirmed <help>Tick once the group's owner has confirmed what it is for. Findings that depend on the purpose (for example exclusion) start only after that.</help></label></div>
             <div class="field full"><label for="gx">Notes <help>Anything worth knowing, for example who confirmed the purpose.</help></label><input id="gx" name="notes" value="@e?.Notes" maxlength="1000" /></div>
         </div>
@@ -157,7 +157,7 @@
     </form>
 }
 
-<h2 class="mt">Seat settings <help>Policy parameters the worker and the pages use. Finance owns the values marked open; a database administrator changes them in ref.Setting until a settings page exists.</help></h2>
+<h2 class="mt">Seat settings <help>Policy parameters the worker and the pages use. A Workbench administrator, the Platform Owner or FinOps changes them here; Finance owns the values marked open. Each change is in the audit trail.</help></h2>
 <div class="table-wrap">
     <table class="stack">
         <thead><tr>
@@ -168,7 +168,14 @@
         <tbody>
         @foreach (var s in Model.Settings)
         {
-            <tr><td data-label="Setting" class="mono">@s.SettingKey</td><td data-label="Value"><strong>@s.SettingValue</strong></td><td data-label="What it does">@s.Description</td></tr>
+            <tr><td data-label="Setting" class="mono">@s.SettingKey</td>
+                <td data-label="Value">@if (Model.CanSetSettings)
+                    {
+                        <form method="post" asp-page-handler="Setting" class="btn-row"><idem /><input type="hidden" name="key" value="@s.SettingKey" />
+                            <input name="value" value="@s.SettingValue" maxlength="253" aria-label="@s.SettingKey" size="14" /><button class="btn btn-small btn-ghost" type="submit">Save</button></form>
+                    }
+                    else { <strong>@s.SettingValue</strong> }</td>
+                <td data-label="What it does">@s.Description</td></tr>
         }
         </tbody>
     </table>

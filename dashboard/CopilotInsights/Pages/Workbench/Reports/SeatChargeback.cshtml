@@ -16,7 +16,7 @@
 <div class="alert alert-info" role="note">
     <strong>Open Finance decisions.</strong> Reservations follow the April EA anniversary, while the chargeback runs by calendar year (January chargeback uses the certified December snapshot). The policy does not yet say how the two line up, for example how the remaining months are counted after an April change.
     Settings in use: increases take effect <strong>@(Model.Settings.IncreaseEffective == "NEXT_MONTH" ? "on the first day of the next month" : "on the decision date")</strong>; chargeback year <strong>@Model.Settings.ChargebackYear.ToLowerInvariant()</strong>; rate <strong>@Model.Settings.RatePerSeatMonth.ToString("N2") @Model.Settings.Currency</strong> per seat per month.
-    <help>Section 6.10 parameters "applicable commitment months" and "April adjustment treatment". They are listed in Admin, Seat groups; a database administrator changes them once Finance decides. The rate is a placeholder until the contracted price is entered.</help>
+    <help>Section 6.10 parameters "applicable commitment months" and "April adjustment treatment". They are changed on Workbench settings, Seat groups, once Finance decides. The rate is a placeholder until the contracted price is entered.</help>
 </div>
 <form method="get" class="btn-row mt">
     <label for="m">Month <help>Months with a snapshot. The newest is shown first.</help></label>

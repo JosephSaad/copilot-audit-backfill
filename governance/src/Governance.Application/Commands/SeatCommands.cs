@@ -141,18 +141,21 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
         {
             RequireConfigure();
             var name = CommandRunner.Trim(i.DisplayName, 256);
-            if (name.Length == 0) throw new DomainException("Enter the group's name as it shows in Entra.");
+            if (name.Length == 0) throw new DomainException("Enter the group's name as it shows in AD or Entra.");
             if (!Purposes.Contains(i.Purpose)) throw new DomainException("Choose what the group is for.");
             if (i.Purpose == SeatGroupPurposes.LobTracking && i.FundingOwnerId is null) throw new DomainException("A tracking group needs the LOB it tracks.");
             if (i.Source is not ("ON_PREM_AD" or "CLOUD")) throw new DomainException("Choose where the group comes from.");
             var fo = i.Purpose == SeatGroupPurposes.LobTracking ? i.FundingOwnerId : null;
             Guid? entraId = i.EntraGroupId;
+            Guid? adId = null;
             if (publicId is Guid pid)
             {
-                var old = await uow.QuerySingleOrDefaultAsync<(int Id, Guid? EntraGroupId, string DisplayName)>(
-                    "SELECT SeatGroupId, EntraGroupId, DisplayName FROM core.SeatGroup WHERE PublicId = @pid AND EffectiveTo IS NULL", new { pid });
+                var old = await uow.QuerySingleOrDefaultAsync<(int Id, Guid? EntraGroupId, string DisplayName, Guid? AdObjectGuid)>(
+                    "SELECT SeatGroupId, EntraGroupId, DisplayName, AdObjectGuid FROM core.SeatGroup WHERE PublicId = @pid AND EffectiveTo IS NULL", new { pid });
                 if (old.Id == 0) throw new DomainException("This group mapping was changed or ended by someone else. Reload the page.");
                 if (entraId is null && string.Equals(old.DisplayName, name, StringComparison.OrdinalIgnoreCase)) entraId = old.EntraGroupId;
+                /* The same group under a changed purpose or LOB keeps its AD key, so its members count until the next read. */
+                if (string.Equals(old.DisplayName, name, StringComparison.OrdinalIgnoreCase)) adId = old.AdObjectGuid;
                 await uow.ExecuteAsync("UPDATE core.SeatGroup SET EffectiveTo = @yesterday WHERE SeatGroupId = @Id", new { yesterday = Today.AddDays(-1), old.Id });
             }
             if (fo is int lob && await uow.ScalarAsync<int>("SELECT COUNT(*) FROM core.SeatGroup WHERE FundingOwnerId = @lob AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL", new { lob }) > 0)
@@ -161,9 +164,9 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
                 throw new DomainException("A group with this name is already mapped.");
             var id = await uow.ScalarAsync<Guid>(
                 """
-                INSERT core.SeatGroup (EntraGroupId, DisplayName, Purpose, FundingOwnerId, OimRoleName, Source, PurposeConfirmed, Notes, EffectiveFrom)
-                OUTPUT inserted.PublicId VALUES (@entraId, @name, @Purpose, @fo, @oim, @Source, @PurposeConfirmed, @notes, @today)
-                """, new { entraId, name, i.Purpose, fo, oim = CommandRunner.TrimN(i.OimRoleName, 300), i.Source, i.PurposeConfirmed, notes = CommandRunner.TrimN(i.Notes, 1000), today = Today });
+                INSERT core.SeatGroup (EntraGroupId, DisplayName, Purpose, FundingOwnerId, OimRoleName, Source, PurposeConfirmed, Notes, EffectiveFrom, AdObjectGuid)
+                OUTPUT inserted.PublicId VALUES (@entraId, @name, @Purpose, @fo, @oim, @Source, @PurposeConfirmed, @notes, @today, @adId)
+                """, new { entraId, adId, name, i.Purpose, fo, oim = CommandRunner.TrimN(i.OimRoleName, 300), i.Source, i.PurposeConfirmed, notes = CommandRunner.TrimN(i.Notes, 1000), today = Today });
             await run.AuditAsync(uow, "seat.group.save", "SeatGroup", id, $"{name} {i.Purpose} {fo}");
             return id.ToString();
         });
@@ -175,6 +178,27 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             var n = await uow.ExecuteAsync("UPDATE core.SeatGroup SET EffectiveTo = @yesterday WHERE PublicId = @publicId AND EffectiveTo IS NULL", new { yesterday = Today.AddDays(-1), publicId });
             if (n == 0) throw new DomainException("This group mapping was already ended.");
             await run.AuditAsync(uow, "seat.group.end", "SeatGroup", publicId);
+        });
+
+    /// <summary>
+    /// A seat setting changed on the Seat groups page (ref.Setting, Seats.*), checked by <see cref="SeatSettings.Check"/>:
+    /// by a Workbench administrator, the Platform Owner or FinOps, on Finance's word for the values Finance owns. Audited
+    /// with the old and new value.
+    /// </summary>
+    public Task SaveSettingAsync(Guid idem, string key, string? value)
+        => run.RunAsync(idem, "seat.setting.save", async uow =>
+        {
+            if (!Me.Can(Permissions.AdminConfigure) && !Me.Can(Permissions.RegistryEdit) && !Me.Can(Permissions.RegistryFinance))
+                throw new DomainException("A Workbench administrator, the Platform Owner or FinOps changes the seat settings.");
+            var v = Seats.SeatSettings.Check(key, value);
+            if (key == "Seats.NoLobChargedTo" && v.Length > 0
+                && await uow.ScalarAsync<int>("SELECT COUNT(*) FROM core.FundingOwner WHERE Code = @v AND Status IN ('ACTIVE','SUSPENDED')", new { v }) == 0)
+                throw new DomainException($"No active funding owner has the code {v}.");
+            var old = await uow.ScalarAsync<string?>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = @key", new { key })
+                ?? throw new DomainException("That setting is not a seat setting.");
+            await uow.ExecuteAsync("UPDATE ref.Setting SET SettingValue = @v, UpdatedUtc = SYSUTCDATETIME(), UpdatedByPersonId = @me WHERE SettingKey = @key",
+                new { v, key, me = Me.PersonId });
+            await run.AuditAsync(uow, "seat.setting.save", "Setting", null, $"{key}: {old} -> {v}");
         });
 
     public Task SaveSkuAsync(Guid idem, Guid skuId, string partNumber, string name, string kind, bool isActive, string? notes)

@@ -1,4 +1,4 @@
-# release 3.5.0
+# release 3.5.1
 # The shape of the Governance Workbench's database (its own, beside the Copilot one) as this release installs it.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -307,6 +307,7 @@ C	governance	core.SeatGroup	U	12	EffectiveTo	date	1
 C	governance	core.SeatGroup	U	13	RowVer	timestamp	0	
 C	governance	core.SeatGroup	U	14	SysStart	datetime2(7)	0	
 C	governance	core.SeatGroup	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.SeatGroup	U	16	AdObjectGuid	uniqueidentifier	1	
 C	governance	core.SeatGroup	U	2	PublicId	uniqueidentifier	0	D
 C	governance	core.SeatGroup	U	3	EntraGroupId	uniqueidentifier	1	
 C	governance	core.SeatGroup	U	4	DisplayName	nvarchar(256)	0	
@@ -322,6 +323,7 @@ C	governance	core.SeatGroupHistory	U	12	EffectiveTo	date	1
 C	governance	core.SeatGroupHistory	U	13	RowVer	timestamp	0	
 C	governance	core.SeatGroupHistory	U	14	SysStart	datetime2(7)	0	
 C	governance	core.SeatGroupHistory	U	15	SysEnd	datetime2(7)	0	
+C	governance	core.SeatGroupHistory	U	16	AdObjectGuid	uniqueidentifier	1	
 C	governance	core.SeatGroupHistory	U	2	PublicId	uniqueidentifier	0	
 C	governance	core.SeatGroupHistory	U	3	EntraGroupId	uniqueidentifier	1	
 C	governance	core.SeatGroupHistory	U	4	DisplayName	nvarchar(256)	0	
@@ -696,6 +698,9 @@ C	governance	intg.RegistryRow	U	8	Audience	nvarchar(400)	1
 C	governance	intg.RegistryRow	U	9	Matched	bit	0	D
 C	governance	intg.SeatGroupReading	U	1	SeatGroupReadingId	bigint	0	I
 C	governance	intg.SeatGroupReading	U	10	ReadUtc	datetime2(7)	0	D
+C	governance	intg.SeatGroupReading	U	11	MembersFrom	varchar(10)	1	
+C	governance	intg.SeatGroupReading	U	12	AdObjectGuid	uniqueidentifier	1	
+C	governance	intg.SeatGroupReading	U	13	UnmatchedMembers	int	1	
 C	governance	intg.SeatGroupReading	U	2	SyncRunId	bigint	0	
 C	governance	intg.SeatGroupReading	U	3	SeatGroupId	int	0	
 C	governance	intg.SeatGroupReading	U	4	EntraGroupId	uniqueidentifier	1	

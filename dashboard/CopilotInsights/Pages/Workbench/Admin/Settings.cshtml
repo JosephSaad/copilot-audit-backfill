@@ -1,0 +1,34 @@
+@page "/workbench/Admin/Settings"
+@model Governance.Web.Pages.Admin.SettingsModel
+@{
+    ViewData["Title"] = "Settings";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Workbench settings</div>
+        <h1>Settings</h1>
+        <p class="lead">The Workbench's own settings: the business time zone, notice days, evidence files, how long the worker keeps its records and the address in notices. The seat settings are on <a href="/workbench/Admin/SeatGroups">Seat groups</a>, intake on the <a href="/workbench/Admin/Intake">Intake switch</a>. <help>Each value is checked before it is kept, and each change is in the audit trail with the old and new value. A Workbench administrator or the Platform Owner changes them.</help></p>
+    </div>
+</div>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr>
+            <partial name="_Th" model='("", "Setting", "The setting key.")' />
+            <partial name="_Th" model='("", "Value", "The value in use. Change it and press Save.")' />
+            <partial name="_Th" model='("", "What it does", "What the worker or the pages do with it.")' />
+        </tr></thead>
+        <tbody>
+        @foreach (var s in Model.Settings)
+        {
+            <tr><td data-label="Setting" class="mono">@s.SettingKey</td>
+                <td data-label="Value">@if (Model.CanEdit)
+                    {
+                        <form method="post" asp-page-handler="Save" class="btn-row"><idem /><input type="hidden" name="key" value="@s.SettingKey" />
+                            <input name="value" value="@s.SettingValue" maxlength="2000" aria-label="@s.SettingKey" size="24" /><button class="btn btn-small btn-ghost" type="submit">Save</button></form>
+                    }
+                    else { <strong>@s.SettingValue</strong> }</td>
+                <td data-label="What it does">@s.Description</td></tr>
+        }
+        </tbody>
+    </table>
+</div>

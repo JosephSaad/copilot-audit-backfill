@@ -328,8 +328,10 @@ function Merge-WorkerSetting {
 function Get-WorkerInsightsGrant {
     <#
         The worker's read on the Copilot database, for the nightly seat read's Copilot activity (dash.UserDay, each
-        person's interactions per day, and bi.DimUser, their UPN): the gMSA's login and user where missing, then SELECT
-        on those two tables only, where they exist. Safe to rerun. Pure, for the tests.
+        person's interactions per day, and bi.DimUser, their UPN), and, for seat groups read from AD, the users' AD
+        domain (the view dash.WorkbenchDirectory) and each person's sign-in, SID and Entra object ID (three columns of
+        dash.Person): the gMSA's login and user where missing, then SELECT on those only, where they exist. Safe to
+        rerun. Pure, for the tests.
     #>
     param([string] $Database, [string] $Account)
     $a = $Account.Replace("'", "''")
@@ -345,6 +347,8 @@ BEGIN
     DECLARE @g nvarchar(max) = N'';
     IF OBJECT_ID(N'dash.UserDay', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON dash.UserDay TO ' + QUOTENAME(@u) + N';';
     IF OBJECT_ID(N'bi.DimUser', N'U') IS NOT NULL SET @g += N'GRANT SELECT ON bi.DimUser TO ' + QUOTENAME(@u) + N';';
+    IF OBJECT_ID(N'dash.WorkbenchDirectory', N'V') IS NOT NULL SET @g += N'GRANT SELECT ON dash.WorkbenchDirectory TO ' + QUOTENAME(@u) + N';';
+    IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL AND COL_LENGTH(N'dash.Person', N'Sid') IS NOT NULL SET @g += N'GRANT SELECT ON dash.Person (Upn, Sid, ObjectId) TO ' + QUOTENAME(@u) + N';';
     EXEC (@g);
 END;
 "@

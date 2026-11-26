@@ -199,6 +199,7 @@ Which sections a person sees comes from their grants in Admin › Access: **Gove
 | | Integrations | `/workbench/Admin/Integrations` | The Microsoft, ITSM, mail and Teams connections and their health | Admin |
 | | Intake switch | `/workbench/Admin/Intake` | Open or close intake, with the setup steps it needs first | Admin; Platform Owner and Steering |
 | | Wording | `/workbench/Admin/Text` | Change the wording of help and notices | Admin; Platform Owner and Steering |
+| | Settings | `/workbench/Admin/Settings` | The time zone, notice days, evidence files, record keeping and the address in notices | Admin; Platform Owner and Steering |
 
 Pages reached from these, not listed in the navigation: a request (`/workbench/Requests/{id}`), a new request (`/workbench/Requests/New/{journey}`), a funding owner, a workload, a control template, one line of business's seats (`/workbench/Registry/Seats/{id}`), one consumption event, one sync run, a piece of evidence, and the Teams tab's start page. *Act as a test persona* (`/workbench/ActAs`) exists only in Development, with `Testing:AllowActAs` set, for an Insights administrator ([GOVERNANCE-TEST-ENVIRONMENT.md](GOVERNANCE-TEST-ENVIRONMENT.md)).
 

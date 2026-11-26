@@ -53,6 +53,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SeatGroup_OneTrackingP
     CREATE UNIQUE INDEX UX_SeatGroup_OneTrackingPerLob ON core.SeatGroup (FundingOwnerId) WHERE Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SeatGroup_Name')
     CREATE UNIQUE INDEX UX_SeatGroup_Name ON core.SeatGroup (DisplayName) WHERE EffectiveTo IS NULL;
+-- The group's objectGUID in on-premises AD, recorded when the seat read takes its members from AD
+-- (Seats.GroupMembersFrom): the key its members are kept under in intg.GroupMember when they come from AD.
+IF COL_LENGTH('core.SeatGroup', 'AdObjectGuid') IS NULL ALTER TABLE core.SeatGroup ADD AdObjectGuid uniqueidentifier NULL;
 
 -- Seat reservation per LOB. One row per period: a change ends the open row and starts a new one, so the
 -- row itself records the effective date, previous and new quantity, approver and flex-pool review (CAL-06).
@@ -192,6 +195,10 @@ CREATE TABLE intg.SeatGroupReading
 );
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_SeatGroupReading_Run')
     CREATE INDEX IX_SeatGroupReading_Run ON intg.SeatGroupReading (SyncRunId, SeatGroupId);
+-- Where the members were read (ENTRA or AD), the AD group's objectGUID, and AD members matched to no Entra account.
+IF COL_LENGTH('intg.SeatGroupReading', 'MembersFrom') IS NULL ALTER TABLE intg.SeatGroupReading ADD MembersFrom varchar(10) NULL;
+IF COL_LENGTH('intg.SeatGroupReading', 'AdObjectGuid') IS NULL ALTER TABLE intg.SeatGroupReading ADD AdObjectGuid uniqueidentifier NULL;
+IF COL_LENGTH('intg.SeatGroupReading', 'UnmatchedMembers') IS NULL ALTER TABLE intg.SeatGroupReading ADD UnmatchedMembers int NULL;
 
 -- Microsoft 365 Copilot usage report, latest activity per user (Reports.Read.All; names must not be concealed).
 IF OBJECT_ID('intg.CopilotActivity') IS NULL
@@ -236,7 +243,9 @@ USING (VALUES
     ('Seats.UsagePeriod',            N'D90',   N'Period read from the Copilot usage report (D7, D30, D90, D180).'),
     ('Seats.NoLobChargedTo',         N'',      N'Who pays for seats no line of business claims: a funding owner''s code, or empty for a row of their own, charged to no line of business. Open Finance decision.'),
     ('Seats.PurchaseGatePercent',    N'95',    N'Purchase gate: the share of the unassigned seats counted at the baseline to assign before more seats are bought.'),
-    ('Seats.GateBaselineUnassigned', N'0',     N'Purchase gate: the unassigned seats counted when the gate started. 0 until an administrator sets it.')
+    ('Seats.GateBaselineUnassigned', N'0',     N'Purchase gate: the unassigned seats counted when the gate started. 0 until an administrator sets it.'),
+    ('Seats.GroupMembersFrom',       N'AUTO',  N'Where the seat read takes the seat groups'' members: ENTRA (Microsoft Graph, needs GroupMember.Read.All), AD (on-premises Active Directory over LDAP, as the worker''s account) or AUTO (Entra, and AD for on-premises groups when Graph refuses).'),
+    ('Seats.AdDomain',               N'',      N'The AD domain that holds the seat groups: its DNS name or one of its domain controllers. Empty: the users'' AD domain set on Copilot Insights'' Admin > Directory quality, else the domain the server is in.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey
 WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, Description) VALUES (s.SettingKey, s.SettingValue, s.Description)
@@ -266,7 +275,7 @@ AS
 RETURN
     WITH lob AS
     (
-        SELECT fo.FundingOwnerId, fo.Code, fo.Name, g.SeatGroupId, g.EntraGroupId, g.DisplayName AS TrackingGroup,
+        SELECT fo.FundingOwnerId, fo.Code, fo.Name, g.SeatGroupId, g.EntraGroupId, g.AdObjectGuid, g.DisplayName AS TrackingGroup,
                (SELECT TOP (1) r.Seats FROM core.SeatReservation r
                 WHERE r.FundingOwnerId = fo.FundingOwnerId AND r.EffectiveFrom <= @AsOf AND (r.EffectiveTo IS NULL OR r.EffectiveTo >= @AsOf)
                 ORDER BY r.EffectiveFrom DESC) AS ReservedSeats
@@ -279,9 +288,9 @@ RETURN
     counted AS
     (
         SELECT l.FundingOwnerId, l.Code, l.Name, l.SeatGroupId, l.TrackingGroup, ISNULL(l.ReservedSeats, 0) AS ReservedSeats,
-               (SELECT COUNT(*) FROM intg.GroupMember gm WHERE gm.GroupId = l.EntraGroupId) AS TrackingMembers,
+               (SELECT COUNT(*) FROM intg.GroupMember gm WHERE gm.GroupId IN (l.EntraGroupId, l.AdObjectGuid)) AS TrackingMembers,
                (SELECT COUNT(*) FROM intg.GroupMember gm JOIN rpt.fn_SeatHolders() s ON s.MemberObjectId = gm.MemberObjectId
-                WHERE gm.GroupId = l.EntraGroupId) AS AssignedSeats
+                WHERE gm.GroupId IN (l.EntraGroupId, l.AdObjectGuid)) AS AssignedSeats
         FROM lob l
     )
     SELECT FundingOwnerId, Code, Name, SeatGroupId, TrackingGroup, ReservedSeats, TrackingMembers, AssignedSeats,
@@ -291,7 +300,7 @@ RETURN
     SELECT NULL, NULL, N'No LOB', NULL, NULL, 0, 0, COUNT(*), COUNT(*)
     FROM rpt.fn_SeatHolders() s
     WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm
-                      JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
+                      JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.Purpose = 'LOB_TRACKING'
                            AND g.EffectiveFrom <= @AsOf AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @AsOf)
                       WHERE gm.MemberObjectId = s.MemberObjectId);
 GO

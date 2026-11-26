@@ -51,6 +51,13 @@
 .PARAMETER ActivityHistory
     Load only the activity database's history (2.6.9), and roll it up.
 
+.PARAMETER DirectoryOnRequest
+    Load the user directory from AD and rebuild the org chart, only if an
+    administrator asked for it on the dashboard (Admin > Directory quality).
+    Otherwise does nothing and writes no log. The job server's task
+    'Copilot audit - directory on request' runs it every 15 minutes. It
+    waits, leaving the request, while another run holds the database.
+
 .PARAMETER Days
     How many days of history (-History). Default: HistoryDays in the settings, 180.
 
@@ -83,6 +90,7 @@
 param(
     [switch] $History,
     [switch] $ActivityHistory,
+    [switch] $DirectoryOnRequest,
     [ValidateRange(1, 3650)][int] $Days,
     [string] $Tenant,
     [string] $SettingsPath
@@ -562,6 +570,80 @@ WHEN NOT MATCHED THEN INSERT (Purpose, Thumbprint, Found, Subject, Issuer, NotBe
     [void] (Write-PipelineRecord $T -Log $Log -Parameters @{} -Sql "IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC (N'DELETE FROM audit.PipelineCertificate WHERE Purpose NOT IN ($($keep.Replace("'", "''")));');")
 }
 
+function Resolve-PipelineDomain {
+    <#
+        The settings with the users' AD domain set on the dashboard (Admin > Directory quality, 3.1.3) when the settings
+        file names none: the AD step runs when either names one, and takes the dashboard's when both do.
+    #>
+    param([System.Collections.IDictionary] $T)
+    if ($T.Contains('TargetDomain') -and $T.TargetDomain) { return $T }
+    $dashDomain = $null
+    try { $dashDomain = Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = N''DirectoryDomain'';');" }
+    catch { $dashDomain = $null }
+    if (-not $dashDomain -or $dashDomain -is [DBNull]) { return $T }
+    $plan = [ordered] @{}
+    foreach ($k in $T.Keys) { $plan[$k] = $T[$k] }
+    $plan.TargetDomain = [string] $dashDomain
+    $plan
+}
+
+function Get-DirectoryStep {
+    <# The on-request directory load: the nightly plan's user directory step, alone. Pure, for the tests. #>
+    param([System.Collections.IDictionary] $Setting)
+    , @(Get-PipelineStep -Setting $Setting | Where-Object { $_.Name -eq 'User directory from AD' })
+}
+
+$script:DirectoryRequestSql = "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = ''DirectoryLoadRequested'';');"
+
+function Set-DirectoryState {
+    <# How the directory load asked for on the dashboard went, for Admin > Directory quality (dash.Setting DirectoryLoadState). #>
+    param([System.Collections.IDictionary] $T, [string] $State, [string] $Log)
+    try {
+        [void] (Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC sp_executesql N'
+MERGE dash.Setting AS t USING (SELECT ''DirectoryLoadState'' AS Name) AS s ON t.Name = s.Name
+WHEN MATCHED THEN UPDATE SET Value = LEFT(@v, 400), UpdatedBy = N''job server'', UpdatedUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, LEFT(@v, 400), N''How the last directory load asked for on the dashboard went.'', N''job server'');', N'@v NVARCHAR(4000)', @v = @v;" @{ '@v' = $State })
+    }
+    catch { "$(Get-Date -Format s) (the directory load's state was not recorded: $($_.Exception.Message))" | Out-File -FilePath $Log -Append }
+}
+
+function Invoke-DirectoryRequest {
+    <#
+        A directory load an administrator asked for on the dashboard: the user directory step, then the dashboard
+        refresh that rebuilds the org chart (dash.Person) from it. The request is cleared when the load starts, so it
+        runs once. Returns $true when nothing was asked for or the load succeeded.
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label, [string] $Request)
+    $at = { (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture) + ' UTC' }
+    "$(Get-Date -Format s) $Label Directory load asked for on the dashboard ($Request)." | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+    [void] (Invoke-PipelineSql $T "UPDATE dash.Setting SET Value = N'', UpdatedBy = N'job server', UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'DirectoryLoadRequested';")
+    $steps = Get-DirectoryStep (Resolve-PipelineDomain $T)
+    if (-not $steps.Count) {
+        Set-DirectoryState $T "Not loaded ($(& $at)): no users' AD domain is set, here or as TargetDomain in the job server's settings." $Log
+        "$(Get-Date -Format s) $Label No users' AD domain is set: nothing to load." | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+        return $false
+    }
+    Set-DirectoryState $T "Loading since $(& $at) (asked for $Request)." $Log
+    $step = $steps[0]
+    if ($Label) { $step.Name = "$Label $($step.Name)" }
+    $code = Invoke-PipelineStep -Step $step -Log $Log
+    if ($code -ne 0 -and $code -ne $script:DropRefusedExitCode) {
+        Set-DirectoryState $T "Failed $(& $at): the directory load stopped (exit code $code). The job server's log has why; the directory from before is kept." $Log
+        return $false
+    }
+    "$(Get-Date -Format s) $Label == Org chart (dash.usp_RefreshDashboard)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+    try { [void] (Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.usp_RefreshDashboard', N'P') IS NOT NULL EXEC dash.usp_RefreshDashboard @SinceUtc = @s;" @{ '@s' = [datetime]::UtcNow.Date } -Timeout 0) }
+    catch {
+        "$(Get-Date -Format s) $Label The org chart was not rebuilt: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+        Set-DirectoryState $T "Loaded, but the org chart was not rebuilt ($(& $at)): the job server's log has why. Tonight's run rebuilds it." $Log
+        return $false
+    }
+    $people = Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Person', N'U') IS NOT NULL EXEC (N'SELECT COUNT(*) FROM dash.Person WHERE AccountEnabled = 1;');"
+    $kept = if ($code -eq $script:DropRefusedExitCode) { ' The delete guard kept the directory from before: the job server''s log says why.' } else { '' }
+    Set-DirectoryState $T "Done $(& $at) (asked for $Request): $('{0:N0}' -f [int] $people) people in the directory.$kept" $Log
+    $true
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -591,17 +673,7 @@ function Invoke-TenantRun {
     $refused = [System.Collections.Generic.List[string]]::new()
     # 3.1.3: the users' AD domain may be set on the dashboard (Admin > User directory) instead of in the settings file;
     # the AD step runs when either names one, and the step itself takes the dashboard's when both do.
-    $plan = $T
-    if (-not ($T.Contains('TargetDomain') -and $T.TargetDomain)) {
-        $dashDomain = $null
-        try { $dashDomain = Invoke-PipelineSql $T "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = N''DirectoryDomain'';');" }
-        catch { $dashDomain = $null }
-        if ($dashDomain -and -not ($dashDomain -is [DBNull])) {
-            $plan = [ordered] @{}
-            foreach ($k in $T.Keys) { $plan[$k] = $T[$k] }
-            $plan.TargetDomain = [string] $dashDomain
-        }
-    }
+    $plan = Resolve-PipelineDomain $T
     foreach ($step in (Get-PipelineStep -Setting $plan -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
@@ -644,10 +716,44 @@ function Invoke-TenantRun {
     $true
 }
 
+function Invoke-DirectoryMain {
+    <#
+        -DirectoryOnRequest: for each tenant, a directory load if one was asked for on its dashboard. Quiet when none
+        was: the task runs every 15 minutes, and a log a run would bury the night's.
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $LogDir)
+    $log = Join-Path $LogDir ('directory-{0:yyyy-MM-dd-HHmmss}.log' -f (Get-Date))
+    $several = $Setting.Contains('Tenants') -and @($Setting.Tenants).Count -gt 0
+    $failed = 0
+    foreach ($t in (Get-PipelineTenant -Setting $Setting -Only $Tenant)) {
+        $label = if ($several) { "[$($t.Name)]" } else { '' }
+        $lock = $null
+        try {
+            $request = Invoke-PipelineSql $t $script:DirectoryRequestSql
+            if (-not $request -or $request -is [DBNull]) { continue }
+            $lock = Enter-PipelineRun $t
+            if (-not $lock) {
+                "$(Get-Date -Format s) $label A directory load was asked for, but another run is using $($t.Database) now: it runs when that one ends." |
+                    Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
+                continue
+            }
+            if (-not (Invoke-DirectoryRequest -T $t -Log $log -Label $label -Request ([string] $request))) { $failed++ }
+        }
+        catch {
+            $failed++
+            "$(Get-Date -Format s) $label The directory load could not run against $($t.Database): $($_.Exception.Message)" |
+                Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
+        }
+        finally { Exit-PipelineRun $lock }
+    }
+    if ($failed) { exit 1 }
+}
+
 function Invoke-Main {
     $s = Get-PipelineSetting $SettingsPath
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    if ($DirectoryOnRequest) { Invoke-DirectoryMain -Setting $s -LogDir $logDir; return }
     # A log of its own for each run: a second run on one day appended to the first's.
     $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($ActivityHistory) { 'activity-history' } elseif ($History) { 'history' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
