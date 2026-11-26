@@ -228,3 +228,13 @@
 
 @media (prefers-reduced-motion: reduce) { .wb * { transition: none !important; } }
 @media print { .wb .page-actions, .wb .btn { display: none !important; } }
+
+/* Person pickers: "Find someone in the directory" (_FindPerson.cshtml, workbench.js). */
+.wb .find-person { margin-top: .4rem; }
+.wb .find-box { margin-top: .4rem; }
+.wb .find-q { width: 100%; max-width: 28rem; }
+.wb .find-results { list-style: none; margin: .3rem 0 0; padding: 0; max-width: 36rem; }
+.wb .find-results li + li { border-top: 1px solid var(--border); }
+.wb .find-pick { display: block; width: 100%; text-align: left; padding: .45rem .6rem; background: var(--surface); color: var(--text); border: 0; cursor: pointer; white-space: normal; }
+.wb .find-pick:hover, .wb .find-pick:focus-visible { background: var(--surface-2); }
+.wb .find-note:empty { display: none; }

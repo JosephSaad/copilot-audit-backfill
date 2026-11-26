@@ -100,7 +100,7 @@
     {
         <form method="post" asp-page-handler="Role" class="form-grid mt">
             <idem />
-            <div class="field"><label for="rp">Person <help>Who holds the role for this funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="rp">Person <help>Who holds the role for this funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select><partial name="_FindPerson" model='("rp", false)' /></div>
             <div class="field"><label for="rr">Role <help>Delegated approvers need a delegation too (below) to approve; the role alone lets them see this funding owner.</help></label><select id="rr" name="roleCode">@foreach (var r in Model.LobRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
             <div class="field"><label for="rt">Until (optional) <help>The last day the role applies. Leave empty for open-ended; roles are still reviewed each year.</help></label><input id="rt" type="date" name="effectiveTo" /></div>
             <div class="field"><span class="label">&nbsp;</span><button class="btn btn-ghost" type="submit">Assign role</button></div>
@@ -122,7 +122,7 @@
     {
         <form method="post" asp-page-handler="Delegate" class="form-grid mt">
             <idem />
-            <div class="field"><label for="dp">Delegate to <help>The person who may approve routine requests for this funding owner. Never their own request.</help></label><select id="dp" name="delegatePersonId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="dp">Delegate to <help>The person who may approve routine requests for this funding owner. Never their own request.</help></label><select id="dp" name="delegatePersonId" required><option value="">Choose one</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select><partial name="_FindPerson" model='("dp", false)' /></div>
             <div class="field"><label for="dm">Most credits per request <help>Above this, the request comes to you.</help></label><input id="dm" type="number" name="maxCredits" min="0" step="1" /></div>
             <div class="field"><label for="df">From <help>The first day it applies.</help></label><input id="df" type="date" name="from" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" required /></div>
             <div class="field"><label for="dt">Until <help>The last day it applies.</help></label><input id="dt" type="date" name="to" value="@DateTime.UtcNow.AddYears(1).ToString("yyyy-MM-dd")" /></div>

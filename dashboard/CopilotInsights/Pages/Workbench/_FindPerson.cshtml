@@ -1,0 +1,19 @@
+@model (string Target, bool ByUpn)
+@{
+    /* "Not in the list? Find someone in the directory" under a person picker: searches the directory Copilot Insights
+       loads from AD and records the person chosen (People.cshtml.cs). Hidden until workbench.js shows it, and only for
+       those who may record people. */
+    var me = ViewContext.HttpContext.RequestServices.GetRequiredService<WebPrincipal>();
+}
+@if (Governance.Application.Commands.RegistryCommands.MayAddPeople(me))
+{
+    <div class="find-person" data-for="@Model.Target" data-by="@(Model.ByUpn ? "upn" : "id")" data-lookup="/workbench/People?handler=Find" hidden>
+        <button type="button" class="btn btn-small btn-ghost find-open" aria-expanded="false">Not in the list? Find someone in the directory</button>
+        <help>Everyone in the directory Copilot Insights loads from Active Directory each night. The person you choose is added to the Workbench and chosen here, so they can be named before they ever open the Workbench.</help>
+        <div class="find-box" hidden>
+            <input type="search" class="find-q" placeholder="Name or sign-in name" aria-label="Find someone in the directory" autocomplete="off" />
+            <ul class="find-results"></ul>
+        </div>
+        <p class="small muted find-note" role="status"></p>
+    </div>
+}

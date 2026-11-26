@@ -107,4 +107,83 @@
             Array.prototype.forEach.call(tr.children, function (td, i) { if (!td.hasAttribute('data-label') && heads[i]) td.setAttribute('data-label', heads[i]); });
         });
     });
+    // Person pickers: "Not in the list? Find someone in the directory" (_FindPerson.cshtml) searches the directory
+    // Copilot Insights loads from AD, records the person chosen, and adds and chooses them in the picker above it.
+    document.querySelectorAll('.find-person').forEach(function (box) {
+        var target = document.getElementById(box.getAttribute('data-for'));
+        var url = box.getAttribute('data-lookup');
+        var byUpn = box.getAttribute('data-by') === 'upn';
+        var open = box.querySelector('.find-open'), panel = box.querySelector('.find-box'), q = box.querySelector('.find-q'),
+            list = box.querySelector('.find-results'), note = box.querySelector('.find-note');
+        if (!target || !url || !open || !panel || !q || !list || !note) return;
+        var form = box.closest('form');
+        var token = (form && form.querySelector('input[name="__RequestVerificationToken"]')) || document.querySelector('input[name="__RequestVerificationToken"]');
+        var timer = null, asked = '';
+        box.hidden = false;
+        open.addEventListener('click', function () {
+            panel.hidden = !panel.hidden;
+            open.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+            if (!panel.hidden) q.focus();
+        });
+        function show(rows) {
+            while (list.firstChild) list.removeChild(list.firstChild);
+            rows.forEach(function (r) {
+                var li = document.createElement('li');
+                var b = document.createElement('button');
+                b.type = 'button'; b.className = 'find-pick';
+                var n = document.createElement('strong'); n.textContent = r.name;
+                var d = document.createElement('span'); d.className = 'small muted'; d.textContent = r.detail;
+                b.appendChild(n); b.appendChild(document.createTextNode(' ')); b.appendChild(d);
+                b.addEventListener('click', function () { pick(r); });
+                li.appendChild(b); list.appendChild(li);
+            });
+        }
+        function choose(value, text) {
+            if (target.tagName === 'SELECT') {
+                var o = null;
+                for (var i = 0; i < target.options.length; i++) if (target.options[i].value === value) o = target.options[i];
+                if (!o) { o = document.createElement('option'); o.value = value; o.textContent = text; target.appendChild(o); }
+                target.value = value;
+                target.dispatchEvent(new Event('change', { bubbles: true }));
+            } else {
+                var dl = document.getElementById(target.getAttribute('list'));
+                if (dl) { var op = document.createElement('option'); op.value = value; op.textContent = text; dl.appendChild(op); }
+                target.value = value;
+            }
+        }
+        function pick(r) {
+            note.textContent = 'Adding ' + r.name + '...';
+            var body = new URLSearchParams();
+            body.append('upn', r.upn);
+            if (token) body.append('__RequestVerificationToken', token.value);
+            fetch(url.replace('handler=Find', 'handler=Add'), { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
+                .then(function (res) { return res.json().catch(function () { return {}; }).then(function (j) { return { ok: res.ok, j: j }; }); })
+                .then(function (x) {
+                    if (!x.ok || !x.j.value) { note.textContent = (x.j && x.j.error) || 'Not added. Try again, or ask a Workbench administrator.'; return; }
+                    choose(byUpn ? x.j.upn : x.j.value, x.j.text);
+                    note.textContent = x.j.text + (x.j.added ? ' added to the Workbench and chosen.' : ' chosen.');
+                    show([]); q.value = ''; asked = '';
+                    panel.hidden = true; open.setAttribute('aria-expanded', 'false');
+                })
+                .catch(function () { note.textContent = 'Not added. Try again.'; });
+        }
+        q.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+        q.addEventListener('input', function () {
+            var t = q.value.replace(/\s+/g, ' ').trim();
+            window.clearTimeout(timer);
+            if (t.length < 2) { asked = ''; show([]); note.textContent = ''; return; }
+            timer = window.setTimeout(function () {
+                asked = t;
+                fetch(url + '&q=' + encodeURIComponent(t), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                    .then(function (res) { return res.ok ? res.json() : null; })
+                    .then(function (rows) {
+                        if (asked !== t) return;
+                        if (!rows) { show([]); note.textContent = 'The directory cannot be searched now.'; return; }
+                        show(rows);
+                        note.textContent = rows.length ? '' : 'Nobody in the directory matches.';
+                    })
+                    .catch(function () { });
+            }, 250);
+        });
+    });
 })();

@@ -809,12 +809,12 @@ function Invoke-Main {
     # 3.1.3: the dashboard's domain and groups, where set, before the settings file's. Every LDAP search below
     # (users, role groups, report groups) goes to this domain.
     $fromDashboard = Get-DashboardDirectorySetting -ConnectionString $connStr
-    if ($fromDashboard.DirectoryDomain) {
-        if ($TargetDomain -and $TargetDomain -ne $fromDashboard.DirectoryDomain) { Write-Log "Domain: $($fromDashboard.DirectoryDomain), as set on the dashboard (the settings file says $TargetDomain)." }
-        $script:TargetDomain = $fromDashboard.DirectoryDomain
+    if ($fromDashboard['DirectoryDomain']) {
+        if ($TargetDomain -and $TargetDomain -ne $fromDashboard['DirectoryDomain']) { Write-Log "Domain: $($fromDashboard['DirectoryDomain']), as set on the dashboard (the settings file says $TargetDomain)." }
+        $script:TargetDomain = $fromDashboard['DirectoryDomain']
     }
-    if ($fromDashboard.CopilotLicenseGroup) { $script:CopilotLicenseGroup = $fromDashboard.CopilotLicenseGroup }
-    if ($fromDashboard.CopilotChatGroup) { $script:CopilotChatGroup = $fromDashboard.CopilotChatGroup }
+    if ($fromDashboard['CopilotLicenseGroup']) { $script:CopilotLicenseGroup = $fromDashboard['CopilotLicenseGroup'] }
+    if ($fromDashboard['CopilotChatGroup']) { $script:CopilotChatGroup = $fromDashboard['CopilotChatGroup'] }
     if (-not $TargetDomain) { throw 'Specify -TargetDomain, or set the users'' domain on the dashboard (Admin > User directory): the trusted domain to read users from.' }
 
     Write-Log "Reading users from $TargetDomain (department from $($DepartmentAttribute -join ', then '))..."

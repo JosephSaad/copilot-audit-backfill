@@ -200,7 +200,8 @@ $share = Get-PipelineCertificateUse ($s + @{ AgentWorkbookUrl = '\\fileserver\ag
 Assert-That ($share.Count -eq 1) 'a workbook from a share signs in as the task''s account: no certificate of its own to track'
 
 $dir = Get-DirectoryStep -Setting $s
-Assert-That ($dir.Count -eq 1 -and $dir[0].Name -eq 'User directory from AD' -and $dir[0].Script -like '*Export-UsersWithHierarchy-ToSql.ps1') 'a directory load asked for on the dashboard runs the nightly user directory step alone'
+Assert-That ($dir.Count -eq 1 -and $dir[0].Name -is [string] -and $dir[0].Name -eq 'User directory from AD' -and $dir[0].Script -is [string] -and $dir[0].Script -like '*Export-UsersWithHierarchy-ToSql.ps1') `
+    'a directory load asked for on the dashboard runs the nightly user directory step alone: one step, one script (3.5.1 ran the whole plan as one step)'
 $noDomain = [ordered] @{}; foreach ($k in $s.Keys) { if ($k -ne 'TargetDomain') { $noDomain[$k] = $s[$k] } }
 Assert-That ((Get-DirectoryStep -Setting $noDomain).Count -eq 0) 'and nothing when no users'' domain is set'
 $n = Get-PipelineStep -Setting $s -Today $today -Root 'R:'

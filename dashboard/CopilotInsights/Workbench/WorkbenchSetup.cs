@@ -72,6 +72,8 @@ public static class WorkbenchSetup
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Requests", Policies.Ownership);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Events", Policies.Ownership);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Registry", Policies.Registry);
+            /* The person pickers' directory search: registry editors, central roles and administrators (Workbench settings, Workbench roles). */
+            o.Conventions.AuthorizePage($"{PagesFolder}/People", Policies.Registry);
         });
         services.AddRateLimiter(o =>
         {
