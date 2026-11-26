@@ -68,6 +68,15 @@ jobs:
       - name: Test-DropGuard
         shell: bash
         run: pwsh -NoProfile -File tests/Test-DropGuard.ps1
+      - name: Test-GatewayUsage
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-GatewayUsage.ps1
+      - name: Test-SpendLimitSources
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-SpendLimitSources.ps1
+      - name: Test-AgentActions
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-AgentActions.ps1
       - name: Test-SchemaCompatibility
         shell: bash
         run: pwsh -NoProfile -File tests/Test-SchemaCompatibility.ps1

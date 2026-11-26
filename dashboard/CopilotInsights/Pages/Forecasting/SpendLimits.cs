@@ -109,27 +109,31 @@ public sealed class SpendLimitsModel(PageServices s, SpendLimitData data) : Insi
     void OneLimit(SpendLimitData.Measured m)
     {
         var l = m.Limit;
-        var body = $"<p class=\"sub\">Set in: {H(Where(l))}. {H(l.Note)}</p>";
+        /* Tokens in millions, so the axis reads 800, not 800,000,000. */
+        var scale = l.Unit == "Tokens" ? 1e6 : 1.0;
+        var unit = l.Unit == "Tokens" ? " (millions of tokens)" : l.Unit == "USD" ? " (USD)" : " (credits)";
+        var notes = $"Set in: {Where(l)}." + (l.Note is { Length: > 0 } n ? " " + n : "") +
+                    (m.Short is { } sp ? $" Of the last 30 days, {Pct(sp.At80)} reached 80% of it and {Pct(sp.At100)} reached it." : "") +
+                    (m.NotMeasured is { } nm ? " " + nm : "");
         if (m.AsOf is { } asOf && m.Position is { } p && l.Kind != "CopilotUser")
         {
             var (start, end) = SpendLimits.PeriodOf(l.Period, asOf);
             var days = Enumerable.Range(0, (end - start).Days + 1).Select(i => start.AddDays(i)).ToList();
             decimal run = 0;
-            var spent = days.Select(d => d <= asOf ? (double?)(double)(run += m.Daily.GetValueOrDefault(d)) : null).ToList();
+            var spent = days.Select(d => d <= asOf ? (double?)Math.Round((double)(run += m.Daily.GetValueOrDefault(d)) / scale, 1) : null).ToList();
             var rate = p.TooEarly || p.Projected is null || p.DaysLeft == 0 ? 0 : (double)((p.Projected.Value - p.Spent) / p.DaysLeft);
-            var proj = days.Select(d => d >= asOf ? (double?)((double)p.Spent + rate * (d - asOf).Days) : null).ToList();
+            var proj = days.Select(d => d >= asOf ? (double?)Math.Round(((double)p.Spent + rate * (d - asOf).Days) / scale, 1) : null).ToList();
             var series = new List<Series> { new("Spent", spent, 1), new("Projected", proj, 3) };
-            if (l.Amount is { } a) series.Add(new Series("Limit", days.Select(_ => (double?)(double)a).ToList(), 5));
-            body += Chart.Line(days.Select(d => d.ToString("d MMM", CultureInfo.InvariantCulture)).ToList(), series, Fmt.Count, $"{l.Name}: spent against the limit this period").Value;
+            if (l.Amount is { } a) series.Add(new Series("Limit", days.Select(_ => (double?)Math.Round((double)a / scale, 1)).ToList(), 5));
+            Panels.Add(new(l.Name + unit, Chart.Line(days.Select(d => d.ToString("d MMM", CultureInfo.InvariantCulture)).ToList(), series, Fmt.Count, $"{l.Name}: spent against the limit this period"),
+                "This period's spend day by day against the limit, and the projection at the last seven days' pace. " + notes, "full"));
         }
+        else
+            Panels.Add(new(l.Name, new HtmlString($"<p>{H(notes)}</p>"), "Where it is set, and why it is not drawn.", "full"));
         if (m.Months.Count > 0)
-            body += Chart.Columns(m.Months.TakeLast(12).Select(x => x.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture)).ToList(),
-                [new Series("Spent a month", m.Months.TakeLast(12).Select(x => (double?)(double)x.Spent).ToList(), 1)], Fmt.Count, $"{l.Name}: spent a month").Value +
-                (l.Amount is { } am && l.Period == SpendLimits.Monthly ? $"<p class=\"sub\">The limit is {H(Amount(am, l.Unit))} a month.</p>" : "");
-        if (m.Short is { } sp)
-            body += $"<p>Of the last 30 days, {Pct(sp.At80)} reached 80% of it and {Pct(sp.At100)} reached it.</p>";
-        if (m.NotMeasured is { } nm) body += $"<p class=\"muted\">{H(nm)}</p>";
-        Panels.Add(new(l.Name, new HtmlString(body), "This period's spend day by day against the limit, the projection at the last seven days' pace, and the last twelve months.", "full"));
+            Panels.Add(new($"{l.Name}: the last twelve months{unit}", Chart.Columns(m.Months.TakeLast(12).Select(x => x.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture)).ToList(),
+                    [new Series("Spent a month", m.Months.TakeLast(12).Select(x => (double?)Math.Round((double)x.Spent / scale, 1)).ToList(), 1)], Fmt.Count, $"{l.Name}: spent a month"),
+                "What was spent each month; the month the data reaches is part of a month." + (l.Amount is { } am && l.Period == SpendLimits.Monthly ? $" The limit is {Amount(am, l.Unit)} a month." : ""), "full"));
     }
 
     async Task AdminAsync(IReadOnlyList<SpendLimitData.Measured> measured)

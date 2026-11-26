@@ -61,8 +61,8 @@ Assert-That ((Resolve-MaxDropPercent -What 'GitHub Copilot seats' -Given 15 -Was
 $bad = $null
 try { $null = Resolve-MaxDropPercent -What 'Foundry deployments' -Given 15 -WasGiven $false -Settings @{ FoundryDeploymentMaxDropPercent = '150' } } catch { $bad = "$_" }
 Assert-That ($bad -like 'FoundryDeploymentMaxDropPercent in the settings file is ''150''*from 0 to 100*') "a setting that is not a percentage stops the load, saying so ($bad)"
-Assert-That (@($script:DropGuardSetting.Values) -join ',' -eq 'AgentWorkbookMaxDropPercent,UserDirectoryMaxDropPercent,LicenseMaxDropPercent,GitHubSeatMaxDropPercent,FoundryDeploymentMaxDropPercent,CostImportMaxDropPercent') `
-    'each of the five loaders, and the cost import (2.6.6), has a setting of its own'
+Assert-That (@($script:DropGuardSetting.Values) -join ',' -eq 'AgentWorkbookMaxDropPercent,UserDirectoryMaxDropPercent,LicenseMaxDropPercent,GitHubSeatMaxDropPercent,FoundryDeploymentMaxDropPercent,CostImportMaxDropPercent,GatewayLimitMaxDropPercent,SpendLimitMaxDropPercent') `
+    'each of the five loaders, the cost import (2.6.6), and the gateway and spending limits loaders, has a setting of its own'
 
 # ---- 2. The loaders -------------------------------------------------------------------------------
 Write-Host "`n2. The loaders that replace a whole table" -ForegroundColor Cyan

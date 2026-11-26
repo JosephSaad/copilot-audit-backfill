@@ -21,6 +21,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [How figures are calculated](#how-figures-are-calculated)
 - [Copilot reservations](#copilot-reservations)
 - [Copilot Credit chargeback and commitment](#copilot-credit-chargeback-and-commitment)
+- [Model tokens, spend limits and agent policies](#model-tokens-spend-limits-and-agent-policies)
 - [AI apps, Power BI and Power Apps](#ai-apps-power-bi-and-power-apps)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
 - [Acting on the license recommendations](#acting-on-the-license-recommendations)
@@ -316,11 +317,14 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 | Where an input is set | What |
 |---|---|
-| Admin › Access | The Copilot license price and currency, the pay-as-you-go cost of an interaction, unused after (days), the minimum group size |
+| Admin › Access | The Copilot license price and currency, the pay-as-you-go cost of an interaction, unused after (days), disabled accounts: reclaim after (days since last use, 90), the minimum group size |
 | Admin › Targets and assumptions | Minutes saved (default and by app), an hour's worth, the price list with volume prices, Dataverse capacity a seat brings, spare seats and bought for capacity, the suites, the Fabric discount, flow and Copilot in Power BI minutes, idle after, spare seats kept unassigned, the credit and token estimate |
 | Leadership › Copilot reservations | The reservation rate, the purchase gate |
 | Leadership › Credit chargeback | The credit routing register, the charge rate a credit (2.7.2) |
 | Forecasting › Credit commitment | The credit commitment: amount, term, what one credit draws (2.7.2) |
+| Leadership › Model tokens by business unit | The business unit routes of the gateway's values (3.5.0) |
+| Forecasting › Spend limits | Entered limits, each limit's business unit and warning, the alert's contacts, headroom and forecast (3.5.0) |
+| Governance › Agent policies | The agent rules, and each proposal's decision (3.5.0) |
 | Forecasting › Budget and renewal | The contracts' seats and price |
 
 ## Copilot reservations
@@ -418,6 +422,38 @@ HR-Agents,EnterpriseShared,,CC-900,2026-11-01,hr.finance@contoso.com,BP-Enterpri
 - **It is an estimate.** It uses the pay-as-you-go credits in the consumption report × what a credit draws. Prepaid packs draw nothing. Microsoft's applied figure is in Azure Cost Management.
 - **Alert.** The page warns, and an alert goes to `AlertLicensingTo` once a week while it lasts, when the commitment runs out (or is projected to) more than *Warn when this many days off* (`CreditCommitmentAlertDays`, 30) before its term ends; or, once a month of its term has passed, when it is projected to leave more than that many days' worth unused at the even plan. That includes a commitment nothing draws on. 0 turns it off.
 - **Costs and savings.** While a commitment is in force, Costs and savings no longer suggests buying capacity packs for the metered credits: they draw on what is already paid for.
+
+## Model tokens, spend limits and agent policies
+
+Three pages of 3.5.0, each fed by an optional loader (setup: docs/GATEWAY-LIMITS-AGENTS.md).
+
+**Leadership › Model tokens by business unit** counts the model tokens each business unit used through the AI
+gateway. Counts only, never money. A business unit is an L2 and L3 executive pair (`TokenUnitLevels`, `2,3`). A value
+the gateway stamps that is a person's sign-in is in that person's unit; any other value is routed by an administrator
+on the page: *Values in no business unit* lists each one with a Route form (the L2 executive's sign-in, and the L3's
+where the value is one L3's), and *Business unit routes* keeps the dated register (a new route ends the value's open
+one the day before; End and remove are on each row). Every change is in the audit log.
+
+**Forecasting › Spend limits** puts every spending limit beside its spend: Copilot spending policies, the gateway's
+token quotas and rates, GitHub budgets, and limits entered on the page. The dashboard never changes a limit. Each
+night the limits read are brought in (`dash.usp_SyncSpendLimits`): an administrator's settings on a limit are kept,
+and a limit gone from its source is marked so, never deleted. On the page an administrator:
+- enters a limit no loader reads (*Enter a limit*), such as an environment's Copilot Credit limit;
+- sets each limit's business unit (L2 and L3 executives) and the share to warn at, or hides it;
+- sets *The alert*: the contacts (`SpendLimitAlertTo`), whether each limit's L2 and L3 executives get it too
+  (`SpendLimitAlertToExecutives`, off until the roll-out), how many days early to warn (`SpendLimitAlertDays`, 5),
+  and the headroom (`SpendLimitHeadroomPercent`, 10) and forecast (`SpendLimitSuggestFrom`, P80) of next quarter's
+  suggestion.
+Each period's end is kept once in `dash.SpendLimitSnapshot`. *Next quarter's limits* is the list to take to the
+admin center, the gateway and GitHub at the quarter's review.
+
+**Governance › Agent policies** checks four rules over the Copilot Studio agents each night (also with *Check the
+rules now*): no owner with an enabled account, unused, costly for few people, shared and not certified. Each match is
+a proposal an administrator approves, rejects or withdraws; a rejected one is not proposed again for 30 days. A rule
+can approve its own Notify or Quarantine; a new owner is always a person's decision. Notify is emailed by the
+dashboard to the agent's owner (to `AlertAdminTo` when it has none). Quarantine, release and a new owner are carried
+out by `tools/Invoke-AgentActions.ps1` only when `AgentActionsEnabled` is 1 and its app is set up; until then the page
+says Off. Nothing deletes an agent.
 
 ## AI apps, Power BI and Power Apps
 

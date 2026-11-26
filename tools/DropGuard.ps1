@@ -37,6 +37,8 @@ $script:DropGuardSetting = [ordered]@{
     'GitHub Copilot seats' = 'GitHubSeatMaxDropPercent'
     'Foundry deployments' = 'FoundryDeploymentMaxDropPercent'
     'Cost import'         = 'CostImportMaxDropPercent'   # Tools\Import-CostCsv.ps1 -Replace
+    'Gateway limits'      = 'GatewayLimitMaxDropPercent'   # tools\Import-GatewayTokenUsage.ps1, the gateway's token limits
+    'Spend limits'        = 'SpendLimitMaxDropPercent'     # tools\Import-SpendLimits.ps1, each source's limits
 }
 
 function Get-DropRefusal {

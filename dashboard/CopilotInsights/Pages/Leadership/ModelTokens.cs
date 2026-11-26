@@ -65,10 +65,10 @@ public sealed class ModelTokensModel(PageServices s, GatewayTokens data) : Insig
         {
             var top = lines.Where(l => l.L2Upn is not null).GroupBy(l => l.L2Upn!).OrderByDescending(g => g.Sum(l => l.Total)).Take(6)
                 .Select(g => (Upn: g.Key, Name: g.First().L2Name ?? g.Key)).ToList();
-            var series = top.Select((t, i) => new Series(t.Name, months.Select(m => (double?)lines.Where(l => l.L2Upn == t.Upn && l.Month == m).Sum(l => l.Total)).ToList(), i + 1)).ToList();
-            var rest = months.Select(m => (double?)lines.Where(l => l.Month == m && (l.L2Upn is null || top.All(t => t.Upn != l.L2Upn))).Sum(l => l.Total)).ToList();
+            var series = top.Select((t, i) => new Series(t.Name, months.Select(m => (double?)Math.Round(lines.Where(l => l.L2Upn == t.Upn && l.Month == m).Sum(l => l.Total) / 1e6, 1)).ToList(), i + 1)).ToList();
+            var rest = months.Select(m => (double?)Math.Round(lines.Where(l => l.Month == m && (l.L2Upn is null || top.All(t => t.Upn != l.L2Upn))).Sum(l => l.Total) / 1e6, 1)).ToList();
             if (rest.Any(v => v > 0)) series.Add(new Series("Others and no unit", rest, top.Count + 1));
-            Panels.Add(new("Tokens by L2 unit, by month", Chart.Columns(months.Select(m => m.ToString("MMM yyyy", CultureInfo.InvariantCulture)).ToList(), series, Fmt.Count, "Model tokens by L2 executive's unit, by month"),
+            Panels.Add(new("Tokens by L2 unit, by month (millions)", Chart.Columns(months.Select(m => m.ToString("MMM yyyy", CultureInfo.InvariantCulture)).ToList(), series, Fmt.Count, "Model tokens by L2 executive's unit, by month, in millions"),
                 "The months of the period chosen; a month not over, or cut by the period, is part of a month.", "full"));
         }
 
