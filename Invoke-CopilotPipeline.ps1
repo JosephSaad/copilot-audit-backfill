@@ -590,7 +590,11 @@ function Resolve-PipelineDomain {
 function Get-DirectoryStep {
     <# The on-request directory load: the nightly plan's user directory step, alone. Pure, for the tests. #>
     param([System.Collections.IDictionary] $Setting)
-    , @(Get-PipelineStep -Setting $Setting | Where-Object { $_.Name -eq 'User directory from AD' })
+    # Get-PipelineStep returns its plan as one array (a leading comma): taken into a variable first, then piped, each
+    # step is looked at on its own. Piped straight on, the whole plan came through as one step whose script was every
+    # script's path at once (3.5.1: "The term 'D:\...\Export-UsersWithHierarchy-ToSql.ps1 D:\...' is not recognized").
+    $plan = Get-PipelineStep -Setting $Setting
+    , @($plan | Where-Object { $_.Name -is [string] -and $_.Name -eq 'User directory from AD' })
 }
 
 $script:DirectoryRequestSql = "IF OBJECT_ID(N'dash.Setting', N'U') IS NOT NULL EXEC (N'SELECT NULLIF(LTRIM(RTRIM(Value)), N'''') FROM dash.Setting WHERE Name = ''DirectoryLoadRequested'';');"

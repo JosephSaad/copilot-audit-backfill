@@ -129,6 +129,27 @@ public class AdGroupTests
     public void Workbench_settings_refuse_what_cannot_be_read(string key, string value)
         => Assert.Throws<DomainException>(() => WorkbenchSettings.Check(key, value));
 
+    private sealed class Who(bool admin, bool central, int roles) : Governance.Application.ICurrentPrincipal
+    {
+        public bool IsAuthenticated => true;
+        public int PersonId => 1;
+        public int? RealPersonId => null;
+        public string DisplayName => "x";
+        public bool IsCentral => central;
+        public IReadOnlyList<RoleGrant> Roles { get; } = Enumerable.Range(0, roles).Select(_ => new RoleGrant("LOB_SEAT_ADMIN", ScopeTypes.FundingOwner, 1)).ToList();
+        public IReadOnlySet<string> AppRoles { get; } = admin ? new HashSet<string> { Governance.Domain.AppRoles.Admin } : new HashSet<string>();
+        public IReadOnlySet<string> Permissions { get; } = new HashSet<string>();
+        public IReadOnlyDictionary<int, IReadOnlySet<string>> ScopedPermissions { get; } = new Dictionary<int, IReadOnlySet<string>>();
+    }
+
+    [Theory]
+    [InlineData(true, false, 0, true)]    // a Copilot Insights administrator
+    [InlineData(false, true, 0, true)]    // a central role
+    [InlineData(false, false, 1, true)]   // any Workbench role (a seat admin names other seat admins)
+    [InlineData(false, false, 0, false)]  // someone with no role does not search the directory
+    public void Who_may_add_people_from_the_directory(bool admin, bool central, int roles, bool may)
+        => Assert.Equal(may, RegistryCommands.MayAddPeople(new Who(admin, central, roles)));
+
     [Fact]
     public void The_settings_page_leaves_seats_intake_and_setup_to_their_own_pages()
     {

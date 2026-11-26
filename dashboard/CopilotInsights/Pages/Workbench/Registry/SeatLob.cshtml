@@ -231,7 +231,7 @@
             <idem />
             <div class="field"><label for="ap" class="req">Person <help>Start typing a name or sign-in name and choose from the list. You cannot name yourself.</help></label>
                 <input id="ap" name="person" list="people-list" autocomplete="off" required placeholder="Name or sign-in name" />
-                <datalist id="people-list">@foreach (var o in Model.People) { <option value="@o.Value">@o.Text</option> }</datalist>
+                <datalist id="people-list">@foreach (var o in Model.People) { <option value="@o.Value">@o.Text</option> }</datalist><partial name="_FindPerson" model='("ap", true)' />
             </div>
             <div><button class="btn" type="submit">Add seat admin</button></div>
         </form>

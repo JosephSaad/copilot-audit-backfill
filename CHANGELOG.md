@@ -4,6 +4,44 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.2] - 2026-11-26
+
+Anyone in the organization can be named in the Workbench. Every person picker (business owner, finance partner,
+Platform Owner and the other central roles, LOB roles, delegates, seat admins, product owners, sponsors, purchase
+authority) has *Not in the list? Find someone in the directory*: it searches the directory Copilot Insights loads from
+AD each night, and the person chosen is added to the Workbench and chosen. Before, the lists held only people who had
+opened the Workbench or whom the worker's directory sync had read.
+
+**Install over 3.5.1** (the change bundle runs from v3.5.1): build and deploy the dashboard
+(docs\BUILD-FROM-SOURCE.md), and replace `Invoke-CopilotPipeline.ps1` and `tools\Export-UsersWithHierarchy-ToSql.ps1` on
+the job server (the bundle carries both). Nothing changes in either database or in any project file; `Program.cs`
+does not change.
+
+### Added
+- **Find someone in the directory.** Under each person picker: type two letters or more of a name or a sign-in, choose
+  from the people found (name, sign-in, job title, department), and they are recorded in the Workbench and chosen.
+  Offered to Copilot Insights administrators, central roles and anyone holding a Workbench role; the person is read
+  again from the directory on the server, never taken from the page, and each one recorded is in the audit trail.
+
+### Fixed
+- **Load the directory now failed** (3.5.1) with "The term 'D:\...\Export-UsersWithHierarchy-ToSql.ps1 D:\...' is not
+  recognized": the on-request load took the whole nightly plan as one step, every script's path at once. It now
+  runs the directory step alone, then rebuilds the org chart. Replace `Invoke-CopilotPipeline.ps1` on the job server
+  (the bundle does) and press the button again.
+- **The directory load with one of the dashboard's directory settings empty** stopped with "The property
+  'DirectoryDomain' cannot be found" when the domain, the license group or the Chat group on Admin › Directory quality
+  was left empty while copilot-audit.settings.psd1 named it. An empty one is now skipped, as intended.
+- **The directory task with an ordinary service account.** docs\OPERATIONS.md registered *Copilot audit - directory on
+  request* for a gMSA only; it now says how for an account whose password Task Scheduler keeps (the 3.5.1 build guide
+  was corrected on the release the same day).
+- **The web servers' Workbench settings sample** names `WorkerCertificateSubject` under `Tenant`: without it *Read
+  seats now* cannot sign in to Microsoft Graph.
+
+### Known limits
+- A person is found by the sign-in Copilot Insights' directory load records (AD's userPrincipalName). Where that is not
+  the one they use for Microsoft 365, they are recorded under it until they first open the Workbench or the worker's
+  directory sync matches them by object ID.
+
 ## [3.5.1] - 2026-11-26
 
 The Workbench's Copilot seats without Microsoft Graph's group permission. Where `GroupMember.Read.All` is refused, the

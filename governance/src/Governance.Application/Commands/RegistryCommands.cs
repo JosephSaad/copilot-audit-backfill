@@ -178,6 +178,50 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
 
     // ---------------------------------------------------------------- roles and delegations
 
+    /// <summary>A person found in the directory Copilot Insights loads from AD, to be recorded in the Workbench.</summary>
+    public sealed record DirectoryPerson(Guid? ObjectId, string UserPrincipalName, string DisplayName, string? Mail, string? JobTitle, string? Department);
+
+    /// <summary>
+    /// Who may find people in the directory and record them: someone who names others to roles or registry entries (a
+    /// Copilot Insights administrator, a central role, or any Workbench role). Pure, for the tests.
+    /// </summary>
+    public static bool MayAddPeople(ICurrentPrincipal me) => me.IsAuthenticated && (me.AppRoles.Contains(AppRoles.Admin) || me.IsCentral || me.Roles.Count > 0);
+
+    /// <summary>
+    /// Records a person chosen from the directory, so they can be named before they ever sign in. Someone already
+    /// recorded (by object ID, else by sign-in) is returned as they are. Audited when added.
+    /// </summary>
+    public async Task<(int Id, string Name, bool Added)> AddPersonAsync(Guid idem, DirectoryPerson p)
+    {
+        var added = false;
+        var r = await run.RunAsync(idem, "person.add", async uow =>
+        {
+            if (!MayAddPeople(Me)) throw new DomainException("People are added from the directory by those who name others to roles.");
+            var upn = CommandRunner.Trim(p.UserPrincipalName, 256);
+            if (upn.Length == 0 || !upn.Contains('@')) throw new DomainException("Choose a person from the list.");
+            var existing = await uow.QuerySingleOrDefaultAsync<(int PersonId, string DisplayName)>(
+                "SELECT TOP (1) PersonId, DisplayName FROM sec.Person WHERE (@oid IS NOT NULL AND EntraObjectId = @oid) OR UserPrincipalName = @upn ORDER BY CASE WHEN EntraObjectId = @oid THEN 0 ELSE 1 END, PersonId",
+                new { oid = p.ObjectId, upn });
+            if (existing.PersonId != 0)
+            {
+                if (p.ObjectId is Guid g)
+                    await uow.ExecuteAsync("UPDATE sec.Person SET EntraObjectId = @g WHERE PersonId = @id AND EntraObjectId IS NULL AND NOT EXISTS (SELECT 1 FROM sec.Person WHERE EntraObjectId = @g)", new { g, id = existing.PersonId });
+                return $"{existing.PersonId}|{existing.DisplayName}";
+            }
+            var name = CommandRunner.Trim(p.DisplayName, 256);
+            var id = await uow.ScalarAsync<int>(
+                """
+                INSERT sec.Person (EntraObjectId, UserPrincipalName, DisplayName, Mail, JobTitle, Department, AccountEnabled)
+                OUTPUT inserted.PersonId VALUES (@oid, @upn, @name, @mail, @title, @dept, 1)
+                """, new { oid = p.ObjectId, upn, name, mail = CommandRunner.TrimN(p.Mail, 256) ?? upn, title = CommandRunner.TrimN(p.JobTitle, 200), dept = CommandRunner.TrimN(p.Department, 200) });
+            await run.AuditAsync(uow, "person.add", "Person", id, $"{upn} from the directory");
+            added = true;
+            return $"{id}|{name}";
+        });
+        var parts = (r ?? "0|").Split('|', 2);
+        return (int.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture), parts[1], added);
+    }
+
     /// <summary>Counts today's Platform Owner assignments (@today).</summary>
     public const string PlatformOwnerHeldSql =
         "SELECT COUNT(*) FROM sec.RoleAssignment WHERE RoleCode = 'PLATFORM_OWNER' AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)";
