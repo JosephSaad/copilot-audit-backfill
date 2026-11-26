@@ -23,8 +23,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Daily brief** (`/leadership/brief`), the executive's first page of the day: people using Copilot and interactions
   in the last 7 days against the 7 before, adoption, new agents, AI spend a month and its return, this month's AI bill
   against the monthly budgets, saved to date, licenses on disabled accounts, and what to act on this week (the three
-  biggest savings, then What to act on's largest lists), each figure opening the page behind it. It can be subscribed
-  to daily.
+  biggest savings, then What to act on's largest lists), each figure opening the page behind it; and *Since yesterday*:
+  the newest day against the same weekday a week before, the agents first used that day, the security signals that
+  day (Security role), and the AI bill's newest day against the 7 before. It can be subscribed to daily.
 - **AI spend across Azure** (`/leadership/ai-spend`): the whole AI bill by service, actual and amortized, the
   reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, what
   grew fastest (the last 7 days against the 7 before), and the 25 costliest AI resources. A budget forecast to go over

@@ -89,6 +89,7 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
             lines.Add($"<li><b>{n:#,0} {(n == 1 ? "person" : "people")}</b> {WebUtility.HtmlEncode(what)}"
                       + (Open("/forecasting/actions", $"kind={key}") is { } au ? $" <a href=\"{WebUtility.HtmlEncode(au)}\">Open the list</a>" : "") + "</li>");
         }
+        await SinceYesterdayAsync();
         Panels.Add(new("This week, act on", new HtmlString(lines.Count == 0 ? "<p class=\"muted\">Nothing waiting: no saving or action stands out this week.</p>" : "<ol class=\"tips\">" + string.Join("", lines) + "</ol>"),
             "The largest savings Costs and savings finds, then the people What to act on lists, largest first.", "full"));
 
@@ -98,6 +99,48 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
             if (Open(path) is { } u) links.Add($"<a class=\"chip\" href=\"{WebUtility.HtmlEncode(u)}\">{WebUtility.HtmlEncode(text)}</a>");
         if (links.Count > 0)
             Panels.Add(new("Go deeper", new HtmlString("<div class=\"chips\">" + string.Join("", links) + "</div>"), "The pages behind these figures you may open.", "full"));
+    }
+
+    /// <summary>
+    /// Since yesterday (3.4.0): the newest whole day against the same weekday a week before (people and interactions,
+    /// from the per-person days the refresh keeps), the agents first used that day, the security signals that day for
+    /// those who see them, and the AI bill's newest day against the seven before. Each a line; nothing when it is quiet.
+    /// </summary>
+    async Task SinceYesterdayAsync()
+    {
+        var day = Ctx.End;
+        var k = ReportContext.Key(day); var kWeek = ReportContext.Key(day.AddDays(-7));
+        var useTask = Db.QueryAsync<(int People, long N, int PeopleBefore, long NBefore, long Risky)>($@"
+SELECT COUNT(CASE WHEN ud.DateKey = @k AND ud.Interactions > 0 THEN 1 END), ISNULL(SUM(CASE WHEN ud.DateKey = @k THEN CAST(ud.Interactions AS BIGINT) END), 0),
+       COUNT(CASE WHEN ud.DateKey = @kw AND ud.Interactions > 0 THEN 1 END), ISNULL(SUM(CASE WHEN ud.DateKey = @kw THEN CAST(ud.Interactions AS BIGINT) END), 0),
+       ISNULL(SUM(CASE WHEN ud.DateKey = @k THEN ud.Jailbreak + ud.PromptInjection END), 0)
+FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey IN (@k, @kw);", Ctx.Args(new { k, kw = kWeek }));
+        var agentsTask = Db.QueryAsync<string>(@"SELECT TOP (5) AgentName FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @d AND FirstSeenUtc < @n ORDER BY AgentName;",
+            new { d = day, n = day.AddDays(1) });
+        await Task.WhenAll(useTask, agentsTask);
+        var u = (await useTask).Single();
+        var lines = new List<string>();
+        string Move(double now, double before) => before <= 0 ? "" : $" ({now / before - 1:+0%;-0%;0%} on {day.AddDays(-7):dddd d MMM})";
+        lines.Add($"<li><b>{Num(u.People)} people</b> used Copilot on {day:dddd d MMM}{Move(u.People, u.PeopleBefore)}, with {Num(u.N)} interactions{Move(u.N, u.NBefore)}.</li>");
+        var agents = await agentsTask;
+        if (agents.Count > 0)
+            lines.Add($"<li><b>{Count(agents.Count, "agent")} first used</b> that day: {WebUtility.HtmlEncode(string.Join(", ", agents))}." +
+                      (Open("/agents") is { } au ? $" <a href=\"{WebUtility.HtmlEncode(au)}\">Agents in use</a>" : "") + "</li>");
+        if (Viewer.Has(Roles.Security) && u.Risky > 0)
+            lines.Add($"<li><b>{Num(u.Risky)} jailbreak or prompt injection attempts</b> that day." +
+                      (Open("/security") is { } su ? $" <a href=\"{WebUtility.HtmlEncode(su)}\">Security</a>" : "") + "</li>");
+        if ((Viewer.OrgWide || Viewer.Has(Roles.Licensing)) && Open("/leadership/ai-spend") is { } spend && await TableHasRowsAsync("audit.AiCostDay"))
+        {
+            var bill = (await Db.QueryAsync<(DateTime? Last, decimal Cost, decimal Before, string? Currency)>(@"
+DECLARE @l DATE = (SELECT MAX([Day]) FROM audit.AiCostDay WHERE CostType = 'Actual');
+SELECT CAST(@l AS DATETIME2(0)), ISNULL(SUM(CASE WHEN [Day] = @l THEN Cost END), 0), ISNULL(SUM(CASE WHEN [Day] < @l THEN Cost END), 0) / 7, MAX(Currency)
+FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] BETWEEN DATEADD(DAY, -7, @l) AND @l;")).Single();
+            if (bill.Last is { } last && bill.Cost > 0)
+                lines.Add($"<li><b>{WebUtility.HtmlEncode(StartFigures.Money(bill.Cost, bill.Currency ?? "USD"))}</b> billed for AI services in Azure on {last:dddd d MMM}" +
+                          (bill.Before > 0 ? $" ({(double)(bill.Cost / bill.Before) - 1:+0%;-0%;0%} on the 7 days' average)" : "") + $". <a href=\"{WebUtility.HtmlEncode(spend)}\">AI spend across Azure</a></li>");
+        }
+        Panels.Add(new("Since yesterday", new HtmlString("<ul class=\"tips\">" + string.Join("", lines) + "</ul>"),
+            $"The newest whole day the reports hold, {day:d MMM}, against the same weekday a week before; Azure bills a day 8 to 24 hours after it.", "full"));
     }
 
     /// <summary>What each of What to act on's lists asks, as a line after its count.</summary>
