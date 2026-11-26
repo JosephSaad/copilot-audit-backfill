@@ -1,4 +1,4 @@
-# release 3.3.0
+# release 3.4.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -34,6 +34,36 @@ C	copilot	audit.AgentCatalog	U	4	AgentName	nvarchar(400)	1
 C	copilot	audit.AgentCatalog	U	5	NameSeenUtc	datetime2(0)	1	
 C	copilot	audit.AgentCatalog	U	6	FirstSeenUtc	datetime2(0)	1	
 C	copilot	audit.AgentCatalog	U	7	LastSeenUtc	datetime2(0)	1	
+C	copilot	audit.AiBudget	U	1	Scope	nvarchar(300)	0	
+C	copilot	audit.AiBudget	U	10	Currency	varchar(8)	1	
+C	copilot	audit.AiBudget	U	11	Filter	nvarchar(4000)	1	
+C	copilot	audit.AiBudget	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.AiBudget	U	2	Budget	nvarchar(150)	0	
+C	copilot	audit.AiBudget	U	3	Category	varchar(16)	1	
+C	copilot	audit.AiBudget	U	4	Amount	decimal(19,4)	1	
+C	copilot	audit.AiBudget	U	5	TimeGrain	varchar(20)	1	
+C	copilot	audit.AiBudget	U	6	StartDate	date	1	
+C	copilot	audit.AiBudget	U	7	EndDate	date	1	
+C	copilot	audit.AiBudget	U	8	CurrentSpend	decimal(19,4)	1	
+C	copilot	audit.AiBudget	U	9	ForecastSpend	decimal(19,4)	1	
+C	copilot	audit.AiCostDay	U	1	RowId	bigint	0	I
+C	copilot	audit.AiCostDay	U	10	Meter	nvarchar(200)	1	
+C	copilot	audit.AiCostDay	U	11	Cost	decimal(19,6)	0	
+C	copilot	audit.AiCostDay	U	12	Currency	varchar(8)	1	
+C	copilot	audit.AiCostDay	U	13	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.AiCostDay	U	2	Scope	nvarchar(300)	0	
+C	copilot	audit.AiCostDay	U	3	Day	date	0	
+C	copilot	audit.AiCostDay	U	4	CostType	varchar(10)	0	
+C	copilot	audit.AiCostDay	U	5	Service	nvarchar(60)	0	
+C	copilot	audit.AiCostDay	U	6	ResourceType	nvarchar(120)	1	
+C	copilot	audit.AiCostDay	U	7	SubscriptionId	varchar(36)	1	
+C	copilot	audit.AiCostDay	U	8	ResourceGroup	nvarchar(90)	1	
+C	copilot	audit.AiCostDay	U	9	ResourceName	nvarchar(260)	1	
+C	copilot	audit.AiCostForecastDay	U	1	Scope	nvarchar(300)	0	
+C	copilot	audit.AiCostForecastDay	U	2	Day	date	0	
+C	copilot	audit.AiCostForecastDay	U	3	Cost	decimal(19,6)	0	
+C	copilot	audit.AiCostForecastDay	U	4	Currency	varchar(8)	1	
+C	copilot	audit.AiCostForecastDay	U	5	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotAudit	U	1	RecordId	varchar(64)	0	
 C	copilot	audit.CopilotAudit	U	10	ObjectId	nvarchar(4000)	1	
 C	copilot	audit.CopilotAudit	U	11	ClientIp	varchar(128)	1	
@@ -2133,6 +2163,9 @@ G	copilot	CopilotInsightsApp	SELECT	SCHEMA::dash
 G	copilot	CopilotInsightsApp	SELECT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	SELECT	audit.AIAppUserDay
 G	copilot	CopilotInsightsApp	SELECT	audit.ActivityUserDay
+G	copilot	CopilotInsightsApp	SELECT	audit.AiBudget
+G	copilot	CopilotInsightsApp	SELECT	audit.AiCostDay
+G	copilot	CopilotInsightsApp	SELECT	audit.AiCostForecastDay
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotBackfillWindow
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotCsvImport
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLicense
@@ -2242,6 +2275,9 @@ O	copilot	audit.AIAppResource	U
 O	copilot	audit.AIAppUserDay	U
 O	copilot	audit.ActivityUserDay	U
 O	copilot	audit.AgentCatalog	U
+O	copilot	audit.AiBudget	U
+O	copilot	audit.AiCostDay	U
+O	copilot	audit.AiCostForecastDay	U
 O	copilot	audit.CopilotAudit	U
 O	copilot	audit.CopilotAuditStage	U
 O	copilot	audit.CopilotBackfillRange	U

@@ -4,7 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.4.0] - 2026-11-26
+
+Every day, for the people who run AI. Executives get a daily brief (the week against the one before, what AI costs and
+returns, this month's AI bill against its budgets, what changed since yesterday and what to act on, by email too) and
+the whole AI bill in Azure: every AI service, actual and amortized, at a subscription, billing account or EA scope,
+against the budgets and the month's forecast, with an alert when a budget is forecast to go over. Agent builders get My
+agents: who uses their agents, whether they come back, what they cost and which are falling. Each section has a color
+of its own.
+
+**Install over 3.3.0** (over 3.2.0 or 3.2.1, their steps as well; the change bundle runs from v3.2.0):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds three tables (`audit.AiCostDay`, `audit.AiBudget`,
+   `audit.AiCostForecastDay`) and their grants; nothing is removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added, and `Program.cs` and the project
+   file are unchanged.
+4. To read the whole AI bill where it is billed, give the Foundry load's app Cost Management Reader there (Billing
+   account reader for a billing account) and add `AiCostScopes` to `copilot-audit.settings.psd1`
+   (docs\FOUNDRY-USAGE.md); without it, the bill is read in each subscription of `FoundrySubscriptions`. Try it first:
+   `.\tools\Import-FoundryUsage.ps1 -CheckOnly`.
+5. Grant the Leadership section to the executives who should start their day with the brief, and tell agent builders
+   about My agents (the Agents section).
 
 ### Added
 
