@@ -4177,8 +4177,8 @@ try {
     Assert-That ($seen.Rows.Count -eq 2 -and "$($seen.Rows[1].Account)" -eq 'shadow-ai' -and -not [bool] $seen.Rows[1].Loaded -and [bool] $seen.Rows[0].Loaded -and "$($foRun.Detail)" -like '*2 AI account(s) seen, 1 in subscriptions not loaded*') `
         'every AI account the app can see, and the one in a subscription the load does not read'
     $ai = Invoke-SqlText -As Table -Sql "SELECT CostType, Service, ResourceName, SUM(Cost) AS Cost FROM audit.AiCostDay WHERE Scope = N'/subscriptions/$extSub' GROUP BY CostType, Service, ResourceName ORDER BY CostType, Service, ResourceName;"
-    $aiText = @($ai.Rows | ForEach-Object { "$($_.CostType)|$($_.Service)|$($_.ResourceName)|$([decimal] $_.Cost)" }) -join '; '
-    Assert-That ($aiText -eq 'Actual|Foundry and Azure OpenAI|foundry-east|2.50; Actual|Foundry and Azure OpenAI|speech-1|9.99; Amortized|Copilot Studio|billing-hr|30; Amortized|Foundry and Azure OpenAI|foundry-east|4') `
+    $aiText = @($ai.Rows | ForEach-Object { "$($_.CostType)|$($_.Service)|$($_.ResourceName)|$(([decimal] $_.Cost).ToString('0.##', [cultureinfo]::InvariantCulture))" }) -join '; '
+    Assert-That ($aiText -eq 'Actual|Foundry and Azure OpenAI|foundry-east|2.5; Actual|Foundry and Azure OpenAI|speech-1|9.99; Amortized|Copilot Studio|billing-hr|30; Amortized|Foundry and Azure OpenAI|foundry-east|4') `
         "3.4.0: the wider AI bill, actual and amortized, each line under its service, Copilot Studio by its meter ($aiText)"
     $bud = (Invoke-SqlText -As Table -Sql 'SELECT Budget, Amount, CurrentSpend, ForecastSpend, Currency FROM audit.AiBudget;').Rows
     $fcDays = "$(Invoke-SqlText -As Scalar -Sql "SELECT CONCAT(COUNT(*), '/', SUM(Cost)) FROM audit.AiCostForecastDay WHERE Scope = N'/subscriptions/$extSub';")"
