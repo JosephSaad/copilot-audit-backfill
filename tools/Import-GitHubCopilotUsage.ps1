@@ -17,6 +17,14 @@
       4. Cost (audit.GitHubCopilotCost): GitHub's billing usage for this month and the last, the lines whose
          product is Copilot: quantity, price and the net amount charged.
 
+    And, from 3.3.0: who each login is, for an enterprise, from its SCIM identities (audit.GitHubIdentity: the
+    person's sign-in in Entra, and the login GitHub gives a managed user, the sign-in before any @ with other
+    characters made hyphens, then _ and the enterprise's short code); and each organization's Copilot settings
+    (audit.GitHubCopilotPolicy: public code suggestions, chat in the editor and on github.com, the command line,
+    how seats are assigned). Each is read on its own; one GitHub refuses is named in the run's detail without
+    changing how the run ends, so a token with only the 2.6.2 scopes still ends Succeeded. The identities need
+    the scim:enterprise scope as well.
+
     A seat's cost is its plan's price a month (19 USD for Copilot Business, 39 USD for Copilot Enterprise at
     GitHub's list price, 2026): the seats table has the plan, and the cost table has what GitHub billed, the
     seats and the AI credits beyond the ones included.
@@ -63,6 +71,14 @@
 .PARAMETER AllowDrop
     Replace the seats even when the guard would refuse, once: after seats were really taken back.
 
+.PARAMETER Shortcode
+    The enterprise's short code, for working out a managed user's login (GitHubShortcode in the settings file).
+    Without it, the short code is read from the seats' logins (the part after the last _).
+
+.PARAMETER CheckOnly
+    Try each read once with the token, writing nothing (no database is needed): what it may read, and what is
+    missing. Exit code 0 when every part the load needs can be read, 1 when one cannot.
+
 .EXAMPLE
     .\tools\Import-GitHubCopilotUsage.ps1 -SaveToken
 .EXAMPLE
@@ -88,7 +104,9 @@ param(
     [string] $ApiBase = 'https://api.github.com',
     [string] $ApiVersion = '2026-03-10',
     [ValidateRange(0, 100)][double] $MaxDropPercent = 15,
-    [switch] $AllowDrop
+    [switch] $AllowDrop,
+    [string] $Shortcode,
+    [switch] $CheckOnly
 )
 
 Set-StrictMode -Version Latest
@@ -119,12 +137,12 @@ function Get-GitHubScope {
     if ($Enterprise) {
         $e = [uri]::EscapeDataString($Enterprise)
         return [pscustomobject]@{ Name = "enterprise:$Enterprise"; Metrics = "/enterprises/$e/copilot/metrics/reports"; Report = 'enterprise-1-day'
-                                  Seats = "/enterprises/$e/copilot/billing/seats"; Billing = "/enterprises/$e/settings/billing/usage" }
+                                  Seats = "/enterprises/$e/copilot/billing/seats"; Billing = "/enterprises/$e/settings/billing/usage"; Scim = "/scim/v2/enterprises/$e/Users"; Organization = $null }
     }
     if ($Organization) {
         $o = [uri]::EscapeDataString($Organization)
         return [pscustomobject]@{ Name = "org:$Organization"; Metrics = "/orgs/$o/copilot/metrics/reports"; Report = 'organization-1-day'
-                                  Seats = "/orgs/$o/copilot/billing/seats"; Billing = "/organizations/$o/settings/billing/usage" }
+                                  Seats = "/orgs/$o/copilot/billing/seats"; Billing = "/organizations/$o/settings/billing/usage"; Scim = $null; Organization = $Organization }
     }
     throw 'Give -Enterprise or -Organization, or set GitHubEnterprise or GitHubOrganization in the settings file.'
 }
@@ -238,8 +256,8 @@ function Invoke-GitHubApi {
         headers. 204 (nothing to give) and 404 come back as a status, not an error; anything else that is not
         a success throws with GitHub's own message. A rate limit is waited out once.
     #>
-    param([string] $Uri, [string] $BearerToken, [string] $Version)
-    $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $BearerToken"; 'X-GitHub-Api-Version' = $Version; 'User-Agent' = 'copilot-audit-backfill' }
+    param([string] $Uri, [string] $BearerToken, [string] $Version, [string] $Accept = 'application/vnd.github+json')
+    $headers = @{ Accept = $Accept; Authorization = "Bearer $BearerToken"; 'X-GitHub-Api-Version' = $Version; 'User-Agent' = 'copilot-audit-backfill' }
     for ($try = 1; ; $try++) {
         $r = Invoke-WebRequest -Uri $Uri -Headers $headers -SkipHttpErrorCheck -TimeoutSec 120
         $status = [int] $r.StatusCode
@@ -295,6 +313,127 @@ function Get-GitHubSeat {
     [pscustomobject]@{ Seats = $seats.ToArray(); Headers = $headers }
 }
 
+function Get-ManagedLogin {
+    <#
+        The login GitHub gives a managed user (Enterprise Managed Users): the identity provider's user name before
+        any @, each character other than a letter, a digit or a hyphen made a hyphen, then _ and the short code,
+        in lower case (joseph.saad@contoso.com with the short code contoso is joseph-saad_contoso). $null without a
+        user name or a short code. Pure, for the tests.
+    #>
+    param([string] $UserName, [string] $Shortcode)
+    if (-not $UserName -or -not $Shortcode) { return $null }
+    $local = ($UserName -split '@')[0]
+    $norm = ($local -replace '[^A-Za-z0-9-]', '-').Trim('-')
+    if (-not $norm) { return $null }
+    "${norm}_$($Shortcode.Trim())".ToLowerInvariant()
+}
+
+function Find-Shortcode {
+    <# The enterprise's short code, from managed users' logins: the part after the last _ that most of them share. Pure, for the tests. #>
+    param([string[]] $Logins)
+    $codes = @($Logins | Where-Object { $_ -match '_([A-Za-z0-9]+)$' } | ForEach-Object { ($_ -split '_')[-1].ToLowerInvariant() })
+    if ($codes.Count -eq 0) { return $null }
+    ($codes | Group-Object | Sort-Object Count -Descending | Select-Object -First 1).Name
+}
+
+function ConvertTo-GitHubIdentityRow {
+    <# A SCIM user of the enterprise, as a row of audit.GitHubIdentity. Pure, for the tests. #>
+    param($User, [string] $Scope, [string] $Shortcode)
+    $upn = [string] (Get-Field $User 'userName')
+    if (-not $upn) { return $null }
+    $name = Get-Field $User 'name'
+    $display = [string] ((Get-Field $User 'displayName'), (Get-Field $name 'formatted') | Where-Object { $_ } | Select-Object -First 1)
+    [pscustomobject]@{
+        Scope = $Scope; Upn = $upn; Login = Get-ManagedLogin $upn $Shortcode; ExternalId = [string] (Get-Field $User 'externalId')
+        DisplayName = $(if ($display) { $display }); Active = Get-Field $User 'active'; Source = 'SCIM'
+    }
+}
+
+function ConvertTo-GitHubPolicyRow {
+    <#
+        An organization's Copilot settings, as GitHub's billing endpoint reports them, as rows of
+        audit.GitHubCopilotPolicy: one per setting that is a word (public_code_suggestions, ide_chat, platform_chat,
+        cli, seat_management_setting, plan_type and any GitHub adds). Pure, for the tests.
+    #>
+    param($Billing, [string] $Scope, [string] $Organization)
+    $rows = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Billing) { return , @() }
+    foreach ($prop in $Billing.PSObject.Properties) {
+        if ($prop.Value -is [string] -and $prop.Name -ne 'seat_breakdown') {
+            $rows.Add([pscustomobject]@{ Scope = $Scope; Organization = $Organization; Policy = $prop.Name; State = $prop.Value })
+        }
+    }
+    , $rows.ToArray()
+}
+
+function Get-GitHubScimUser {
+    <# Every SCIM user of the enterprise, 100 at a time (SCIM's startIndex and count). #>
+    param([string] $Base, [string] $Path, [string] $BearerToken, [string] $Version)
+    $users = [System.Collections.Generic.List[object]]::new()
+    for ($start = 1; $start -le 1000000; $start += 100) {
+        $r = Invoke-GitHubApi -Uri ("{0}{1}?startIndex={2}&count=100" -f $Base, $Path, $start) -BearerToken $BearerToken -Version $Version -Accept 'application/scim+json'
+        if ($r.Status -eq 404) { throw 'GitHub has no SCIM identities for it: an enterprise of personal accounts has none, or the token lacks scim:enterprise.' }
+        $got = @(Get-Field $r.Body 'Resources' | Where-Object { $_ })
+        foreach ($u in $got) { $users.Add($u) }
+        $total = Get-Field $r.Body 'totalResults'
+        if ($got.Count -eq 0 -or ($null -ne $total -and $users.Count -ge [int] $total)) { break }
+    }
+    , $users.ToArray()
+}
+
+function Invoke-GitHubCheck {
+    <#
+        -CheckOnly: each read the load makes, tried once, nothing written. One line a part: OK, or what is missing.
+        Returns the lines; each has Ok, Needed (whether the load needs it) and Text.
+    #>
+    param($Scope, [string] $Base, [string] $BearerToken, [string] $Version)
+    $lines = [System.Collections.Generic.List[object]]::new()
+    function Line([bool] $ok, [bool] $needed, [string] $text) { $lines.Add([pscustomobject]@{ Ok = $ok; Needed = $needed; Text = $text }) }
+    $orgs = @()
+    try {
+        $r = Invoke-GitHubApi -Uri ("{0}{1}?per_page=100&page=1" -f $Base, $Scope.Seats) -BearerToken $BearerToken -Version $Version
+        if ($r.Status -eq 404) { Line $false $true "Seats: GitHub has none at $($Scope.Seats). Check the name, that Copilot is enabled, and that the token has manage_billing:copilot (or read:org) and read:enterprise." }
+        else {
+            $total = Get-Field $r.Body 'total_seats'
+            $orgs = @(@(Get-Field $r.Body 'seats') | ForEach-Object { Get-Field (Get-Field $_ 'organization') 'login' } | Where-Object { $_ } | Select-Object -Unique)
+            Line $true $true "Seats: readable ($total seat(s))."
+            if ($r.Headers -and $r.Headers.ContainsKey('github-authentication-token-expiration')) { Line $true $false ("The token expires {0:yyyy-MM-dd}." -f (ConvertTo-UtcTime "$(@($r.Headers['github-authentication-token-expiration'])[0])")) }
+        }
+    }
+    catch { Line $false $true "Seats: not readable. GitHub said: $($_.Exception.Message)" }
+    $day = [datetime]::UtcNow.Date.AddDays(-3)
+    try {
+        $m = Invoke-GitHubApi -Uri ("{0}{1}/{2}?day={3:yyyy-MM-dd}" -f $Base, $Scope.Metrics, $Scope.Report, $day) -BearerToken $BearerToken -Version $Version
+        Line $true $true $(if ($m.Status -in 204, 404) { "Usage metrics: readable, no report for $($day.ToString('yyyy-MM-dd')) yet (usage metrics may need to be turned on in the policies)." } else { 'Usage metrics: readable.' })
+    }
+    catch { Line $false $true "Usage metrics: not readable. GitHub said: $($_.Exception.Message)" }
+    try {
+        $today = [datetime]::UtcNow.Date
+        $b = Invoke-GitHubApi -Uri ("{0}{1}?year={2}&month={3}" -f $Base, $Scope.Billing, $today.Year, $today.Month) -BearerToken $BearerToken -Version $Version
+        if ($b.Status -eq 404) { Line $false $true 'Billing usage: none. The token needs an administrator of the enterprise or organization, on the enhanced billing platform.' } else { Line $true $true 'Billing usage: readable.' }
+    }
+    catch { Line $false $true "Billing usage: not readable. GitHub said: $($_.Exception.Message)" }
+    if ($Scope.Scim) {
+        try {
+            $sc = Invoke-GitHubApi -Uri ("{0}{1}?startIndex=1&count=1" -f $Base, $Scope.Scim) -BearerToken $BearerToken -Version $Version -Accept 'application/scim+json'
+            if ($sc.Status -eq 404) { Line $false $false 'Who each login is (SCIM): none (an enterprise of personal accounts, or the token lacks scim:enterprise). Optional: an administrator''s list does instead.' }
+            else { Line $true $false "Who each login is (SCIM): readable ($(Get-Field $sc.Body 'totalResults') identities)." }
+        }
+        catch { Line $false $false "Who each login is (SCIM): not readable (optional; needs scim:enterprise). GitHub said: $($_.Exception.Message)" }
+    }
+    if ($Scope.Organization) { $orgs = @($Scope.Organization) }
+    if ($orgs.Count -gt 0) {
+        $org = $orgs[0]
+        try {
+            $pb = Invoke-GitHubApi -Uri ("{0}/orgs/{1}/copilot/billing" -f $Base, [uri]::EscapeDataString($org)) -BearerToken $BearerToken -Version $Version
+            if ($pb.Status -eq 404) { Line $false $false "Copilot settings of ${org}: none (optional)." } else { Line $true $false "Copilot settings of ${org}: readable." }
+        }
+        catch { Line $false $false "Copilot settings of ${org}: not readable (optional; needs manage_billing:copilot or read:org). GitHub said: $($_.Exception.Message)" }
+    }
+    else { Line $false $false 'Copilot settings: no organization to read them for until seats are assigned.' }
+    , $lines.ToArray()
+}
+
 function Invoke-Main {
     # What the command line does not give comes from the settings file.
     $setting = @{}
@@ -318,13 +457,24 @@ function Invoke-Main {
         if (-not $SqlServer) { $script:SqlServer = Setting 'SqlServer' }
         if (-not $PSBoundParameters.ContainsKey('Database') -and (Setting 'Database')) { $script:Database = Setting 'Database' }
         if (Setting 'TrustServerCertificate') { $script:TrustServerCertificate = $true }
-        if (-not $SqlServer) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
     }
+    if (-not $Shortcode -and (Setting 'GitHubShortcode')) { $script:Shortcode = [string] (Setting 'GitHubShortcode') }
 
     $bearer = if ($Token) { [System.Net.NetworkCredential]::new('', $Token).Password }
               elseif ($env:GITHUB_COPILOT_TOKEN) { $env:GITHUB_COPILOT_TOKEN }
               elseif (Test-Path -LiteralPath $TokenPath) { Unprotect-GitHubToken ([System.IO.File]::ReadAllBytes($TokenPath)) }
               else { throw "No GitHub token: run this once with -SaveToken (it writes $TokenPath), or set GITHUB_COPILOT_TOKEN." }
+
+    if ($CheckOnly) {
+        Write-Line "Checking $($scope.Name) with the token; nothing is written."
+        $lines = Invoke-GitHubCheck -Scope $scope -Base $ApiBase -BearerToken $bearer -Version $ApiVersion
+        foreach ($l in $lines) { Write-Line ("{0,-7} {1}" -f $(if ($l.Ok) { 'OK' } elseif ($l.Needed) { 'MISSING' } else { 'NOTE' }), $l.Text) }
+        $missing = @($lines | Where-Object { -not $_.Ok -and $_.Needed }).Count
+        Write-Line $(if ($missing) { "$missing part(s) the load needs cannot be read: see above." } else { 'Every part the load needs can be read.' })
+        if ($missing) { exit 1 }
+        return
+    }
+    if (-not $ConnectionString -and -not $SqlServer) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
 
     $conn = New-UsageConnection -SqlServer $SqlServer -Database $Database -TrustServerCertificate:$TrustServerCertificate -ConnectionString $ConnectionString
     try {
@@ -332,12 +482,15 @@ function Invoke-Main {
         $days = Get-UsageDay -Days $Days
         $runId = Start-UsageRun $conn -Source GitHub -Scope $scope.Name -FromDay $days[0] -ToDay $days[-1]
         $written = 0; $done = [System.Collections.Generic.List[string]]::new(); $skipped = [System.Collections.Generic.List[string]]::new(); $expires = $null
+        $notes = [System.Collections.Generic.List[string]]::new()   # the 3.3.0 parts not read: named, the run's end unchanged
+        $seatRows = @()
         try {
             # 1. Seats, whole.
             try {
                 $s = Get-GitHubSeat -Base $ApiBase -Path $scope.Seats -BearerToken $bearer -Version $ApiVersion
                 if ($s.Headers -and $s.Headers.ContainsKey('github-authentication-token-expiration')) { $expires = ConvertTo-UtcTime "$(@($s.Headers['github-authentication-token-expiration'])[0])" }
                 $rows = @($s.Seats | ForEach-Object { ConvertTo-GitHubSeatRow $_ $scope.Name } | Where-Object { $_.Login } | Sort-Object Login -Unique)
+                $seatRows = $rows
                 $n = Write-UsageTable $conn 'audit.GitHubCopilotSeat' (ConvertTo-UsageTable $rows ([ordered]@{
                         Scope = [string]; Login = [string]; UserId = [long]; Organization = [string]; AssigningTeam = [string]; PlanType = [string]; CreatedUtc = [datetime]
                         LastActivityUtc = [datetime]; LastActivityEditor = [string]; LastAuthenticatedUtc = [datetime]; PendingCancellationDate = [datetime] })) `
@@ -391,8 +544,42 @@ function Invoke-Main {
             }
             catch { $skipped.Add("cost ($($_.Exception.Message))"); Write-Warning "Cost was not loaded: $($_.Exception.Message)" }
 
+            # 5. Who each login is: the enterprise's SCIM identities (3.3.0).
+            if ($scope.Scim) {
+                try {
+                    $code = if ($Shortcode) { $Shortcode } else { Find-Shortcode @($seatRows | ForEach-Object Login) }
+                    # Assigned first: the list comes back as one array, which a pipeline would hand on whole.
+                    $scimUsers = Get-GitHubScimUser -Base $ApiBase -Path $scope.Scim -BearerToken $bearer -Version $ApiVersion
+                    $ids = @($scimUsers | ForEach-Object { ConvertTo-GitHubIdentityRow $_ $scope.Name $code } | Where-Object { $_ } |
+                             Group-Object { $_.Upn.ToLowerInvariant() } | ForEach-Object { $_.Group[0] })
+                    $n = Write-UsageTable $conn 'audit.GitHubIdentity' (ConvertTo-UsageTable $ids ([ordered]@{
+                            Scope = [string]; Upn = [string]; Login = [string]; ExternalId = [string]; DisplayName = [string]; Active = [bool]; Source = [string] })) `
+                        -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name }
+                    $done.Add("$n identit$(if ($n -eq 1) { 'y' } else { 'ies' })$(if (-not $code) { ' (no short code yet: logins left empty)' })"); Write-Line "Identities: $n."
+                }
+                catch { $notes.Add("who each login is ($($_.Exception.Message))"); Write-Verbose "Identities not read: $($_.Exception.Message)" }
+            }
+
+            # 6. Each organization's Copilot settings (3.3.0): the organizations the seats were assigned through.
+            try {
+                $orgs = @(if ($scope.Organization) { $scope.Organization } else { $seatRows | ForEach-Object Organization | Where-Object { $_ } | Select-Object -Unique })
+                $policyRows = [System.Collections.Generic.List[object]]::new()
+                foreach ($org in $orgs) {
+                    $pb = Invoke-GitHubApi -Uri ("{0}/orgs/{1}/copilot/billing" -f $ApiBase, [uri]::EscapeDataString($org)) -BearerToken $bearer -Version $ApiVersion
+                    if ($pb.Status -eq 404) { $notes.Add("Copilot settings of $org (none)"); continue }
+                    foreach ($row in (ConvertTo-GitHubPolicyRow $pb.Body $scope.Name $org)) { $policyRows.Add($row) }
+                }
+                if ($orgs.Count -gt 0) {
+                    $n = Write-UsageTable $conn 'audit.GitHubCopilotPolicy' (ConvertTo-UsageTable $policyRows.ToArray() ([ordered]@{ Scope = [string]; Organization = [string]; Policy = [string]; State = [string] })) `
+                        -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name }
+                    $done.Add("$n Copilot setting(s) of $($orgs.Count) organization(s)")
+                }
+            }
+            catch { $notes.Add("Copilot settings ($($_.Exception.Message))"); Write-Verbose "Copilot settings not read: $($_.Exception.Message)" }
+
             $status = if ($skipped.Count -eq 0) { 'Succeeded' } elseif ($done.Count -gt 0) { 'Partial' } else { 'Failed' }
-            $detail = (@($(if ($done.Count) { 'Loaded ' + ($done -join ', ') + '.' }), $(if ($skipped.Count) { 'Not loaded: ' + ($skipped -join '; ') + '.' })) | Where-Object { $_ }) -join ' '
+            $detail = (@($(if ($done.Count) { 'Loaded ' + ($done -join ', ') + '.' }), $(if ($skipped.Count) { 'Not loaded: ' + ($skipped -join '; ') + '.' }),
+                         $(if ($notes.Count) { 'Not read (optional): ' + ($notes -join '; ') + '.' })) | Where-Object { $_ }) -join ' '
             Complete-UsageRun $conn -RunId $runId -Status $status -Rows $written -Detail $detail -ExpiresUtc $expires
             Write-Line "$status. $detail"
             if ($expires) { Write-Line ("The token expires {0:yyyy-MM-dd}." -f $expires) }

@@ -31,7 +31,10 @@ public static class Roles
     /// </summary>
     public const string Preview = "Preview", Stories = "Stories";
 
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Sections, Preview, Stories];
+    /// <summary>The AI platforms section's lists that name people: who holds each GitHub Copilot seat.</summary>
+    public const string Platforms = "Platforms";
+
+    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, GovernanceOperator, GovernanceAuditor, Sections, Preview, Stories, Platforms];
 
     public static bool IsWorkbench(string role) => Workbench.Contains(role, StringComparer.OrdinalIgnoreCase);
 
@@ -56,6 +59,7 @@ public static class Roles
         [Sections] = "The menu sections ticked on the grant, for the holder's own part of the organization or the whole of it, with or without the lists that name people.",
         [Preview] = "Every beta report (Admin › Reports shown sets which are beta), in the sections the holder sees already, as those sections show them. Shows nothing else.",
         [Stories] = "Curates the success stories: sees every story entered, edits, approves or declines them, and ticks the ones the weekly report quotes. Shows no usage data.",
+        [Platforms] = "The AI platforms section, and in it the named holders of GitHub Copilot seats, idle seats and seats held by people who have left.",
     };
 }
 

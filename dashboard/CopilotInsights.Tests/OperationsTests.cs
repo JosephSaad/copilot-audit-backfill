@@ -387,7 +387,9 @@ public class PrivacyNavigationTests
            report that Licensing, Security and Compliance each carry. */
         Assert.DoesNotContain(pages, p => sections.Contains(p.Title));
         var twice = pages.GroupBy(p => p.Title).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
-        Assert.Equal(["Copilot on non-human accounts"], twice);
+        /* And AI apps beyond Copilot and a resource's detail, listed in Governance and in AI platforms (3.3.0), so a platform
+           team's one grant opens them. */
+        Assert.Equal(["Copilot on non-human accounts", "AI apps beyond Copilot", "AI resource detail"], twice);
         /* The name in the list is the title on the page: every name is some page's own title. */
         var titles = typeof(Pages.InsightsPage).Assembly.GetTypes().Where(t => !t.IsAbstract && typeof(Pages.InsightsPage).IsAssignableFrom(t))
             .Select(t => ((Pages.InsightsPage) System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t)).Title).ToHashSet();

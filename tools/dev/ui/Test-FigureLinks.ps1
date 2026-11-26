@@ -34,7 +34,7 @@ $Days = @($Days | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEa
 # Page|label start -> target: a related page, by design (2.7.3 review).
 $RelatedLinks = @(
     '/leadership/credit-chargeback|Copilot Credits',            # a month's credits -> who used credits, the last 30 days
-    '/licensing/license-for-credits|Credits a month',           # money -> credits per person
+    '/licensing/license-for-credits|Cost of their credits',     # their credits' cost -> how credits are worked out (Credit use)
     '/licensing/credit-use|Billed by the admin center',         # credits -> what they cost
     '/forecasting/credit-commitment|Drawn so far',              # money since the start -> each month's credits
     '/forecasting/budget|Seats to renew'                        # right size less a suite's -> the right size

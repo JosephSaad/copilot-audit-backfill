@@ -55,7 +55,7 @@ az role assignment create --assignee <client id> --role "Monitoring Reader" --sc
 az role assignment create --assignee <client id> --role "Cost Management Reader" --scope /subscriptions/<subscription id>
 ```
 
-If listing the accounts is later refused, add **Reader** the same way; Monitoring Reader should be enough.
+If listing the accounts is later refused, add **Reader** the same way; Monitoring Reader should be enough. From 3.3.0, Reader also lets the load read each account's content filters, and Reader on the organization's other subscriptions lets it list the AI accounts outside `FoundrySubscriptions` (optional: without it, those are simply not listed).
 
 **2. Send us** the subscription ids, and confirm which tenant they are in.
 
@@ -124,6 +124,10 @@ From the next night, the run has a last step, *Foundry usage and cost*, which lo
 | `audit.FoundryDeployment` | Model deployment: subscription, resource group, account, deployment, kind, region, model, version, SKU, capacity | Replaced whole for each subscription each run: it is the deployments as they are now |
 | `audit.FoundryUsageDay` | Deployment, model and UTC day: requests, input, output and total tokens | The days loaded are written again; older days stay, beyond Azure Monitor's 93 |
 | `audit.FoundryCostDay` | Account, meter and UTC day: cost before tax, and its currency | The same |
+| `audit.FoundryAccount` (3.3.0) | Account: public network access, the default for other networks, private endpoints, whether keys are refused, its managed identity, its logging (diagnostic settings and their categories), and its tags, owner, cost center and app read from them | Replaced whole for each subscription each run |
+| `audit.FoundryContentFilter` (3.3.0) | Account and content filter: its base, its mode, whether any filter is looser than Microsoft's default; each deployment's filter is on `audit.FoundryDeployment` (`RaiPolicy`) | The same |
+| `audit.FoundryModelCatalog` (3.3.0) | Region, deployed model and version: its lifecycle and the day it retires, and a SKU that retires sooner | Replaced for each region each run |
+| `audit.FoundryAccountSeen` (3.3.0) | Every Azure OpenAI and Foundry account the app can see, in any subscription, and whether its subscription is loaded | Replaced whole each run |
 | `audit.ExternalUsageRun` | Run: when, the days covered, status, rows, what was loaded or why not | Every run kept |
 
 [SCHEMA.md](SCHEMA.md#ai-usage-outside-microsoft-365-copilot-262) has every column.
@@ -131,13 +135,24 @@ From the next night, the run has a last step, *Foundry usage and cost*, which lo
 **What it does not give.**
 
 - **Who made a request.** Azure Monitor's metrics have no user, key or calling application. Use is by account, deployment and model. Use per person needs the calls to go through Azure API Management, or the accounts' diagnostic logs; neither is read here.
-- **Cost per deployment.** Cost Management reports by resource and meter (*gpt-4o Input Tokens*, say). Two deployments of one model in one account share a meter.
+- **Cost per deployment.** Cost Management reports by resource and meter (*gpt-4o Input Tokens*, say). Two deployments of one model in one account share a meter. A provisioned (PTU) deployment's daily use of its capacity is on `audit.FoundryUsageDay` from 3.3.0 (`PtuUtilizationAvg`, `PtuUtilizationMax`).
+- **Cost per app.** Cost is by account. Give each app an account of its own, or tag the accounts (`app`, `owner`, `cost-center`), and the pages can group cost by tag; apps sharing one account share its cost.
 - **Other Azure AI services.** Only accounts of kind *OpenAI* and *AIServices* are read; Speech, Vision and the rest are left out, of use and of cost.
 - **Accounts that report neither set of metrics.** The loader reads the current model metrics (`ModelRequests`, `InputTokens`, `OutputTokens`, `TotalTokens`) and, for an account with none, the older Azure OpenAI ones. A deployment type that reports under other names loads its cost and no usage.
 
 Days are UTC days, not the reporting time zone's.
 
 ## 5. Checking it
+
+**Before the first load**, try each read without writing anything:
+
+```powershell
+.\tools\Import-FoundryUsage.ps1 -CheckOnly
+```
+
+One line a part: OK, MISSING (the load needs it, and the role to give on which subscription) or NOTE (optional, such as logging, content filters, or AI accounts in subscriptions not listed). The exit code is 0 when everything the load needs can be read. No database is needed.
+
+**The 3.3.0 parts** (posture, logging, content filters, retirement, provisioned use, accounts seen) are read on their own: one Azure refuses is named in the run's detail (*Not read (optional)*), and the run still ends Succeeded.
 
 **Admin › Health**, panel *Other AI usage: GitHub Copilot and Foundry*: when it last loaded, the days and rows, and the newest day held. It turns amber for a partial load or no load for two days; red when the last run failed, with Azure's own message.
 
@@ -204,3 +219,4 @@ A run that ends **Partial** loaded what it could: its detail names the subscript
 | `-ConnectionString` | None | In place of the three above |
 | `-ArmEndpoint`, `-LoginEndpoint` | `https://management.azure.com`, `https://login.microsoftonline.com` | For a sovereign cloud |
 | `-SettingsPath` | `copilot-audit.settings.psd1` in the scripts' folder | Another settings file |
+| `-CheckOnly` | | Tries each read once and writes nothing; exit code 0 when everything the load needs can be read (3.3.0) |

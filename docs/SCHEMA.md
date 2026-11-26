@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-137 tables (plus 2 left over from 1.x), 39 views, 1678 columns, from 22 scripts.
+144 tables (plus 2 left over from 1.x), 39 views, 1740 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -18,7 +18,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.CopilotLicenseHolder`](#auditcopilotlicenseholder), [`audit.CopilotLicenseRemoval`](#auditcopilotlicenseremoval), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.ReportGroupMember`](#auditreportgroupmember), [`audit.ReportGroupDay`](#auditreportgroupday), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
-- [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
+- [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.GitHubIdentity`](#auditgithubidentity), [`audit.GitHubCopilotPolicy`](#auditgithubcopilotpolicy), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.FoundryAccount`](#auditfoundryaccount), [`audit.FoundryContentFilter`](#auditfoundrycontentfilter), [`audit.FoundryModelCatalog`](#auditfoundrymodelcatalog), [`audit.FoundryAccountSeen`](#auditfoundryaccountseen), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
 - [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity), [`audit.ActivityUserDay`](#auditactivityuserday), [`audit.DlpDay`](#auditdlpday), [`audit.DlpMatch`](#auditdlpmatch)
 - [The weekly report (3.1.2)](#the-weekly-report-312): [`audit.WeeklyReportSend`](#auditweeklyreportsend)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
@@ -26,7 +26,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.UserWeek`](#dashuserweek), [`dash.UserPeriod`](#dashuserperiod), [`dash.AdoptionDay`](#dashadoptionday), [`dash.UserActivity`](#dashuseractivity), [`dash.UserItemDay`](#dashuseritemday), [`dash.UserItemWeek`](#dashuseritemweek), [`dash.UserItemPeriod`](#dashuseritemperiod), [`dash.SitePerson`](#dashsiteperson), [`dash.HeldDay`](#dashheldday), [`dash.CreditUseDay`](#dashcredituseday), [`dash.CreditUsePeriod`](#dashcredituseperiod), [`dash.ReadMix`](#dashreadmix), [`dash.ReadMixPeriod`](#dashreadmixperiod), [`dash.ResourceItem`](#dashresourceitem), [`dash.ResourcePeriod`](#dashresourceperiod), [`dash.SiteReader`](#dashsitereader), [`dash.SessionSpan`](#dashsessionspan), [`dash.SuccessStory`](#dashsuccessstory), [`dash.SuccessStorySend`](#dashsuccessstorysend), [`dash.ReportSubscription`](#dashreportsubscription), [`dash.ReportSubscriptionSend`](#dashreportsubscriptionsend), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
-- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract), [`dash.SavingLedger`](#dashsavingledger)
+- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract), [`dash.SavingLedger`](#dashsavingledger), [`dash.GitHubIdentityMap`](#dashgithubidentitymap)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -1410,6 +1410,45 @@ Indexes and constraints:
 - `PK_GitHubCopilotCost`: primary key, clustered (CostId)
 - `IX_GitHubCopilotCost_Date`: nonclustered (Scope, UsageDate)
 
+### audit.GitHubIdentity
+
+*Table.* Who each GitHub login is (3.3.0): an enterprise's SCIM identities (Enterprise Managed Users), userName being the person's sign-in in Entra, and the login GitHub gives it, by its rule for managed users (the userName before any @, other characters made hyphens, then _ and the enterprise's short code). Replaced whole for a scope by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Upn` | nvarchar(256) | **no** | **PK** | the SCIM userName: the sign-in in Entra |
+| 3 | `Login` | nvarchar(100) | yes |  | the GitHub login it gives, where the short code is known |
+| 4 | `ExternalId` | nvarchar(256) | yes |  | the identity provider's id of the person |
+| 5 | `DisplayName` | nvarchar(256) | yes |  |  |
+| 6 | `Active` | bit | yes |  | 0: deprovisioned, the account suspended |
+| 7 | `Source` | varchar(16) | **no** |  | SCIM |
+| 8 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubIdentity`: primary key, clustered (Scope, Upn)
+
+### audit.GitHubCopilotPolicy
+
+*Table.* Each organization's Copilot settings as GitHub reports them (3.3.0): one row per organization and setting (public_code_suggestions, ide_chat, platform_chat, cli, seat_management_setting, plan_type). Replaced whole for a scope by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Organization` | nvarchar(100) | **no** | **PK** |  |
+| 3 | `Policy` | nvarchar(100) | **no** | **PK** |  |
+| 4 | `State` | nvarchar(100) | yes |  | enabled, disabled, allow, block, unconfigured ... |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotPolicy`: primary key, clustered (Scope, Organization, Policy)
+
 ### audit.FoundryDeployment
 
 *Table.* One row per model deployment of every Azure OpenAI (kind OpenAI) and Microsoft Foundry (kind AIServices) account in the subscriptions loaded, as it stands: model, version, publisher, SKU and capacity. tools/Import-FoundryUsage.ps1 replaces a subscription's deployments whole on each run.
@@ -1430,6 +1469,7 @@ Indexes and constraints:
 | 10 | `SkuName` | nvarchar(50) | yes |  | Standard, GlobalStandard, ProvisionedManaged ... |
 | 11 | `Capacity` | int | yes |  |  |
 | 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 13 | `RaiPolicy` | nvarchar(200) | yes |  | the content filter it uses (3.3.0) |
 
 Indexes and constraints:
 
@@ -1455,6 +1495,8 @@ Indexes and constraints:
 | 10 | `OutputTokens` | bigint | yes |  |  |
 | 11 | `TotalTokens` | bigint | yes |  |  |
 | 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 13 | `PtuUtilizationAvg` | decimal(9,4) | yes |  | a provisioned deployment's daily average use of its capacity, in percent (3.3.0) |
+| 14 | `PtuUtilizationMax` | decimal(9,4) | yes |  | and its highest (3.3.0) |
 
 Indexes and constraints:
 
@@ -1480,6 +1522,99 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_FoundryCostDay`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Meter, Day)
+
+### audit.FoundryAccount
+
+*Table.* Every account read, as it stands (3.3.0): how it is reached and signed in to, its logging, and its tags (owner, cost center and app read from them, whatever their case). Replaced whole for a subscription by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Kind` | nvarchar(50) | yes |  | OpenAI \| AIServices |
+| 5 | `Location` | nvarchar(50) | yes |  |  |
+| 6 | `SkuName` | nvarchar(50) | yes |  |  |
+| 7 | `PublicNetworkAccess` | varchar(16) | yes |  | Enabled \| Disabled |
+| 8 | `NetworkDefaultAction` | varchar(16) | yes |  | Allow \| Deny: what a network not listed may do |
+| 9 | `PrivateEndpoints` | int | yes |  |  |
+| 10 | `DisableLocalAuth` | bit | yes |  | 1: keys refused, Entra sign-in only |
+| 11 | `IdentityType` | varchar(40) | yes |  | the account's own managed identity, if any |
+| 12 | `Owner` | nvarchar(256) | yes |  | from an owner tag |
+| 13 | `CostCenter` | nvarchar(256) | yes |  | from a cost-center tag |
+| 14 | `App` | nvarchar(256) | yes |  | from an app or application tag |
+| 15 | `Tags` | nvarchar(4000) | yes |  | every tag, as JSON |
+| 16 | `DiagnosticSettings` | int | yes |  | how many send its logs somewhere; NULL: could not be read |
+| 17 | `LogCategories` | nvarchar(1000) | yes |  | the log categories or groups they send |
+| 18 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryAccount`: primary key, clustered (SubscriptionId, ResourceGroup, Account)
+
+### audit.FoundryContentFilter
+
+*Table.* Each account's content filters (RAI policies) (3.3.0): the base it starts from, its mode, and whether any filter is set looser than Microsoft's default (off, not blocking, or blocking only high severity). Detail keeps every filter as JSON. Replaced whole for a subscription by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Policy` | nvarchar(200) | **no** | **PK** |  |
+| 5 | `BasePolicy` | nvarchar(200) | yes |  |  |
+| 6 | `Mode` | nvarchar(50) | yes |  | Default \| Asynchronous_filter \| Blocking ... |
+| 7 | `Relaxed` | bit | **no** |  |  |
+| 8 | `Detail` | nvarchar(max) | yes |  |  |
+| 9 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryContentFilter`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Policy)
+
+### audit.FoundryModelCatalog
+
+*Table.* The lifecycle of each model a deployment uses, where it is deployed (3.3.0): from Azure's model list of the location. SkuName '' is the model's own retirement; a row per SKU where that SKU retires on a date of its own. Replaced for a location by each load that reads it.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Location` | nvarchar(50) | **no** | **PK** |  |
+| 2 | `ModelName` | nvarchar(100) | **no** | **PK** |  |
+| 3 | `ModelVersion` | nvarchar(32) | **no** | **PK** |  |
+| 4 | `SkuName` | nvarchar(50) | **no** | **PK** | '' for the model as a whole |
+| 5 | `LifecycleStatus` | nvarchar(50) | yes |  | GenerallyAvailable \| Preview \| Deprecating \| Deprecated ... |
+| 6 | `RetiresDate` | date | yes |  | inference stops on this day |
+| 7 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryModelCatalog`: primary key, clustered (Location, ModelName, ModelVersion, SkuName)
+
+### audit.FoundryAccountSeen
+
+*Table.* Every Azure OpenAI and Foundry account the app can see, in any subscription (3.3.0), from Azure Resource Graph: Loaded says whether its subscription is one the load reads (FoundrySubscriptions). An account with Loaded 0 has usage and cost the dashboard does not count. Replaced whole by each load that reads it.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Kind` | nvarchar(50) | yes |  |  |
+| 5 | `Location` | nvarchar(50) | yes |  |  |
+| 6 | `Loaded` | bit | **no** |  |  |
+| 7 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryAccountSeen`: primary key, clustered (SubscriptionId, ResourceGroup, Account)
 
 ### audit.ExternalUsageRun
 
@@ -4580,6 +4715,24 @@ Indexes and constraints:
 
 - `PK_DashSavingLedger`: primary key on `Month`, `Kind`, `Area`, `Confidence`, `Source`
 - `CK_DashSavingLedger_Kind`: `Kind` is Saved or Found
+
+### dash.GitHubIdentityMap
+
+*Table.* GitHub logins matched to people by hand (3.3.0): an administrator's list, for logins the SCIM identities do not cover (an enterprise of personal accounts, or SCIM not readable). Kept across loads.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Login` | nvarchar(100) | **no** | **PK** |  |
+| 2 | `Upn` | nvarchar(256) | **no** |  |  |
+| 3 | `Note` | nvarchar(400) | yes |  |  |
+| 4 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 5 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashGitHubIdentityMap`: primary key, clustered (Login)
 
 ## Left over from 1.x
 

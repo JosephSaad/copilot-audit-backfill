@@ -4,6 +4,110 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-11-25
+
+Foundry and GitHub Copilot join the ledger. A new AI platforms section gives the teams that run them six pages of
+their own: what Foundry costs and what is idle, under-used or retiring, each account's posture, and GitHub Copilot's
+seats, the people behind them and each organization's settings. The two loaders read more (account posture, content
+filters, model retirement, reserved capacity, every AI account in reach; who each GitHub login is, and each
+organization's settings) and can check their access before a first load. Each AI resource has a page of its own.
+
+**Install over 3.2.1** (over 3.2.0, 3.2.1's steps as well):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds seven tables (`audit.GitHubIdentity`,
+   `audit.GitHubCopilotPolicy`, `audit.FoundryAccount`, `audit.FoundryContentFilter`, `audit.FoundryModelCatalog`,
+   `audit.FoundryAccountSeen`, `dash.GitHubIdentityMap`), three columns (`RaiPolicy` on `audit.FoundryDeployment`,
+   `PtuUtilizationAvg` and `PtuUtilizationMax` on `audit.FoundryUsageDay`), two settings and the Platforms role;
+   nothing is removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added, and `Program.cs` and the project
+   file are unchanged.
+4. Grant the AI platforms section to the Foundry and GitHub platform teams (Admin › Access), with *Named people* for
+   those who should see who holds each GitHub seat.
+5. Where the Foundry or GitHub load runs, try its access first: `.\tools\Import-FoundryUsage.ps1 -CheckOnly` and
+   `.\tools\Import-GitHubCopilotUsage.ps1 -CheckOnly`. For an enterprise of managed users, add `scim:enterprise` to the
+   GitHub token.
+
+### Added
+
+- **AI resource detail** (`/governance/ai-apps/resource`): each resource's name on AI apps beyond Copilot opens a page of
+  its own, with the apps that call it (calls, identity share, failures, first and last day, and an estimated cost each:
+  the resource's cost shared by calls), calls and failures over time, the departments calling with their own identity
+  (counts only), and, where the Foundry loader runs, its deployments, models, tokens and Azure cost by meter. It can be
+  subscribed to once a resource is chosen.
+- **The AI platforms section and the Platforms role.** A menu section of its own for the Foundry and GitHub Copilot
+  platform teams, granted like every section (Admin › Access, access profiles, `Invoke-CopilotMaintenance.ps1 -Sections
+  platforms`). It lists AI apps beyond Copilot and AI resource detail now; the Foundry and GitHub pages join it. The
+  Platforms role (with *Named people*) opens its lists that name people, the GitHub Copilot seat holders, as they come.
+  `dash.RoleGrant` and `dash.AccessProfileRole` accept it (widened, nothing removed).
+
+- **`-CheckOnly` on both loaders** (`tools\Import-FoundryUsage.ps1`, `tools\Import-GitHubCopilotUsage.ps1`): sign in, try
+  each read once, write nothing, and say per part OK, MISSING (with the role or scope to give, and where) or NOTE
+  (optional). Exit code 0 when everything the load needs can be read; no database is needed.
+- **Foundry: what each account is and how it is run.** The load also keeps each account's network access, key sign-in,
+  managed identity, logging (diagnostic settings) and tags, owner, cost center and app among them
+  (`audit.FoundryAccount`); its content filters and whether any is looser than Microsoft's default
+  (`audit.FoundryContentFilter`, and `RaiPolicy` on each deployment); when each deployed model retires
+  (`audit.FoundryModelCatalog`); a provisioned deployment's daily use of its capacity (`PtuUtilizationAvg`,
+  `PtuUtilizationMax` on `audit.FoundryUsageDay`); and every Azure OpenAI and Foundry account the app can see in any
+  subscription (`audit.FoundryAccountSeen`, from Azure Resource Graph). Data sources' Foundry card says how many sit in
+  subscriptions not loaded, whose usage and cost are not counted.
+- **GitHub: who each login is, and each organization's Copilot settings.** For an enterprise of managed users, its
+  SCIM identities (`audit.GitHubIdentity`: the UPN, and the login GitHub gives it, by GitHub's rule with the
+  enterprise's short code, `GitHubShortcode` or read from the seats); each organization's Copilot settings
+  (`audit.GitHubCopilotPolicy`); and `dash.GitHubIdentityMap`, an administrator's list of logins and people for
+  enterprises of personal accounts. The token needs `scim:enterprise` for the identities.
+- **The new parts never fail a load.** One Azure or GitHub refuses is named in the run's detail (*Not read
+  (optional)*) and the run ends as it would have; an install with only the 2.6.2 roles or scopes still ends Succeeded.
+
+- **The AI platforms pages.** Six pages in the AI platforms section, over what the two loaders keep:
+  - *Foundry overview* (`/platforms/foundry`): spend in the period, spend on accounts that answered nothing, idle
+    deployments, deployments retiring soon, reserved capacity under-used, AI accounts not loaded; spend over time and by
+    account; tokens, cost and the price of a million tokens by model.
+  - *Foundry deployments* (`/platforms/foundry/deployments`): every deployment with its use, last day used, reserved
+    capacity used, retirement day, content filter and owner, filtered as the overview's figures open it.
+  - *Foundry posture* (`/platforms/foundry/posture`): each account against five checks, with what to fix.
+  - *GitHub Copilot overview* (`/platforms/github`): seats, active and idle (priced as Costs and savings prices them),
+    code accepted, billed, daily active users, seats by organization, premium requests by model, and the people
+    holding both Copilots.
+  - *GitHub Copilot seats* (`/platforms/github/seats`, the Platforms role): every seat and its person, filtered to idle,
+    never used, held by leavers, or no person matched; paged, searched, sorted and exported in SQL.
+  - *GitHub Copilot posture* (`/platforms/github/posture`): each organization's settings beside GitHub's
+    recommendation, and the ones that differ.
+  Idle is `CostIdleDays`, as on Costs and savings; two new settings, `ModelRetirementWarnDays` (90) and
+  `PtuLowUtilizationPercent` (50). Data sources' GitHub and Foundry cards open them. The demo has data for each.
+
+### Fixed
+
+- **License inventory's *Licensed today* opened a page with another number.** It linked to Licenses on disabled
+  accounts, which counts something else. It now links nowhere, and a figure of its own, *On disabled accounts*, counts
+  the add-on licenses on disabled or departed accounts as that page does and opens it; its note says how many more hold
+  Copilot only inside a suite (Suite fit's).
+- **Admin › Access's section boxes lowercased product names** in their information (*copilot studio makers*,
+  *microsoft 365 workload owners*): each now reads *Agents (Copilot Studio makers and the center of excellence): ...*.
+- **The figure-link audit's list of deliberately related links** named Better with a license's figure by an old label,
+  so *Cost of their credits* was reported as not found; it is listed by its current name.
+
+### Known limits
+
+- **Not run against real Azure or GitHub.** Every new read of both loaders, and `-CheckOnly`, was tested against
+  stand-ins that answer as Microsoft and GitHub document; none has run on a real subscription or enterprise. The
+  first real run (`-CheckOnly`, then a load) is the test; what it finds goes into 3.3.1.
+- **A managed user's login is worked out, not read.** GitHub's SCIM list gives each person's UPN, not their login; the
+  login follows GitHub's rule for Enterprise Managed Users (the UPN before the @, other characters made hyphens, then
+  `_` and the short code). It matches the one real login checked, not yet a whole enterprise. Whether SCIM can be read
+  where the enterprise signs in with OIDC is unverified.
+- **GitHub's feature and model policies are not read** (their endpoints are in preview): the posture page shows each
+  organization's Copilot settings from its billing endpoint only.
+- **The administrator's list of GitHub logins and people** (`dash.GitHubIdentityMap`) has its table, but no page to
+  edit it yet: rows go in by SQL.
+- **Reserved (PTU) capacity use** was tested with stand-in metrics only: no provisioned deployment was available.
+- **The joining guide** (`docs/FOUNDRY-AND-GITHUB.md`) is not written yet; FOUNDRY-USAGE.md and GITHUB-COPILOT-USAGE.md
+  cover the setup and `-CheckOnly`.
+- **Cost per app on a shared AI resource** is an estimate on AI resource detail: the resource's cost shared by calls.
+
 ## [3.2.1] - 2026-11-25
 
 The AI ledger: the dashboard now says what it is and answers three questions on its start page, what is spent on AI,

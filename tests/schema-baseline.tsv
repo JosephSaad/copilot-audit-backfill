@@ -1,4 +1,4 @@
-# release 3.2.1
+# release 3.3.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -323,6 +323,40 @@ C	copilot	audit.FabricWorkloadDay	U	4	CuSeconds	decimal(19,2)	1
 C	copilot	audit.FabricWorkloadDay	U	5	Operations	bigint	1	
 C	copilot	audit.FabricWorkloadDay	U	6	Users	int	1	
 C	copilot	audit.FabricWorkloadDay	U	7	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryAccount	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryAccount	U	10	DisableLocalAuth	bit	1	
+C	copilot	audit.FoundryAccount	U	11	IdentityType	varchar(40)	1	
+C	copilot	audit.FoundryAccount	U	12	Owner	nvarchar(256)	1	
+C	copilot	audit.FoundryAccount	U	13	CostCenter	nvarchar(256)	1	
+C	copilot	audit.FoundryAccount	U	14	App	nvarchar(256)	1	
+C	copilot	audit.FoundryAccount	U	15	Tags	nvarchar(4000)	1	
+C	copilot	audit.FoundryAccount	U	16	DiagnosticSettings	int	1	
+C	copilot	audit.FoundryAccount	U	17	LogCategories	nvarchar(1000)	1	
+C	copilot	audit.FoundryAccount	U	18	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryAccount	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryAccount	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryAccount	U	4	Kind	nvarchar(50)	1	
+C	copilot	audit.FoundryAccount	U	5	Location	nvarchar(50)	1	
+C	copilot	audit.FoundryAccount	U	6	SkuName	nvarchar(50)	1	
+C	copilot	audit.FoundryAccount	U	7	PublicNetworkAccess	varchar(16)	1	
+C	copilot	audit.FoundryAccount	U	8	NetworkDefaultAction	varchar(16)	1	
+C	copilot	audit.FoundryAccount	U	9	PrivateEndpoints	int	1	
+C	copilot	audit.FoundryAccountSeen	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryAccountSeen	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryAccountSeen	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryAccountSeen	U	4	Kind	nvarchar(50)	1	
+C	copilot	audit.FoundryAccountSeen	U	5	Location	nvarchar(50)	1	
+C	copilot	audit.FoundryAccountSeen	U	6	Loaded	bit	0	
+C	copilot	audit.FoundryAccountSeen	U	7	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryContentFilter	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryContentFilter	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryContentFilter	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryContentFilter	U	4	Policy	nvarchar(200)	0	
+C	copilot	audit.FoundryContentFilter	U	5	BasePolicy	nvarchar(200)	1	
+C	copilot	audit.FoundryContentFilter	U	6	Mode	nvarchar(50)	1	
+C	copilot	audit.FoundryContentFilter	U	7	Relaxed	bit	0	
+C	copilot	audit.FoundryContentFilter	U	8	Detail	nvarchar(max)	1	
+C	copilot	audit.FoundryContentFilter	U	9	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.FoundryCostDay	U	1	SubscriptionId	varchar(36)	0	
 C	copilot	audit.FoundryCostDay	U	2	ResourceGroup	nvarchar(90)	0	
 C	copilot	audit.FoundryCostDay	U	3	Account	nvarchar(64)	0	
@@ -335,6 +369,7 @@ C	copilot	audit.FoundryDeployment	U	1	SubscriptionId	varchar(36)	0
 C	copilot	audit.FoundryDeployment	U	10	SkuName	nvarchar(50)	1	
 C	copilot	audit.FoundryDeployment	U	11	Capacity	int	1	
 C	copilot	audit.FoundryDeployment	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryDeployment	U	13	RaiPolicy	nvarchar(200)	1	
 C	copilot	audit.FoundryDeployment	U	2	ResourceGroup	nvarchar(90)	0	
 C	copilot	audit.FoundryDeployment	U	3	Account	nvarchar(64)	0	
 C	copilot	audit.FoundryDeployment	U	4	Deployment	nvarchar(64)	0	
@@ -343,10 +378,19 @@ C	copilot	audit.FoundryDeployment	U	6	Location	nvarchar(50)	1
 C	copilot	audit.FoundryDeployment	U	7	ModelName	nvarchar(100)	1	
 C	copilot	audit.FoundryDeployment	U	8	ModelVersion	nvarchar(32)	1	
 C	copilot	audit.FoundryDeployment	U	9	ModelPublisher	nvarchar(100)	1	
+C	copilot	audit.FoundryModelCatalog	U	1	Location	nvarchar(50)	0	
+C	copilot	audit.FoundryModelCatalog	U	2	ModelName	nvarchar(100)	0	
+C	copilot	audit.FoundryModelCatalog	U	3	ModelVersion	nvarchar(32)	0	
+C	copilot	audit.FoundryModelCatalog	U	4	SkuName	nvarchar(50)	0	
+C	copilot	audit.FoundryModelCatalog	U	5	LifecycleStatus	nvarchar(50)	1	
+C	copilot	audit.FoundryModelCatalog	U	6	RetiresDate	date	1	
+C	copilot	audit.FoundryModelCatalog	U	7	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.FoundryUsageDay	U	1	SubscriptionId	varchar(36)	0	
 C	copilot	audit.FoundryUsageDay	U	10	OutputTokens	bigint	1	
 C	copilot	audit.FoundryUsageDay	U	11	TotalTokens	bigint	1	
 C	copilot	audit.FoundryUsageDay	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryUsageDay	U	13	PtuUtilizationAvg	decimal(9,4)	1	
+C	copilot	audit.FoundryUsageDay	U	14	PtuUtilizationMax	decimal(9,4)	1	
 C	copilot	audit.FoundryUsageDay	U	2	ResourceGroup	nvarchar(90)	0	
 C	copilot	audit.FoundryUsageDay	U	3	Account	nvarchar(64)	0	
 C	copilot	audit.FoundryUsageDay	U	4	Deployment	nvarchar(64)	0	
@@ -385,6 +429,11 @@ C	copilot	audit.GitHubCopilotDay	U	6	MonthlyActiveChatUsers	int	1
 C	copilot	audit.GitHubCopilotDay	U	7	MonthlyActiveAgentUsers	int	1	
 C	copilot	audit.GitHubCopilotDay	U	8	Interactions	bigint	1	
 C	copilot	audit.GitHubCopilotDay	U	9	CodeGenerations	bigint	1	
+C	copilot	audit.GitHubCopilotPolicy	U	1	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubCopilotPolicy	U	2	Organization	nvarchar(100)	0	
+C	copilot	audit.GitHubCopilotPolicy	U	3	Policy	nvarchar(100)	0	
+C	copilot	audit.GitHubCopilotPolicy	U	4	State	nvarchar(100)	1	
+C	copilot	audit.GitHubCopilotPolicy	U	5	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.GitHubCopilotSeat	U	1	Scope	nvarchar(120)	0	
 C	copilot	audit.GitHubCopilotSeat	U	10	LastAuthenticatedUtc	datetime2(0)	1	
 C	copilot	audit.GitHubCopilotSeat	U	11	PendingCancellationDate	date	1	
@@ -411,6 +460,14 @@ C	copilot	audit.GitHubCopilotUserDay	U	6	CodeGenerations	bigint	1
 C	copilot	audit.GitHubCopilotUserDay	U	7	CodeAcceptances	bigint	1	
 C	copilot	audit.GitHubCopilotUserDay	U	8	LocAdded	bigint	1	
 C	copilot	audit.GitHubCopilotUserDay	U	9	LocDeleted	bigint	1	
+C	copilot	audit.GitHubIdentity	U	1	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubIdentity	U	2	Upn	nvarchar(256)	0	
+C	copilot	audit.GitHubIdentity	U	3	Login	nvarchar(100)	1	
+C	copilot	audit.GitHubIdentity	U	4	ExternalId	nvarchar(256)	1	
+C	copilot	audit.GitHubIdentity	U	5	DisplayName	nvarchar(256)	1	
+C	copilot	audit.GitHubIdentity	U	6	Active	bit	1	
+C	copilot	audit.GitHubIdentity	U	7	Source	varchar(16)	0	
+C	copilot	audit.GitHubIdentity	U	8	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.GroupMember	U	1	GroupName	nvarchar(256)	0	
 C	copilot	audit.GroupMember	U	2	UserPrincipalName	nvarchar(256)	0	
 C	copilot	audit.GroupMember	U	3	LoadedUtc	datetime2(0)	0	D
@@ -1334,6 +1391,11 @@ C	copilot	dash.FlaggedInteraction	U	6	AgentKey	int	0
 C	copilot	dash.FlaggedInteraction	U	7	JailbreakDetected	bit	0	
 C	copilot	dash.FlaggedInteraction	U	8	PromptInjectionDetected	bit	0	
 C	copilot	dash.FlaggedInteraction	U	9	HasBlockedResource	bit	0	
+C	copilot	dash.GitHubIdentityMap	U	1	Login	nvarchar(100)	0	
+C	copilot	dash.GitHubIdentityMap	U	2	Upn	nvarchar(256)	0	
+C	copilot	dash.GitHubIdentityMap	U	3	Note	nvarchar(400)	1	
+C	copilot	dash.GitHubIdentityMap	U	4	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.GitHubIdentityMap	U	5	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.HeldDay	U	1	DateKey	int	0	
 C	copilot	dash.HeldDay	U	2	Held	int	0	
 C	copilot	dash.HeldDay	U	3	HeldEnabled	int	0	
@@ -1997,6 +2059,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.DigestSend
 G	copilot	CopilotInsightsApp	DELETE	dash.EventMarker
 G	copilot	CopilotInsightsApp	DELETE	dash.Extract
 G	copilot	CopilotInsightsApp	DELETE	dash.FlagCase
+G	copilot	CopilotInsightsApp	DELETE	dash.GitHubIdentityMap
 G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
@@ -2041,6 +2104,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.DigestSend
 G	copilot	CopilotInsightsApp	INSERT	dash.EventMarker
 G	copilot	CopilotInsightsApp	INSERT	dash.Extract
 G	copilot	CopilotInsightsApp	INSERT	dash.FlagCase
+G	copilot	CopilotInsightsApp	INSERT	dash.GitHubIdentityMap
 G	copilot	CopilotInsightsApp	INSERT	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
@@ -2079,13 +2143,19 @@ G	copilot	CopilotInsightsApp	SELECT	audit.DlpDay
 G	copilot	CopilotInsightsApp	SELECT	audit.ExternalUsageRun
 G	copilot	CopilotInsightsApp	SELECT	audit.FabricCapacityDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FabricWorkloadDay
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryAccount
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryAccountSeen
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryContentFilter
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryCostDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryDeployment
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryModelCatalog
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryUsageDay
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotCost
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotPolicy
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotSeat
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotUserDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubIdentity
 G	copilot	CopilotInsightsApp	SELECT	audit.GroupMember
 G	copilot	CopilotInsightsApp	SELECT	audit.LicenseSku
 G	copilot	CopilotInsightsApp	SELECT	audit.LicenseSkuDay
@@ -2119,6 +2189,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.DigestSend
 G	copilot	CopilotInsightsApp	UPDATE	dash.EventMarker
 G	copilot	CopilotInsightsApp	UPDATE	dash.Extract
 G	copilot	CopilotInsightsApp	UPDATE	dash.FlagCase
+G	copilot	CopilotInsightsApp	UPDATE	dash.GitHubIdentityMap
 G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
@@ -2193,13 +2264,19 @@ O	copilot	audit.DlpDay	U
 O	copilot	audit.ExternalUsageRun	U
 O	copilot	audit.FabricCapacityDay	U
 O	copilot	audit.FabricWorkloadDay	U
+O	copilot	audit.FoundryAccount	U
+O	copilot	audit.FoundryAccountSeen	U
+O	copilot	audit.FoundryContentFilter	U
 O	copilot	audit.FoundryCostDay	U
 O	copilot	audit.FoundryDeployment	U
+O	copilot	audit.FoundryModelCatalog	U
 O	copilot	audit.FoundryUsageDay	U
 O	copilot	audit.GitHubCopilotCost	U
 O	copilot	audit.GitHubCopilotDay	U
+O	copilot	audit.GitHubCopilotPolicy	U
 O	copilot	audit.GitHubCopilotSeat	U
 O	copilot	audit.GitHubCopilotUserDay	U
+O	copilot	audit.GitHubIdentity	U
 O	copilot	audit.GroupMember	U
 O	copilot	audit.LicenseSku	U
 O	copilot	audit.LicenseSkuDay	U
@@ -2320,6 +2397,7 @@ O	copilot	dash.EventMarker	U
 O	copilot	dash.Extract	U
 O	copilot	dash.FlagCase	U
 O	copilot	dash.FlaggedInteraction	U
+O	copilot	dash.GitHubIdentityMap	U
 O	copilot	dash.HeldDay	U
 O	copilot	dash.JobFamilyRule	U
 O	copilot	dash.LicenseAction	U

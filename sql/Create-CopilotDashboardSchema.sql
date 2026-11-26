@@ -335,6 +335,13 @@ BEGIN
     ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
 END;
+/* Then Platforms, the AI platforms section's lists that name people (the GitHub Copilot seats). Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition NOT LIKE N'%''Platforms''%')
+BEGIN
+    ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
+    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories', 'Platforms'));
+END;
 
 /* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
    of its own and the group's name as it was when granted, for the lists. NULL on every grant to a UPN or to DOMAIN\name. */
@@ -390,6 +397,13 @@ BEGIN
     ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
     ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories'));
+END;
+/* And Platforms. Widened only. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashAccessProfileRole_Role' AND parent_object_id = OBJECT_ID(N'dash.AccessProfileRole') AND definition NOT LIKE N'%''Platforms''%')
+BEGIN
+    ALTER TABLE dash.AccessProfileRole DROP CONSTRAINT CK_DashAccessProfileRole_Role;
+    ALTER TABLE dash.AccessProfileRole ADD CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement', 'Governance', 'GovernanceOperator', 'GovernanceAuditor', 'Restricted', 'Sections', 'Preview', 'Stories', 'Platforms'));
 END;
 /* A profile's Sections row names its sections and whether the named lists show, as a Sections grant does. */
 IF COL_LENGTH(N'dash.AccessProfileRole', N'Sections') IS NULL ALTER TABLE dash.AccessProfileRole ADD Sections NVARCHAR(1000) NULL;
@@ -1162,6 +1176,12 @@ IF OBJECT_ID(N'dash.SuccessStorySend', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesPerReport')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'StoriesPerReport', N'3', N'The most success stories the weekly report quotes, oldest approved first (0 leaves them out).', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'PtuLowUtilizationPercent')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'PtuLowUtilizationPercent', N'50', N'AI platforms: a provisioned (PTU) Foundry deployment using less than this percentage of its reserved capacity on average is flagged as under-used.', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'ModelRetirementWarnDays')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'ModelRetirementWarnDays', N'90', N'AI platforms: a Foundry deployment whose model retires within this many days is flagged as retiring soon.', N'install');
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'WeeklyReportSavings')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'WeeklyReportSavings', N'1', N'1: the weekly report''s first line says the money saved to date through the dashboard and the high-confidence savings found a month (from dash.SavingLedger). 0 leaves it out.', N'install');

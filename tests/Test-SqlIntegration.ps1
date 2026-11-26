@@ -3954,7 +3954,9 @@ $extSql = Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotExterna
 Invoke-SqlText -Sql $extSql
 Invoke-SqlText -Sql $extSql   # re-runnable
 $extTables = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(name, ',') WITHIN GROUP (ORDER BY name) FROM sys.tables WHERE schema_id = SCHEMA_ID('audit') AND (name LIKE 'GitHubCopilot%' OR name LIKE 'Foundry%' OR name = 'ExternalUsageRun');")"
-Assert-That ($extTables -eq 'ExternalUsageRun,FoundryCostDay,FoundryDeployment,FoundryUsageDay,GitHubCopilotCost,GitHubCopilotDay,GitHubCopilotSeat,GitHubCopilotUserDay') "the script makes its eight tables, and runs again unchanged ($extTables)"
+Assert-That ($extTables -eq 'ExternalUsageRun,FoundryAccount,FoundryAccountSeen,FoundryContentFilter,FoundryCostDay,FoundryDeployment,FoundryModelCatalog,FoundryUsageDay,GitHubCopilotCost,GitHubCopilotDay,GitHubCopilotPolicy,GitHubCopilotSeat,GitHubCopilotUserDay') "the script makes its tables (3.3.0: account posture, content filters, model retirement, accounts seen, Copilot settings), and runs again unchanged ($extTables)"
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.GitHubIdentity', N'U') IS NOT NULL AND COL_LENGTH(N'audit.FoundryDeployment', N'RaiPolicy') IS NOT NULL AND COL_LENGTH(N'audit.FoundryUsageDay', N'PtuUtilizationMax') IS NOT NULL THEN 1 ELSE 0 END;") -eq 1) `
+    'and the identities, each deployment''s content filter and a provisioned deployment''s use (3.3.0)'
 
 # A stand-in for GitHub's API and for Azure's, on this machine: it answers as each service is documented to.
 $probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $probe.Start(); $mockPort = $probe.LocalEndpoint.Port; $probe.Stop()
@@ -4003,6 +4005,13 @@ $mockScript = {
                     $kind = if ($path -like '*/enterprise-1-day') { 'ent' } else { 'users' }
                     Send $ctx 200 "{`"report_day`":`"$day`",`"download_links`":[`"$base/files/$kind-$day`"]}"; continue
                 }
+                if ($path -eq '/gh/scim/v2/enterprises/contoso/Users') {
+                    if ($rq.Headers['Accept'] -ne 'application/scim+json') { Send $ctx 415 '{"message":"SCIM wants application/scim+json"}'; continue }
+                    Send $ctx 200 '{"totalResults":2,"Resources":[{"userName":"mona@contoso.com","externalId":"e-1","displayName":"Mona","active":true},{"userName":"hubot@contoso.com","externalId":"e-2","active":false}]}'; continue
+                }
+                if ($path -eq '/gh/orgs/octo/copilot/billing') {
+                    Send $ctx 200 '{"seat_breakdown":{"total":3},"seat_management_setting":"assign_selected","ide_chat":"enabled","platform_chat":"enabled","cli":"disabled","public_code_suggestions":"block","plan_type":"enterprise"}'; continue
+                }
                 if ($path -eq '/gh/enterprises/contoso/settings/billing/usage') {
                     $d = '{0}-{1:00}-01T00:00:00Z' -f $q['year'], [int] $q['month']
                     Send $ctx 200 "{`"usageItems`":[{`"date`":`"$d`",`"product`":`"copilot`",`"sku`":`"Copilot Enterprise`",`"quantity`":3,`"unitType`":`"UserMonths`",`"pricePerUnit`":39,`"grossAmount`":117,`"discountAmount`":17,`"netAmount`":100,`"organizationName`":`"octo`"},{`"date`":`"$d`",`"product`":`"actions`",`"sku`":`"Actions Linux`",`"quantity`":5,`"netAmount`":1}]}"; continue
@@ -4016,10 +4025,22 @@ $mockScript = {
                 if ($p -like '/subscriptions/bbbb*') { Send $ctx 403 '{"error":{"code":"AuthorizationFailed","message":"The client does not have authorization."}}'; continue }
                 if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CognitiveServices/accounts") {
                     if ($q['page'] -eq '2') { Send $ctx 200 (@{ value = @(@{ id = "$acct/aoai-legacy"; name = 'aoai-legacy'; kind = 'OpenAI'; location = 'westeurope' }, @{ id = "$acct/speech-1"; name = 'speech-1'; kind = 'SpeechServices'; location = 'eastus' }) } | ConvertTo-Json -Depth 9) }
-                    else { Send $ctx 200 (@{ value = @(@{ id = "$acct/foundry-east"; name = 'foundry-east'; kind = 'AIServices'; location = 'eastus' }); nextLink = "$base/arm$p`?api-version=$($q['api-version'])&page=2" } | ConvertTo-Json -Depth 9) }
+                    else { Send $ctx 200 (@{ value = @(@{ id = "$acct/foundry-east"; name = 'foundry-east'; kind = 'AIServices'; location = 'eastus'; sku = @{ name = 'S0' }
+                                                             tags = @{ Owner = 'ann.lee@contoso.com'; 'cost-center' = 'CC-42'; App = 'claims-bot' }
+                                                             properties = @{ publicNetworkAccess = 'Enabled'; disableLocalAuth = $true; networkAcls = @{ defaultAction = 'Deny' } } }); nextLink = "$base/arm$p`?api-version=$($q['api-version'])&page=2" } | ConvertTo-Json -Depth 9) }
                     continue
                 }
-                if ($p -eq "$acct/foundry-east/deployments") { Send $ctx 200 '{"value":[{"name":"chat","sku":{"name":"GlobalStandard","capacity":50},"properties":{"model":{"format":"OpenAI","name":"gpt-4o","version":"2024-11-20","publisher":"OpenAI"}}}]}'; continue }
+                if ($p -eq "$acct/foundry-east/deployments") { Send $ctx 200 '{"value":[{"name":"chat","sku":{"name":"GlobalStandard","capacity":50},"properties":{"raiPolicyName":"Loose","model":{"format":"OpenAI","name":"gpt-4o","version":"2024-11-20","publisher":"OpenAI"}}}]}'; continue }
+                if ($p -eq "$acct/foundry-east/providers/Microsoft.Insights/diagnosticSettings") { Send $ctx 200 '{"value":[{"name":"to-law","properties":{"logs":[{"categoryGroup":"audit","enabled":true},{"category":"Trace","enabled":false}]}}]}'; continue }
+                if ($p -eq "$acct/foundry-east/raiPolicies") {
+                    Send $ctx 200 '{"value":[{"name":"Microsoft.Default","properties":{"mode":"Default","contentFilters":[{"name":"hate","severityThreshold":"Medium","blocking":true,"enabled":true,"source":"Prompt"}]}},{"name":"Loose","properties":{"basePolicyName":"Microsoft.Default","mode":"Default","contentFilters":[{"name":"violence","severityThreshold":"High","blocking":true,"enabled":true,"source":"Completion"}]}}]}'; continue
+                }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CognitiveServices/locations/eastus/models") { Send $ctx 200 '{"value":[{"model":{"name":"gpt-4o","version":"2024-11-20","lifecycleStatus":"GenerallyAvailable","deprecation":{"inference":"2027-03-01T00:00:00Z"},"skus":[{"name":"Standard","deprecationDate":"2026-12-15T00:00:00Z"}]}},{"model":{"name":"o3","version":"1"}}]}'; continue }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CognitiveServices/locations/westeurope/models") { Send $ctx 200 '{"value":[{"model":{"name":"gpt-35-turbo","version":"0125","lifecycleStatus":"Deprecated","deprecation":{"inference":"2026-12-31T00:00:00Z"}}}]}'; continue }
+                if ($p -eq '/providers/Microsoft.ResourceGraph/resources' -and $rq.HttpMethod -eq 'POST') {
+                    Send $ctx 200 (@{ totalRecords = 2; data = @(@{ id = "$acct/foundry-east"; kind = 'AIServices'; location = 'eastus'; subscriptionId = $Sub },
+                                                               @{ id = '/subscriptions/cccc3333-0000-0000-0000-000000000000/resourceGroups/rg-x/providers/Microsoft.CognitiveServices/accounts/shadow-ai'; kind = 'OpenAI'; location = 'eastus' }) } | ConvertTo-Json -Depth 9); continue
+                }
                 if ($p -eq "$acct/aoai-legacy/deployments") { Send $ctx 200 '{"value":[{"name":"Legacy","sku":{"name":"Standard","capacity":10},"properties":{"model":{"name":"gpt-35-turbo","version":"0125"}}}]}'; continue }
                 if ($p -like '*/providers/Microsoft.Insights/metrics') {
                     $names = "$($q['metricnames'])".Split(','); $value = @()
@@ -4082,10 +4103,24 @@ try {
     $ghCost = Invoke-SqlText -As Table -Sql "SELECT UsageDate, Product, Sku, Quantity, PricePerUnit, GrossAmount, DiscountAmount, NetAmount FROM audit.GitHubCopilotCost WHERE Scope = 'enterprise:contoso' ORDER BY UsageDate;"
     Assert-That ($ghCost.Rows.Count -eq 2 -and "$($ghCost.Rows[0].Sku)" -eq 'Copilot Enterprise' -and [decimal] $ghCost.Rows[0].NetAmount -eq 100 -and [decimal] $ghCost.Rows[0].GrossAmount -eq 117 -and [decimal] $ghCost.Rows[0].PricePerUnit -eq 39) `
         'what GitHub billed for Copilot this month and last, and no other product''s lines'
-    [void] (& $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings 6>&1 3>&1)
+    $ids = Invoke-SqlText -As Table -Sql "SELECT Upn, Login, ExternalId, DisplayName, Active, Source FROM audit.GitHubIdentity WHERE Scope = 'enterprise:contoso' ORDER BY Upn;"
+    Assert-That ($ids.Rows.Count -eq 2 -and "$($ids.Rows[1].Upn)" -eq 'mona@contoso.com' -and "$($ids.Rows[1].ExternalId)" -eq 'e-1' -and [bool] $ids.Rows[1].Active -and -not [bool] $ids.Rows[0].Active -and
+                 $ids.Rows[1].Login -is [DBNull] -and "$($ghRun.Detail)" -like '*no short code yet*') "3.3.0: who each login is, from the enterprise's SCIM identities; with personal logins among the seats there is no short code, so no login is guessed ($($ids.Rows.Count))"
+    $pols = Invoke-SqlText -As Table -Sql "SELECT Organization, Policy, [State] FROM audit.GitHubCopilotPolicy WHERE Scope = 'enterprise:contoso' ORDER BY Policy;"
+    Assert-That ($pols.Rows.Count -eq 6 -and "$($pols.Rows[0].Organization)" -eq 'octo' -and "$(($pols.Rows | Where-Object Policy -eq 'public_code_suggestions').State)" -eq 'block') `
+        "and the Copilot settings of each organization the seats were assigned through ($($pols.Rows.Count))"
+    [void] (& $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings -Shortcode contoso 6>&1 3>&1)
+    Assert-That ("$(Invoke-SqlText -As Scalar -Sql "SELECT Login FROM audit.GitHubIdentity WHERE Upn = N'mona@contoso.com';")" -eq 'mona_contoso') 'given the short code, each identity''s login is worked out: mona@contoso.com is mona_contoso'
+    $global:LASTEXITCODE = 0   # a check that passes returns without setting it
+    $ghCheck = & $gh -Enterprise contoso -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
+    $ghCheckCode = $LASTEXITCODE
+    Assert-That ($ghCheckCode -eq 0 -and $ghCheck -like '*OK*Seats: readable (3 seat(s))*' -and $ghCheck -like '*SCIM*readable (2 identities)*' -and $ghCheck -like '*Copilot settings of octo: readable*' -and $ghCheck -like '*Every part the load needs can be read*') `
+        "-CheckOnly tries each read, writes nothing, and says every part can be read ($ghCheckCode)"
     $again = "$(Invoke-SqlText -As Scalar -Sql "SELECT CONCAT((SELECT COUNT(*) FROM audit.GitHubCopilotSeat), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotDay), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotUserDay), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotCost));")"
     Assert-That ($again -eq '3/2/4/2') "run again over the same days, every table holds the same rows once ($again)"
     $env:GITHUB_COPILOT_TOKEN = 'wrong-token'
+    $ghBadCheck = & $gh -Enterprise contoso -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
+    Assert-That ($LASTEXITCODE -eq 1 -and $ghBadCheck -like '*MISSING*Bad credentials*' -and $ghBadCheck -notlike '*wrong-token*') '-CheckOnly with a token GitHub refuses: MISSING, exit code 1, and the token is never printed'
     [void] (& $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings 6>&1 3>&1)
     $ghCode = $LASTEXITCODE
     $refused = (Invoke-SqlText -As Table -Sql "SELECT TOP (1) Status, Detail FROM audit.ExternalUsageRun WHERE Source = 'GitHub' ORDER BY RunId DESC;").Rows[0]
@@ -4113,6 +4148,27 @@ try {
     $costs = Invoke-SqlText -As Table -Sql 'SELECT Account, Meter, [Day], Cost, Currency FROM audit.FoundryCostDay ORDER BY [Day], Meter;'
     Assert-That ($costs.Rows.Count -eq 2 -and [decimal] $costs.Rows[0].Cost -eq 2 -and "$($costs.Rows[0].Meter)" -eq 'gpt-4o Input Tokens' -and "$($costs.Rows[0].Currency)" -eq 'USD' -and [decimal] $costs.Rows[1].Cost -eq 0.5 -and
                  "$($costs.Rows[0].Account)" -eq 'foundry-east') 'cost per account, meter and day: two lines of one meter add up, the Speech account''s cost is not taken, and a throttled question is asked again'
+    $acc = Invoke-SqlText -As Table -Sql 'SELECT Account, PublicNetworkAccess, NetworkDefaultAction, DisableLocalAuth, Owner, CostCenter, App, DiagnosticSettings, LogCategories, SkuName FROM audit.FoundryAccount ORDER BY Account;'
+    Assert-That ($acc.Rows.Count -eq 2 -and "$($acc.Rows[1].Owner)|$($acc.Rows[1].CostCenter)|$($acc.Rows[1].App)" -eq 'ann.lee@contoso.com|CC-42|claims-bot' -and [bool] $acc.Rows[1].DisableLocalAuth -and
+                 "$($acc.Rows[1].NetworkDefaultAction)" -eq 'Deny' -and [int] $acc.Rows[1].DiagnosticSettings -eq 1 -and "$($acc.Rows[1].LogCategories)" -eq 'audit' -and $acc.Rows[0].DiagnosticSettings -is [DBNull]) `
+        "3.3.0: each account's posture and tags, and its logging; an account whose logging cannot be read is unknown, not none ($($acc.Rows.Count))"
+    Assert-That ("$($foRun.Detail)" -like '*Not read (optional): logging of 1 account(s)*' -and "$($foRun.Status)" -eq 'Succeeded') 'a 3.3.0 part Azure does not answer is named in the run, which still ends Succeeded'
+    $flt = Invoke-SqlText -As Table -Sql "SELECT Policy, Relaxed, BasePolicy FROM audit.FoundryContentFilter ORDER BY Policy;"
+    Assert-That ($flt.Rows.Count -eq 2 -and "$($flt.Rows[0].Policy)" -eq 'Loose' -and [bool] $flt.Rows[0].Relaxed -and -not [bool] $flt.Rows[1].Relaxed -and
+                 "$(Invoke-SqlText -As Scalar -Sql "SELECT RaiPolicy FROM audit.FoundryDeployment WHERE Deployment = N'chat';")" -eq 'Loose') 'its content filters, the relaxed one marked, and the filter each deployment uses'
+    $cat = Invoke-SqlText -As Table -Sql 'SELECT Location, ModelName, SkuName, RetiresDate FROM audit.FoundryModelCatalog ORDER BY Location, SkuName;'
+    Assert-That ($cat.Rows.Count -eq 3 -and "$($cat.Rows[0].ModelName)|$($cat.Rows[0].SkuName)" -eq 'gpt-4o|' -and ([datetime] $cat.Rows[1].RetiresDate) -eq [datetime] '2026-12-15' -and "$($cat.Rows[2].Location)|$($cat.Rows[2].ModelName)" -eq 'westeurope|gpt-35-turbo') `
+        "when each deployed model retires, where it is deployed, and a SKU that retires sooner; a model not deployed is not kept ($($cat.Rows.Count))"
+    $seen = Invoke-SqlText -As Table -Sql 'SELECT SubscriptionId, Account, Loaded FROM audit.FoundryAccountSeen ORDER BY Account;'
+    Assert-That ($seen.Rows.Count -eq 2 -and "$($seen.Rows[1].Account)" -eq 'shadow-ai' -and -not [bool] $seen.Rows[1].Loaded -and [bool] $seen.Rows[0].Loaded -and "$($foRun.Detail)" -like '*2 AI account(s) seen, 1 in subscriptions not loaded*') `
+        'every AI account the app can see, and the one in a subscription the load does not read'
+    $global:LASTEXITCODE = 0
+    $foCheck = & $fo -SubscriptionId $extSub -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
+    $foCheckCode = $LASTEXITCODE
+    Assert-That ($foCheckCode -eq 0 -and $foCheck -like '*OK*Accounts in*2 Azure OpenAI or Foundry account(s)*' -and $foCheck -like '*Cost of*readable*' -and $foCheck -like '*1 in subscriptions not in the list (cccc3333*' -and $foCheck -like '*Every part the load needs can be read*') `
+        "-CheckOnly tries each read, writes nothing, and names the subscription with AI accounts not in the list ($foCheckCode)"
+    $foBadCheck = & $fo -SubscriptionId 'bbbb2222-0000-0000-0000-000000000000' -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
+    Assert-That ($LASTEXITCODE -eq 1 -and $foBadCheck -like '*MISSING*Monitoring Reader*') '-CheckOnly on a subscription the app may not read: MISSING with the role to give, exit code 1'
     $global:LASTEXITCODE = 0   # a run that does not fail leaves the exit code as it was
     [void] (& $fo -SubscriptionId $extSub, 'bbbb2222-0000-0000-0000-000000000000' -Days 3 -ConnectionString $extConn -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings 6>&1 3>&1)
     $foCode = $LASTEXITCODE

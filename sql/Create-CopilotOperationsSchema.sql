@@ -864,6 +864,18 @@ IF OBJECT_ID(N'dash.CacheGeneration', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM dash.CacheGeneration)
     INSERT INTO dash.CacheGeneration (Id, N) VALUES (1, 0);
 
+/* GitHub logins matched to people by hand (3.3.0): an administrator's list, for logins the SCIM identities do
+   not cover (an enterprise of personal accounts, or SCIM not readable). Kept across loads. */
+IF OBJECT_ID(N'dash.GitHubIdentityMap', N'U') IS NULL
+    CREATE TABLE dash.GitHubIdentityMap
+    (
+        Login      NVARCHAR(100)  NOT NULL CONSTRAINT PK_DashGitHubIdentityMap PRIMARY KEY,
+        Upn        NVARCHAR(256)  NOT NULL,
+        Note       NVARCHAR(400)  NULL,
+        UpdatedBy  NVARCHAR(256)  NOT NULL,
+        UpdatedUtc DATETIME2(0)   NOT NULL CONSTRAINT DF_DashGitHubIdentityMap_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
 /* ---- The saving ledger ---------------------------------------------------- */
 
 /* Money saved and found, a month at a time, so the history survives a change of price and Power BI can read it.
@@ -965,7 +977,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.SavingLedger TO CopilotInsightsApp;   -- Costs and savings writes the month's savings found
+GRANT INSERT, UPDATE, DELETE ON dash.SavingLedger TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.GitHubIdentityMap TO CopilotInsightsApp;   -- the administrator's list of logins and people   -- Costs and savings writes the month's savings found
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;

@@ -10,7 +10,7 @@ public static class Sections
 {
     public const string Leadership = "leadership", Adoption = "adoption", Licensing = "licensing", Forecasting = "forecasting",
         Security = "security", Compliance = "compliance", Agents = "agents", Enablement = "enablement", Regions = "regions",
-        People = "people", AppOwners = "app-owners", Governance = "governance",
+        People = "people", AppOwners = "app-owners", Governance = "governance", Platforms = "platforms",
         WorkbenchOwnership = "wb-ownership", WorkbenchRegistry = "wb-registry";
 
     /// <param name="Key">What a grant stores (dash.RoleGrant.Sections).</param>
@@ -35,6 +35,7 @@ public static class Sections
         new(People, "People", "HR and people analytics", null),
         new(AppOwners, "App owners", "Microsoft 365 workload owners", null),
         new(Governance, "Governance", "AI governance and architecture", null),
+        new(Platforms, "AI platforms", "Teams running Foundry and GitHub Copilot", Roles.Platforms),
         new(WorkbenchOwnership, "Ownership and approvals", "Requests, approvals and the workloads people own", null, true),
         new(WorkbenchRegistry, "Ownership registry", "Funding owners, workloads, seats and the service catalog", null, true),
     ];
@@ -57,6 +58,7 @@ public static class Sections
         Roles.Compliance => [Compliance],
         Roles.Agents => [Agents],
         Roles.Enablement => [Enablement],
+        Roles.Platforms => [Platforms],
         _ => [],
     };
 
