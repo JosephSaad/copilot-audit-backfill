@@ -318,6 +318,13 @@ public sealed class RegistryQueries(Db db)
         return (await c.QueryAsync<Option>($"SELECT CAST(ServiceId AS varchar(12)) AS Value, Name AS Text FROM core.Service {(approvedOnly ? "WHERE InstitutionalStatus IN ('APPROVED','PILOT')" : "")} ORDER BY Name")).ToList();
     }
 
+    /// <summary>Whether anyone holds the Platform Owner role today: until someone does, a Copilot Insights administrator names the first one.</summary>
+    public async Task<bool> HasPlatformOwnerAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return await c.ExecuteScalarAsync<int>(Commands.RegistryCommands.PlatformOwnerHeldSql, new { today = DateTime.UtcNow.Date }) > 0;
+    }
+
     public async Task<IReadOnlyList<Option>> PeopleOptionsAsync()
     {
         await using var c = await db.OpenSystemAsync();

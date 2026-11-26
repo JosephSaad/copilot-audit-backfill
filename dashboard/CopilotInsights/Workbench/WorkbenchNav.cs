@@ -52,6 +52,7 @@ public static class WorkbenchNav
         [$"{P}/Admin/Integrations"] = "The Microsoft, ITSM, mail and Teams connections and their health.",
         [$"{P}/Admin/Intake"] = "Open or close intake, with the setup steps it needs first.",
         [$"{P}/Admin/Text"] = "Change the wording of help and notices.",
+        [$"{P}/Admin/Settings"] = "The time zone, notice days, evidence files, record keeping and the address in notices.",
     };
 
     public static string? What(string path) => Text.TryGetValue(path, out var t) ? t : null;
@@ -168,6 +169,7 @@ public static class WorkbenchNav
             if (isAdmin) s.Add(new("Integrations", $"{P}/Admin/Integrations"));
             s.Add(new("Intake switch", $"{P}/Admin/Intake"));
             s.Add(new("Wording", $"{P}/Admin/Text"));
+            s.Add(new("Settings", $"{P}/Admin/Settings"));
             groups.Add(new("Workbench settings", "Administrators, the Platform Owner and Steering", s));
         }
         return groups;

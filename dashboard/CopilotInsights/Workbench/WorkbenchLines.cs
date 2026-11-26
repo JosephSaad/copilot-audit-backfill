@@ -69,7 +69,7 @@ public sealed class WorkbenchLines(IServiceProvider services, WorkbenchState sta
             DECLARE @today date = CAST(SYSUTCDATETIME() AS date);
             SELECT p.UserPrincipalName, fo.Code
             FROM intg.GroupMember AS gm
-            JOIN core.SeatGroup AS g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
+            JOIN core.SeatGroup AS g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.Purpose = 'LOB_TRACKING'
                  AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
             JOIN core.FundingOwner AS fo ON fo.FundingOwnerId = g.FundingOwnerId
             JOIN sec.Person AS p ON p.EntraObjectId = gm.MemberObjectId

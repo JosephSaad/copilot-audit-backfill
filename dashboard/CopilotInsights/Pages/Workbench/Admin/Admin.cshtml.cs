@@ -10,6 +10,15 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Governance.Web.Pages.Admin;
 
+/// <summary>The Workbench's own settings, each changed on the page with its value checked (no SQL by hand).</summary>
+public class SettingsModel(AdminQueries admin, AdminCommands commands) : GovPage
+{
+    public IReadOnlyList<SettingRow> Settings { get; private set; } = Array.Empty<SettingRow>();
+    public bool CanEdit => Principal.Can(Permissions.AdminConfigure) || Principal.HasCentral(Roles.PlatformOwner);
+    public async Task OnGetAsync() => Settings = await admin.EditableSettingsAsync();
+    public Task<IActionResult> OnPostSaveAsync(string key, string? value) => Act(() => commands.SaveSettingAsync(Idem, key, value), $"{key} saved.");
+}
+
 public class RaciModel(AdminQueries admin, AdminCommands commands) : GovPage
 {
     [BindProperty(SupportsGet = true, Name = "v")] public int? VersionNo { get; set; }
@@ -82,13 +91,16 @@ public class RolesModel(RegistryQueries registry, AdminQueries admin, RegistryCo
     public IReadOnlyList<Option> People { get; private set; } = Array.Empty<Option>();
     public IReadOnlyList<AdminQueries.RoleOption> CentralRoles { get; private set; } = Array.Empty<AdminQueries.RoleOption>();
     public IReadOnlyList<AdminQueries.GroupMapRow> Groups { get; private set; } = Array.Empty<AdminQueries.GroupMapRow>();
-    public bool CanAssign => Principal.Can(Permissions.RoleAssignCentral);
+    public bool CanAssign => Principal.Can(Permissions.RoleAssignCentral) || FirstOwner;
+    /// <summary>Nobody holds Platform Owner yet and the viewer is a Copilot Insights administrator: they name the first one.</summary>
+    public bool FirstOwner { get; private set; }
 
     public async Task OnGetAsync()
     {
         Items = await registry.RoleAssignmentsAsync(Query, centralOnly: true);
         People = await registry.PeopleOptionsAsync();
-        CentralRoles = (await admin.RolesAsync()).Where(r => r.IsCentral).ToList();
+        FirstOwner = !Principal.Can(Permissions.RoleAssignCentral) && Principal.AppRoles.Contains(AppRoles.Admin) && !await registry.HasPlatformOwnerAsync();
+        CentralRoles = (await admin.RolesAsync()).Where(r => r.IsCentral && (!FirstOwner || r.RoleCode == Roles.PlatformOwner)).ToList();
         Groups = await admin.GroupMapAsync();
     }
 

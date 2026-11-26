@@ -118,7 +118,11 @@ Sign-in to the site is Insights' (Windows, or Entra ID as in [docs\ENTRA-SIGN-IN
 and Workbench roles are Insights grants. The worker needs one app registration of its own, mirroring
 `governance\setup\Setup-TestTenant.ps1`'s worker app:
 
-1. Graph application permissions `User.Read.All`, `GroupMember.Read.All`, `AccessReview.Read.All`; the **Catalog
+1. Graph application permissions `User.Read.All` and `LicenseAssignment.Read.All` (the Copilot seats: SKUs and each
+   person's license), and where they are granted `GroupMember.Read.All` (seat group members; without it they are read
+   from on-premises AD, docs\OPERATIONS.md, *Seat groups from on-premises AD*) and `AccessReview.Read.All` (only for
+   recertification campaigns linked to Entra access reviews); `Reports.Read.All` only when the worker cannot read the
+   Copilot database. The **Catalog
    reader** role on the governed entitlement catalog (narrower than `EntitlementManagement.Read.All`); the **Power
    Platform reader** role at tenant scope (Power Platform RBAC, preview: if it fails, licensing reads fall back to
    operator-run reads). **Do not grant `Mail.Send` in Entra**: grants are additive and an Entra grant removes the

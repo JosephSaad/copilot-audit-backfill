@@ -4,6 +4,68 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1] - 2026-11-26
+
+The Workbench's Copilot seats without Microsoft Graph's group permission. Where `GroupMember.Read.All` is refused, the
+seat read takes each seat group's members from on-premises Active Directory, in the users' domain already set on
+Admin › Directory quality, so each line of business can track its licensed users. While nobody holds the Platform
+Owner role, a Copilot Insights administrator names the first one on the page instead of in SQL, and every Workbench
+setting is changed on a page. And an administrator can ask for a directory load now, from the dashboard, instead of
+waiting for the night.
+
+**Install over 3.5.0** (the change bundle runs from v3.5.0):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once. It adds one view, `dash.WorkbenchDirectory`
+   (the users' AD domain, for the Workbench's worker); nothing else changes in the Copilot database.
+3. The Workbench database: open `governance\src\Governance.Database\Scripts\070-seats.sql` in SSMS, pick
+   `CopilotGovernance`, F5 (or run `Deploy-Database.ps1` again where sqlcmd is installed). It adds
+   `core.SeatGroup.AdObjectGuid`, three columns of `intg.SeatGroupReading` and two settings
+   (`Seats.GroupMembersFrom`, `Seats.AdDomain`); nothing is removed.
+4. Build and deploy the dashboard and the worker (docs\BUILD-FROM-SOURCE.md). `Governance.Infrastructure` adds the
+   package `System.DirectoryServices` 10.0.12, which `System.DirectoryServices.AccountManagement` 10.0.12 (already
+   used by the dashboard) depends on. `Program.cs` does not change.
+5. Where the worker is installed, give its account the two new reads in the Copilot database (SSMS, on that
+   database): `GRANT SELECT ON dash.WorkbenchDirectory TO [<worker gMSA>]; GRANT SELECT ON dash.Person (Upn, Sid,
+   ObjectId) TO [<worker gMSA>];`
+6. On the job server, add the task *Copilot audit - directory on request*: run `tools\Install-CopilotJobServer.ps1`
+   again, or register it alone (docs\OPERATIONS.md, *A directory load now*).
+
+### Added
+- **Seat groups from on-premises AD.** The seat read finds each seat group by its AD account name, common name or
+  display name, reads its direct members in ranges (a group of any size), and matches each to their Entra account
+  by the SID Copilot Insights' directory load recorded, then by sign-in name, then by mail. Their counts are the
+  same as from Entra. `Seats.GroupMembersFrom` says where members come from: `AUTO` (the default: Graph, and AD for
+  on-premises groups when Graph refuses), `AD` or `ENTRA`. The domain is the one on Admin › Directory quality, or
+  `Seats.AdDomain`. Each run says where the members came from, and how many matched no Entra account.
+- **The first Platform Owner.** While nobody holds the role, a Copilot Insights administrator may name the first
+  Platform Owner (themselves included) on Workbench settings › Workbench roles. Before, only the Platform Owner or an
+  Entra group sync (Graph's group permission again) could give a central role, so the first one took SQL.
+- **Every Workbench setting on a page.** The seat settings (rate per seat, EA anniversary, inactivity days, who pays
+  for unclaimed seats, where group members come from and more) are changed on Workbench settings › Seat groups, by a
+  Workbench administrator, the Platform Owner or FinOps; the rest (time zone, notice days, evidence files, record
+  keeping, the address in notices) on a new page, Workbench settings › Settings. Each value is checked, and each
+  change is in the audit trail with the old and new value. Before, a database administrator changed them in SQL.
+- **Load the directory now.** Admin › Directory quality asks the job server for a directory load; its new task looks
+  every 15 minutes, loads the users from AD as the nightly run does, rebuilds the org chart, and the page says when
+  it is done.
+
+### Changed
+- **The worker's Graph permissions.** Only `User.Read.All` and `LicenseAssignment.Read.All` are needed for the seats;
+  `GroupMember.Read.All` and `AccessReview.Read.All` are optional (governance\deploy\Deploy-Production.md, step 5).
+- **Seat groups page.** The group's name is its AD account name when members come from AD; the help says so.
+
+### Known limits
+- The AD reads were tested against a stand-in for AD, not a real directory: finding a group, ranged member reads,
+  members in another domain of the forest, and access across a domain trust are untested here. Members in another
+  forest (foreign security principals) and contacts are counted as not resolved, not matched.
+- Members are matched through the Copilot database's `dash.Person` (SID and Entra object ID, which the license load
+  records for license holders) and the Workbench's own people. A tracking group member who holds no license and is
+  not yet in the Workbench's directory may match no Entra account: the run counts them.
+- The on-request directory load and its scheduled task were checked by the tests and a parse of the scripts, not run
+  on a job server.
+
 ## [3.5.0] - 2026-11-26
 
 Control of AI spend, and of the agents. Leadership sees the model tokens each business unit (its L2 and L3

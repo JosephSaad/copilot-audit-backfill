@@ -61,7 +61,7 @@ public static class WorkbenchSetup
         {
             foreach (var page in new[] { "Admin/Integrations", "Admin/Notifications", "Admin/Sla", "Admin/Workflows" })
                 o.Conventions.AuthorizePage($"{PagesFolder}/{page}", Policies.Admin);
-            foreach (var page in new[] { "Admin/Raci", "Admin/Intake", "Admin/Roles", "Admin/Text", "Admin/SeatGroups" })
+            foreach (var page in new[] { "Admin/Raci", "Admin/Intake", "Admin/Roles", "Admin/Text", "Admin/SeatGroups", "Admin/Settings" })
                 o.Conventions.AuthorizePage($"{PagesFolder}/{page}", Policies.PlatformGovernance);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Operations", Policies.Central);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Queues", Policies.Central);

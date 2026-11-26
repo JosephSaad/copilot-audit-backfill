@@ -33,11 +33,13 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
     private sealed class FakeSeats : ISeatLicenseApi
     {
         public bool ReportsRefused { get; set; }
+        /// <summary>Graph refuses the group reads, as with no GroupMember.Read.All.</summary>
+        public bool GroupsRefused { get; set; }
         public int UsageCalls { get; private set; }
         public Task<IReadOnlyList<SubscribedSkuData>> SubscribedSkusAsync(CancellationToken ct)
             => Task.FromResult<IReadOnlyList<SubscribedSkuData>>(new[] { new SubscribedSkuData(AddOn, "Microsoft_365_Copilot", 10, 0, 0, 9), new SubscribedSkuData(Suite, "SUITE_WITH_COPILOT", 50, 0, 0, 1) });
 
-        public Task<SeatGroupData?> FindGroupAsync(string name, CancellationToken ct) => Task.FromResult(name switch
+        public Task<SeatGroupData?> FindGroupAsync(string name, CancellationToken ct) => GroupsRefused ? throw new IntegrationPermissionException("Microsoft Graph", 403) : Task.FromResult(name switch
         {
             "GSGu_MCO_CopilotM365" => new SeatGroupData(Lic, name, true, new[] { AddOn }),
             "GSGu_MCO_ATracking" => new SeatGroupData(TrackA, name, true, Array.Empty<Guid>()),
@@ -86,12 +88,91 @@ public sealed class SeatSyncTests(DatabaseFixture db) : IClassFixture<DatabaseFi
         public Task<InsightsActivity> ReadAsync(CancellationToken ct) => activity is null ? throw new InvalidOperationException("Insights database unavailable (test)") : Task.FromResult(activity);
     }
 
-    private (SeatSyncService Service, Db Db, FakeSeats Api) Build(DateTime now, IInsightsActivitySource? insights = null)
+    /// <summary>The same groups in on-premises AD, under their AD objectGUIDs, with members by sign-in name.</summary>
+    private sealed class FakeAd : IAdGroupApi
+    {
+        public static readonly Guid AdLic = G(0xB1), AdA = G(0xB2), AdB = G(0xB3), AdExcl = G(0xB4);
+        public string? DomainAsked { get; private set; }
+
+        public Task<AdGroupData?> FindGroupAsync(string name, string? domain, CancellationToken ct)
+        {
+            DomainAsked = domain;
+            return Task.FromResult(AdGroups.BareName(name) switch
+            {
+                "GSGu_MCO_CopilotM365" => new AdGroupData(AdLic, "CN=GSGu_MCO_CopilotM365,OU=Groups,DC=users,DC=contoso,DC=com", "GSGu_MCO_CopilotM365"),
+                "GSGu_MCO_ATracking" => new AdGroupData(AdA, "CN=GSGu_MCO_ATracking,OU=Groups,DC=users,DC=contoso,DC=com", "GSGu_MCO_ATracking"),
+                "GSGu_MCO_BTracking" => new AdGroupData(AdB, "CN=GSGu_MCO_BTracking,OU=Groups,DC=users,DC=contoso,DC=com", "GSGu_MCO_BTracking"),
+                "GSGu_MCO_ExclusionLic" => new AdGroupData(AdExcl, "CN=GSGu_MCO_ExclusionLic,OU=Groups,DC=users,DC=contoso,DC=com", "GSGu_MCO_ExclusionLic"),
+                _ => (AdGroupData?)null,
+            });
+        }
+
+        public Task<AdGroupMembersData> MembersAsync(AdGroupData group, string? domain, CancellationToken ct)
+        {
+            static AdUserData U(int i) => new(null, $"p{i + 1}@contoso.example", null);
+            return Task.FromResult(
+                group.ObjectGuid == AdLic ? new AdGroupMembersData(new[] { U(0), U(1), U(2), U(3), U(5), U(6), U(8), U(9) }, 1, 0)
+              : group.ObjectGuid == AdA ? new AdGroupMembersData(new[] { U(0), U(1), U(2), U(3), U(5), U(6), new AdUserData("S-1-5-21-77", "stranger@users.contoso.com", null) }, 0, 0)
+              : group.ObjectGuid == AdB ? new AdGroupMembersData(new[] { U(3), U(7), U(8), U(9) }, 0, 0)
+              : group.ObjectGuid == AdExcl ? new AdGroupMembersData(new[] { U(9) }, 0, 0)
+              : new AdGroupMembersData(Array.Empty<AdUserData>(), 0, 0));
+        }
+    }
+
+    private sealed class DomainInsights(string domain) : IInsightsActivitySource
+    {
+        public Task<InsightsActivity> ReadAsync(CancellationToken ct) => throw new InvalidOperationException("no activity (test)");
+        public Task<string?> DirectoryDomainAsync(CancellationToken ct) => Task.FromResult<string?>(domain);
+    }
+
+    private (SeatSyncService Service, Db Db, FakeSeats Api) Build(DateTime now, IInsightsActivitySource? insights = null, IAdGroupApi? ad = null)
     {
         var clock = new FixedClock(now);
         var appDb = new Db(Options.Create(new DbOptions { ConnectionString = db.WorkerConnectionString }), SystemPrincipal.Instance);
         var api = new FakeSeats();
-        return (new SeatSyncService(appDb, api, new FindingWriter(new OutboxWriter(), clock), clock, NullLogger<SeatSyncService>.Instance, insights), appDb, api);
+        return (new SeatSyncService(appDb, api, new FindingWriter(new OutboxWriter(), clock), clock, NullLogger<SeatSyncService>.Instance, insights, ad), appDb, api);
+    }
+
+    [Fact]
+    public async Task Seat_groups_are_read_from_AD_when_Graph_refuses_them_and_count_the_same()
+    {
+        using var c = db.Admin();
+        var (a, b) = await ArrangeAsync(c);
+        var ad = new FakeAd();
+        var (service, appDb, api) = Build(new DateTime(2026, 11, 3, 12, 0, 0, DateTimeKind.Utc), new DomainInsights("users.contoso.com"), ad);
+        api.GroupsRefused = true;
+        await service.RunAsync(null, default);
+        using var w = await appDb.OpenSystemAsync();
+
+        var run = await w.QuerySingleAsync<(string Status, string Message)>("SELECT TOP 1 Status, Message FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY SyncRunId DESC");
+        Assert.Equal("SUCCEEDED", run.Status);
+        Assert.Contains("read from on-premises AD", run.Message);
+        Assert.Contains("in users.contoso.com", run.Message);              // the users' domain from Copilot Insights
+        Assert.Contains("1 member(s) of GSGu_MCO_ATracking in AD matched no Entra account", run.Message);
+        Assert.Equal("users.contoso.com", ad.DomainAsked);
+        Assert.Equal(FakeAd.AdA, await w.ExecuteScalarAsync<Guid>("SELECT AdObjectGuid FROM core.SeatGroup WHERE DisplayName = N'GSGu_MCO_ATracking' AND EffectiveTo IS NULL"));
+
+        // The same position as from Entra: members are kept under the AD group's key and joined through it.
+        var pos = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int TrackingMembers, int AssignedSeats, int OverSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, TrackingMembers, AssignedSeats, OverSeats FROM rpt.fn_SeatPosition('2026-11-03')")).ToList();
+        Assert.Contains((a, 2, 6, 5, 3), pos.Select(p => (p.FundingOwnerId ?? 0, p.ReservedSeats, p.TrackingMembers, p.AssignedSeats, p.OverSeats)));
+        Assert.Contains((b, 5, 4, 3, 0), pos.Select(p => (p.FundingOwnerId ?? 0, p.ReservedSeats, p.TrackingMembers, p.AssignedSeats, p.OverSeats)));
+        Assert.Equal(0, await w.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM intg.GroupMember WHERE GroupId IN (@TrackA, @TrackB)", new { TrackA, TrackB }));
+
+        var readings = (await w.QueryAsync<(string DisplayName, bool Found, string MembersFrom, int? Unmatched)>(
+            "SELECT g.DisplayName, r.Found, r.MembersFrom, r.UnmatchedMembers FROM intg.SeatGroupReading r JOIN core.SeatGroup g ON g.SeatGroupId = r.SeatGroupId WHERE r.SyncRunId = (SELECT MAX(SyncRunId) FROM intg.SeatGroupReading)")).ToList();
+        Assert.All(readings, r => Assert.Equal("AD", r.MembersFrom));
+        Assert.Equal(1, readings.Single(r => r.DisplayName == "GSGu_MCO_ATracking").Unmatched);
+        Assert.False(readings.Single(r => r.DisplayName == "GSGu_MCO_Gone").Found);
+        Assert.Equal(1, await w.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM ops.Finding WHERE FindingType = @t AND Status = 'OPEN'", new { t = FindingTypes.SeatTwoLobs }));
+
+        // Back on Entra (the permission granted): the AD rows go, so nobody is counted twice.
+        var (graph, _, _) = Build(new DateTime(2026, 11, 3, 13, 0, 0, DateTimeKind.Utc));
+        await graph.RunAsync(null, default);
+        Assert.Equal(0, await w.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM intg.GroupMember WHERE GroupId IN (@AdA, @AdB)", new { FakeAd.AdA, FakeAd.AdB }));
+        pos = (await w.QueryAsync<(int? FundingOwnerId, int ReservedSeats, int TrackingMembers, int AssignedSeats, int OverSeats)>(
+            "SELECT FundingOwnerId, ReservedSeats, TrackingMembers, AssignedSeats, OverSeats FROM rpt.fn_SeatPosition('2026-11-03')")).ToList();
+        Assert.Contains((a, 2, 6, 5, 3), pos.Select(p => (p.FundingOwnerId ?? 0, p.ReservedSeats, p.TrackingMembers, p.AssignedSeats, p.OverSeats)));
     }
 
     [Fact]

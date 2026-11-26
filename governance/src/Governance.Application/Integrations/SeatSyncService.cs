@@ -10,7 +10,7 @@ namespace Governance.Application.Integrations;
 /// X13 (daily and on demand): reads Copilot seat licenses from Microsoft Graph, app-only and read-only.
 /// <list type="number">
 /// <item>Subscribed SKUs: purchased and assigned units per SKU; known Copilot add-on SKUs are recorded in core.SeatSku.</item>
-/// <item>Seat groups (core.SeatGroup): resolved by name, membership into intg.GroupMember, nesting and sync source recorded.</item>
+/// <item>Seat groups (core.SeatGroup): resolved by name in Entra or on-premises AD (Seats.GroupMembersFrom), membership into intg.GroupMember, nesting and sync source recorded.</item>
 /// <item>Holders of every active seat SKU with their license states (group or direct, errors) into intg.SeatHolder.</item>
 /// <item>Copilot activity: from Copilot Insights' own records when the Workbench can read them, else the Copilot usage report
 /// when Reports.Read.All is granted and user names are not concealed.</item>
@@ -18,7 +18,7 @@ namespace Governance.Application.Integrations;
 /// Then it raises seat findings, proposes inactive seats for reclaim and takes the monthly draft chargeback snapshot.
 /// The Workbench never changes a license or a group: OIM and ServiceNow do, through the institution's own process.
 /// </summary>
-public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter findings, IClock clock, ILogger<SeatSyncService> log, IInsightsActivitySource? insights = null)
+public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter findings, IClock clock, ILogger<SeatSyncService> log, IInsightsActivitySource? insights = null, IAdGroupApi? ad = null)
 {
     /// <summary>Microsoft 365 Copilot add-on SKUs (Microsoft Learn: product names and service plan identifiers for licensing).</summary>
     public static readonly IReadOnlyDictionary<string, (Guid SkuId, string Name)> KnownAddOns = new Dictionary<string, (Guid, string)>(StringComparer.OrdinalIgnoreCase)
@@ -30,7 +30,7 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
 
     public const string FindingsLink = "/workbench/Operations/Findings";
 
-    private sealed record GroupRow(int SeatGroupId, Guid? EntraGroupId, string DisplayName, string Purpose);
+    private sealed record GroupRow(int SeatGroupId, Guid? EntraGroupId, Guid? AdObjectGuid, string DisplayName, string Purpose, string Source);
 
     /// <summary>Each person's last Copilot activity into intg.CopilotActivity; people no longer in the source leave it.</summary>
     private Task<int> WriteActivityAsync(IEnumerable<(string UserPrincipalName, DateTime? LastActivityDate)> users, DateTime? refresh, long runId, CancellationToken ct)
@@ -77,9 +77,6 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                 return 0;
             }, ct);
 
-            // 2. Seat groups.
-            var groupsRead = await ReadGroupsAsync(runId, today, notes, ct);
-
             // 3. Holders of every active seat SKU, with their license states.
             var activeSkus = (await db.InTransactionAsync(u => u.QueryAsync<Guid>("SELECT SkuId FROM core.SeatSku WHERE IsActive = 1"), ct)).ToList();
             var holders = 0;
@@ -105,13 +102,16 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                     return 0;
                 }, ct);
             }
+            // 2. Seat groups, after the holders: members read from AD are matched to Entra accounts by the holders' sign-ins too.
+            var settings = await db.InTransactionAsync(SeatSettings.LoadAsync, ct);
+            var groupsRead = await ReadGroupsAsync(runId, today, notes, settings, ct);
+
             // SKUs no longer active keep no holder rows.
             await db.InTransactionAsync(u => u.ExecuteAsync("DELETE h FROM intg.SeatHolder h WHERE NOT EXISTS (SELECT 1 FROM core.SeatSku k WHERE k.SkuId = h.SkuId AND k.IsActive = 1)"), ct);
             if (activeSkus.Count == 0) notes.Add("No Copilot SKU is recorded yet: none of the tenant's subscribed SKUs is a known Copilot add-on. An administrator can add the SKU in core.SeatSku.");
 
             // 4. Copilot activity: Copilot Insights' own records when the Workbench can read them (every loaded day, names
             //    never hidden), else the usage report (Reports.Read.All). Optional either way: a refusal is a note, not a failure.
-            var settings = await db.InTransactionAsync(SeatSettings.LoadAsync, ct);
             var usageRead = false;
             if (insights is not null)
             {
@@ -197,65 +197,208 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
         }
     }
 
-    private async Task<int> ReadGroupsAsync(long runId, DateTime today, List<string> notes, CancellationToken ct)
+    /// <summary>
+    /// The seat groups' members, from Entra (Microsoft Graph) or on-premises AD as Seats.GroupMembersFrom says. With AUTO,
+    /// a group read Graph refuses (no GroupMember.Read.All) is read from AD instead, for this group and the rest of the run,
+    /// when it is an on-premises group and the server can read AD.
+    /// </summary>
+    private async Task<int> ReadGroupsAsync(long runId, DateTime today, List<string> notes, SeatSettings settings, CancellationToken ct)
     {
         var groups = (await db.InTransactionAsync(u => u.QueryAsync<GroupRow>(
-            "SELECT SeatGroupId, EntraGroupId, DisplayName, Purpose FROM core.SeatGroup WHERE EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)",
+            "SELECT SeatGroupId, EntraGroupId, AdObjectGuid, DisplayName, Purpose, Source FROM core.SeatGroup WHERE EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)",
             new { today }), ct)).ToList();
+        var mode = AdGroups.Mode(settings.GroupMembersFrom);
+        var useAd = mode == AdGroups.FromAd;
+        var reader = ad is null ? null : new AdReading(db, ad, insights, log, settings, notes);
         var read = 0;
         foreach (var g in groups)
         {
-            SeatGroupData? found;
-            try { found = g.EntraGroupId is Guid id ? await api.GetGroupAsync(id, ct) : await api.FindGroupAsync(g.DisplayName, ct); }
-            catch (IntegrationPermissionException) { throw; }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            if (!useAd)
             {
-                log.LogWarning(ex, "Seat group {Group} could not be read; keeping its last good membership.", g.DisplayName);
-                notes.Add($"Group {g.DisplayName} could not be read; its last membership was kept.");
+                try
+                {
+                    if (await ReadEntraGroupAsync(g, runId, notes, ct)) read++;
+                    continue;
+                }
+                catch (IntegrationPermissionException) when (mode == AdGroups.Auto && ad is not null)
+                {
+                    useAd = true;
+                    notes.Add("Microsoft Graph refused to read the seat groups (GroupMember.Read.All is not granted), so they were read from on-premises AD.");
+                }
+            }
+            if (ad is null)
+            {
+                notes.Add("Seat groups are to be read from AD, but this server cannot read AD (it is not Windows). The last membership was kept.");
+                return read;
+            }
+            if (g.Source == "CLOUD")
+            {
+                notes.Add($"{g.DisplayName} is a cloud group, which AD does not hold: its last membership was kept. Reading it needs GroupMember.Read.All.");
                 continue;
             }
-            if (found is null)
-            {
-                await db.InTransactionAsync(u => u.ExecuteAsync(
-                    "INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found) VALUES (@runId, @SeatGroupId, @EntraGroupId, 0)",
-                    new { runId, g.SeatGroupId, g.EntraGroupId }), ct);
-                continue;
-            }
-            if (found.DuplicateName) notes.Add($"More than one Entra group is named {g.DisplayName}; the first was used. Record its object ID on the seat group.");
-
-            GroupMembersData members;
-            try { members = await api.GroupMembersAsync(found.Id, ct); }
-            catch (IntegrationPermissionException) { throw; }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                log.LogWarning(ex, "Members of seat group {Group} could not be read; keeping the last good membership.", g.DisplayName);
-                notes.Add($"Members of {g.DisplayName} could not be read; the last membership was kept.");
-                continue;
-            }
-            await db.InTransactionAsync(async uow =>
-            {
-                if (g.EntraGroupId is null)
-                    await uow.ExecuteAsync("UPDATE core.SeatGroup SET EntraGroupId = @id WHERE SeatGroupId = @SeatGroupId AND EntraGroupId IS NULL", new { id = found.Id, g.SeatGroupId });
-                foreach (var m in members.UserIds.Distinct())
-                    await uow.ExecuteAsync(
-                        "MERGE intg.GroupMember AS t USING (SELECT @groupId AS GroupId, @m AS MemberObjectId) AS s ON t.GroupId = s.GroupId AND t.MemberObjectId = s.MemberObjectId WHEN MATCHED THEN UPDATE SET LastSeenRunId = @runId WHEN NOT MATCHED THEN INSERT (GroupId, MemberObjectId, LastSeenRunId) VALUES (@groupId, @m, @runId);",
-                        new { groupId = found.Id, m, runId });
-                await uow.ExecuteAsync("DELETE FROM intg.GroupMember WHERE GroupId = @groupId AND LastSeenRunId <> @runId", new { groupId = found.Id, runId });
-                await uow.ExecuteAsync(
-                    """
-                    INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found, OnPremisesSynced, UserMembers, NestedGroups, LicensedSkuIds)
-                    VALUES (@runId, @SeatGroupId, @id, 1, @OnPremisesSyncEnabled, @users, @NestedGroups, @skus)
-                    """,
-                    new
-                    {
-                        runId, g.SeatGroupId, id = found.Id, found.OnPremisesSyncEnabled, users = members.UserIds.Count, members.NestedGroups,
-                        skus = found.LicensedSkuIds.Count == 0 ? null : string.Join(",", found.LicensedSkuIds),
-                    });
-                return 0;
-            }, ct);
-            read++;
+            if (await reader!.ReadAsync(g, runId, ct)) read++;
         }
         return read;
+    }
+
+    /// <summary>A group's members from Entra. False when the group is missing or could not be read (its last membership is kept).</summary>
+    private async Task<bool> ReadEntraGroupAsync(GroupRow g, long runId, List<string> notes, CancellationToken ct)
+    {
+        SeatGroupData? found;
+        try { found = g.EntraGroupId is Guid id ? await api.GetGroupAsync(id, ct) : await api.FindGroupAsync(g.DisplayName, ct); }
+        catch (IntegrationPermissionException) { throw; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogWarning(ex, "Seat group {Group} could not be read; keeping its last good membership.", g.DisplayName);
+            notes.Add($"Group {g.DisplayName} could not be read; its last membership was kept.");
+            return false;
+        }
+        if (found is null)
+        {
+            await db.InTransactionAsync(u => u.ExecuteAsync(
+                "INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found, MembersFrom) VALUES (@runId, @SeatGroupId, @EntraGroupId, 0, 'ENTRA')",
+                new { runId, g.SeatGroupId, g.EntraGroupId }), ct);
+            return false;
+        }
+        if (found.DuplicateName) notes.Add($"More than one Entra group is named {g.DisplayName}; the first was used. Record its object ID on the seat group.");
+
+        GroupMembersData members;
+        try { members = await api.GroupMembersAsync(found.Id, ct); }
+        catch (IntegrationPermissionException) { throw; }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogWarning(ex, "Members of seat group {Group} could not be read; keeping the last good membership.", g.DisplayName);
+            notes.Add($"Members of {g.DisplayName} could not be read; the last membership was kept.");
+            return false;
+        }
+        await db.InTransactionAsync(async uow =>
+        {
+            if (g.EntraGroupId is null)
+                await uow.ExecuteAsync("UPDATE core.SeatGroup SET EntraGroupId = @id WHERE SeatGroupId = @SeatGroupId AND EntraGroupId IS NULL", new { id = found.Id, g.SeatGroupId });
+            await WriteMembersAsync(uow, found.Id, members.UserIds, runId, otherKey: g.AdObjectGuid);
+            await uow.ExecuteAsync(
+                """
+                INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found, OnPremisesSynced, UserMembers, NestedGroups, LicensedSkuIds, MembersFrom)
+                VALUES (@runId, @SeatGroupId, @id, 1, @OnPremisesSyncEnabled, @users, @NestedGroups, @skus, 'ENTRA')
+                """,
+                new
+                {
+                    runId, g.SeatGroupId, id = found.Id, found.OnPremisesSyncEnabled, users = members.UserIds.Count, members.NestedGroups,
+                    skus = found.LicensedSkuIds.Count == 0 ? null : string.Join(",", found.LicensedSkuIds),
+                });
+            return 0;
+        }, ct);
+        return true;
+    }
+
+    /// <summary>
+    /// A group's members under one key, in one statement. Rows kept under the group's other key (its Entra ID when read
+    /// from AD, its AD objectGUID when read from Entra) are removed, so no one is counted twice.
+    /// </summary>
+    private static async Task WriteMembersAsync(Uow uow, Guid groupId, IEnumerable<Guid> members, long runId, Guid? otherKey)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(members.Distinct());
+        await uow.ExecuteAsync(
+            """
+            MERGE intg.GroupMember AS t
+            USING (SELECT DISTINCT CAST(value AS uniqueidentifier) AS MemberObjectId FROM OPENJSON(@json)) AS s
+               ON t.GroupId = @groupId AND t.MemberObjectId = s.MemberObjectId
+            WHEN MATCHED THEN UPDATE SET LastSeenRunId = @runId
+            WHEN NOT MATCHED THEN INSERT (GroupId, MemberObjectId, LastSeenRunId) VALUES (@groupId, s.MemberObjectId, @runId);
+            DELETE FROM intg.GroupMember WHERE GroupId = @groupId AND LastSeenRunId <> @runId;
+            IF @otherKey IS NOT NULL AND @otherKey <> @groupId DELETE FROM intg.GroupMember WHERE GroupId = @otherKey;
+            """, new { json, groupId, runId, otherKey });
+    }
+
+    /// <summary>One run's reads from AD: the domain and the known accounts are looked up once, for the first group read.</summary>
+    private sealed class AdReading(Db db, IAdGroupApi ad, IInsightsActivitySource? insights, ILogger log, SeatSettings settings, List<string> notes)
+    {
+        private bool resolved;
+        private string? domain;
+        private IReadOnlyList<KnownAccount>? known;
+
+        private async Task<string?> DomainAsync(CancellationToken ct)
+        {
+            if (resolved) return domain;
+            resolved = true;
+            domain = settings.AdDomain.Length > 0 ? settings.AdDomain : null;
+            if (domain is null && insights is not null)
+            {
+                try { domain = await insights.DirectoryDomainAsync(ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogWarning(ex, "The users' AD domain could not be read from Copilot Insights.");
+                }
+            }
+            notes.Add($"Seat groups read from AD in {domain ?? "this server's own domain"}.");
+            return domain;
+        }
+
+        /// <summary>The Workbench's people, the seat holders and Copilot Insights' directory, for matching AD members to Entra accounts.</summary>
+        private async Task<IReadOnlyList<KnownAccount>> KnownAsync(CancellationToken ct)
+        {
+            if (known is not null) return known;
+            var list = (await db.InTransactionAsync(u => u.QueryAsync<KnownAccount>(
+                """
+                SELECT EntraObjectId AS ObjectId, UserPrincipalName, Mail, CAST(NULL AS nvarchar(184)) AS Sid FROM sec.Person WHERE EntraObjectId IS NOT NULL
+                UNION ALL
+                SELECT DISTINCT MemberObjectId, UserPrincipalName, CAST(NULL AS nvarchar(256)), CAST(NULL AS nvarchar(184)) FROM intg.SeatHolder WHERE UserPrincipalName IS NOT NULL
+                """), ct)).ToList();
+            if (insights is not null)
+            {
+                try { list.AddRange(await insights.AccountsAsync(ct)); }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log.LogWarning(ex, "Copilot Insights' directory could not be read to match AD members.");
+                    notes.Add("Copilot Insights' directory could not be read, so AD members were matched by sign-in name and mail only.");
+                }
+            }
+            return known = list;
+        }
+
+        public async Task<bool> ReadAsync(GroupRow g, long runId, CancellationToken ct)
+        {
+            var dom = await DomainAsync(ct);
+            AdGroupData? found;
+            AdGroupMembersData members;
+            try
+            {
+                found = await ad.FindGroupAsync(g.DisplayName, dom, ct);
+                if (found is null)
+                {
+                    await db.InTransactionAsync(u => u.ExecuteAsync(
+                        "INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found, MembersFrom, AdObjectGuid) VALUES (@runId, @SeatGroupId, @EntraGroupId, 0, 'AD', @AdObjectGuid)",
+                        new { runId, g.SeatGroupId, g.EntraGroupId, g.AdObjectGuid }), ct);
+                    return false;
+                }
+                members = await ad.MembersAsync(found, dom, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogWarning(ex, "Seat group {Group} could not be read from AD; keeping its last good membership.", g.DisplayName);
+                notes.Add($"Group {g.DisplayName} could not be read from AD ({dom ?? "this server's domain"}); its last membership was kept.");
+                return false;
+            }
+            if (found.DuplicateName) notes.Add($"More than one AD group matches {g.DisplayName}; the one whose account name is {found.Name} was used.");
+            var (ids, unmatched) = AdGroups.Match(members.Users, await KnownAsync(ct));
+            await db.InTransactionAsync(async uow =>
+            {
+                await uow.ExecuteAsync("UPDATE core.SeatGroup SET AdObjectGuid = @guid WHERE SeatGroupId = @SeatGroupId AND (AdObjectGuid IS NULL OR AdObjectGuid <> @guid)",
+                    new { guid = found.ObjectGuid, g.SeatGroupId });
+                await WriteMembersAsync(uow, found.ObjectGuid, ids, runId, otherKey: g.EntraGroupId);
+                await uow.ExecuteAsync(
+                    """
+                    INSERT intg.SeatGroupReading (SyncRunId, SeatGroupId, EntraGroupId, Found, OnPremisesSynced, UserMembers, NestedGroups, MembersFrom, AdObjectGuid, UnmatchedMembers)
+                    VALUES (@runId, @SeatGroupId, @EntraGroupId, 1, 1, @users, @nested, 'AD', @guid, @unmatched)
+                    """, new { runId, g.SeatGroupId, g.EntraGroupId, users = ids.Count, nested = members.NestedGroups, guid = found.ObjectGuid, unmatched });
+                return 0;
+            }, ct);
+            if (unmatched > 0)
+                notes.Add($"{unmatched} member(s) of {g.DisplayName} in AD matched no Entra account by SID, sign-in name or mail, and are not counted. Copilot Insights' nightly directory and license loads match most of them.");
+            if (members.Unresolved > 0)
+                notes.Add($"{members.Unresolved} member(s) of {g.DisplayName} are not users or groups this account can read (another forest's accounts, or contacts), and are not counted.");
+            return true;
+        }
     }
 
     /// <summary>
@@ -299,7 +442,7 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
             LEFT JOIN intg.CopilotActivity a ON a.UserPrincipalName = p.UserPrincipalName
             OUTER APPLY (SELECT CASE WHEN COUNT(*) = 1 THEN MIN(g.FundingOwnerId) END AS FundingOwnerId
                          FROM intg.GroupMember gm
-                         JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
+                         JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.Purpose = 'LOB_TRACKING'
                               AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
                          WHERE gm.MemberObjectId = s.MemberObjectId) lob
             -- Since when the person has held a seat: the earliest of the license state's date in Entra and the day the
@@ -363,12 +506,12 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
 /// </summary>
 public sealed class SeatFindingRules(FindingWriter findings, DateTime today, long runId)
 {
-    private sealed record Reading(int SeatGroupId, string DisplayName, string Purpose, int? FundingOwnerId, bool Found, int? NestedGroups);
+    private sealed record Reading(int SeatGroupId, string DisplayName, string Purpose, int? FundingOwnerId, bool Found, int? NestedGroups, string? MembersFrom);
 
     public sealed record Hit(string Key, string Severity, string Title, string? Details, int? FundingOwnerId, string? ExternalId, string? Expected = null, string? Actual = null);
 
     private const string TrackingGroups =
-        "core.SeatGroup g ON g.Purpose = 'LOB_TRACKING' AND g.EntraGroupId IS NOT NULL AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)";
+        "core.SeatGroup g ON g.Purpose = 'LOB_TRACKING' AND (g.EntraGroupId IS NOT NULL OR g.AdObjectGuid IS NOT NULL) AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)";
 
     private const string HolderName =
         "COALESCE(p.DisplayName, (SELECT TOP (1) x.UserPrincipalName FROM intg.SeatHolder x WHERE x.MemberObjectId = s.MemberObjectId AND x.UserPrincipalName IS NOT NULL), CONVERT(nvarchar(36), s.MemberObjectId))";
@@ -404,7 +547,7 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
             $"""
             SELECT s.MemberObjectId, {HolderName} AS Name
             FROM rpt.fn_SeatHolders() s LEFT JOIN sec.Person p ON p.EntraObjectId = s.MemberObjectId
-            WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm JOIN {TrackingGroups} AND g.EntraGroupId = gm.GroupId WHERE gm.MemberObjectId = s.MemberObjectId)
+            WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm JOIN {TrackingGroups} AND gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) WHERE gm.MemberObjectId = s.MemberObjectId)
             """, new { today }))
             .Select(r => new Hit($"{FindingTypes.SeatNoLob}:{r.MemberObjectId}", "MEDIUM", $"{r.Name} holds a Copilot seat but is in no LOB tracking group",
                 "No LOB is charged for this seat. Request the person's LOB role in OIM (which adds the tracking group), or remove the license role.", null, r.MemberObjectId.ToString())));
@@ -413,7 +556,7 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
         raised += await ApplyAsync(uow, FindingTypes.SeatTwoLobs, notify: false, (await uow.QueryAsync<(Guid MemberObjectId, string Name, string Groups)>(
             $"""
             SELECT gm.MemberObjectId, COALESCE(MAX(p.DisplayName), CONVERT(nvarchar(36), gm.MemberObjectId)) AS Name, STRING_AGG(g.DisplayName, N', ') AS Groups
-            FROM intg.GroupMember gm JOIN {TrackingGroups} AND g.EntraGroupId = gm.GroupId
+            FROM intg.GroupMember gm JOIN {TrackingGroups} AND gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)
             LEFT JOIN sec.Person p ON p.EntraObjectId = gm.MemberObjectId
             GROUP BY gm.MemberObjectId HAVING COUNT(DISTINCT g.FundingOwnerId) > 1
             """, new { today }))
@@ -424,7 +567,7 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
         raised += await ApplyAsync(uow, FindingTypes.SeatTrackedNoLicense, notify: false, (await uow.QueryAsync<(Guid MemberObjectId, string Name, int FundingOwnerId, string GroupName)>(
             $"""
             SELECT gm.MemberObjectId, COALESCE(p.DisplayName, CONVERT(nvarchar(36), gm.MemberObjectId)) AS Name, g.FundingOwnerId, g.DisplayName AS GroupName
-            FROM intg.GroupMember gm JOIN {TrackingGroups} AND g.EntraGroupId = gm.GroupId
+            FROM intg.GroupMember gm JOIN {TrackingGroups} AND gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)
             LEFT JOIN sec.Person p ON p.EntraObjectId = gm.MemberObjectId
             WHERE NOT EXISTS (SELECT 1 FROM rpt.fn_SeatHolders() s WHERE s.MemberObjectId = gm.MemberObjectId)
             """, new { today }))
@@ -469,7 +612,7 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
             SELECT s.MemberObjectId, {HolderName} AS Name, MIN(g.DisplayName) AS GroupName
             FROM rpt.fn_SeatHolders() s
             JOIN intg.GroupMember gm ON gm.MemberObjectId = s.MemberObjectId
-            JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'EXCLUSION' AND g.PurposeConfirmed = 1
+            JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.Purpose = 'EXCLUSION' AND g.PurposeConfirmed = 1
                  AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
             LEFT JOIN sec.Person p ON p.EntraObjectId = s.MemberObjectId
             GROUP BY s.MemberObjectId, p.DisplayName
@@ -493,13 +636,15 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
         // Seat groups this run: missing in Entra, or nesting groups (group-based licensing ignores nested members).
         var readings = (await uow.QueryAsync<Reading>(
             """
-            SELECT g.SeatGroupId, g.DisplayName, g.Purpose, g.FundingOwnerId, r.Found, r.NestedGroups
+            SELECT g.SeatGroupId, g.DisplayName, g.Purpose, g.FundingOwnerId, r.Found, r.NestedGroups, r.MembersFrom
             FROM intg.SeatGroupReading r JOIN core.SeatGroup g ON g.SeatGroupId = r.SeatGroupId
             WHERE r.SyncRunId = @latestRun
             """, new { latestRun })).ToList();
         raised += await ApplyAsync(uow, FindingTypes.SeatGroupMissing, notify: true, readings.Where(r => !r.Found)
-            .Select(r => new Hit($"{FindingTypes.SeatGroupMissing}:{r.SeatGroupId}", r.Purpose == SeatGroupPurposes.License ? "HIGH" : "MEDIUM", $"Seat group {r.DisplayName} was not found in Entra",
-                "No Entra group has this name (or the recorded object ID was deleted). Check the name on the seat group and that Entra Connect syncs it.", r.FundingOwnerId, r.DisplayName)));
+            .Select(r => new Hit($"{FindingTypes.SeatGroupMissing}:{r.SeatGroupId}", r.Purpose == SeatGroupPurposes.License ? "HIGH" : "MEDIUM", r.MembersFrom == AdGroups.FromAd ? $"Seat group {r.DisplayName} was not found in AD" : $"Seat group {r.DisplayName} was not found in Entra",
+                r.MembersFrom == AdGroups.FromAd
+                    ? "No AD group in the seat groups' domain has this account name, common name or display name. Check the name on the seat group and the domain (Seats.AdDomain, or the users' AD domain on Copilot Insights' Admin > Directory quality)."
+                    : "No Entra group has this name (or the recorded object ID was deleted). Check the name on the seat group and that Entra Connect syncs it.", r.FundingOwnerId, r.DisplayName)));
         raised += await ApplyAsync(uow, FindingTypes.SeatNestedGroup, notify: true, readings.Where(r => r.Found && r.NestedGroups > 0
                 && r.Purpose is SeatGroupPurposes.License or SeatGroupPurposes.LobTracking)
             .Select(r => new Hit($"{FindingTypes.SeatNestedGroup}:{r.SeatGroupId}", r.Purpose == SeatGroupPurposes.License ? "HIGH" : "MEDIUM", $"Seat group {r.DisplayName} contains other groups",
@@ -515,7 +660,7 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
             FROM rpt.fn_SeatHolders() s
             JOIN sec.Person p ON p.EntraObjectId = s.MemberObjectId
             JOIN intg.GroupMember gm ON gm.MemberObjectId = s.MemberObjectId
-            JOIN {TrackingGroups} AND g.EntraGroupId = gm.GroupId
+            JOIN {TrackingGroups} AND gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)
             JOIN core.FundingOwner tfo ON tfo.FundingOwnerId = g.FundingOwnerId
             CROSS APPLY (SELECT TOP (1) x.FundingOwnerId FROM (
                     SELECT o.FundingOwnerId, 0 AS Rank FROM core.AttributionOverride o

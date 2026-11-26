@@ -1,4 +1,4 @@
-# release 3.5.0
+# release 3.5.1
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1949,6 +1949,7 @@ C	copilot	dash.ValueName	U	3	Name	nvarchar(200)	0
 C	copilot	dash.ValueName	U	4	Note	nvarchar(400)	1	
 C	copilot	dash.ValueName	U	5	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.ValueName	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.WorkbenchDirectory	V	1	Domain	nvarchar(400)	1	
 C	copilot	dash.fnReservationMember	IF	1	ReservationId	int	0	
 C	copilot	dash.fnReservationMember	IF	2	UserKey	int	0	
 C	copilot	dash.fnReservationMember	IF	3	Upn	nvarchar(512)	0	
@@ -2586,6 +2587,7 @@ O	copilot	dash.UserItemWeek	U
 O	copilot	dash.UserPeriod	U
 O	copilot	dash.UserWeek	U
 O	copilot	dash.ValueName	U
+O	copilot	dash.WorkbenchDirectory	V
 O	copilot	dash.fnReservationMember	IF
 O	copilot	dash.fnScopeUsers	IF
 O	copilot	dash.fnValueName	FN

@@ -101,6 +101,10 @@ public class SeatGroupsModel(SeatQueries seats, SeatCommands commands, RegistryQ
 
     public Task<IActionResult> OnPostEndAsync(Guid id) => Act(() => commands.EndGroupAsync(Idem, id), "Group mapping ended.");
 
+    /// <summary>Who changes the seat settings on this page: a Workbench administrator, the Platform Owner or FinOps.</summary>
+    public bool CanSetSettings => CanEdit || Principal.Can(Permissions.RegistryFinance);
+    public Task<IActionResult> OnPostSettingAsync(string key, string? value) => Act(() => commands.SaveSettingAsync(Idem, key, value), $"{key} saved.");
+
     public Task<IActionResult> OnPostSkuAsync(Guid skuId, string partNumber, string? name, string kind, bool isActive, string? notes)
         => Act(() => commands.SaveSkuAsync(Idem, skuId, partNumber, name ?? partNumber, kind, isActive, notes), "SKU saved.");
 }

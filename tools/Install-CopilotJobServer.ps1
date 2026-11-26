@@ -99,6 +99,7 @@ $ErrorActionPreference = 'Stop'
 $script:Bound = $PSBoundParameters
 $script:Root = Split-Path $PSScriptRoot -Parent
 $script:TaskName = 'Copilot audit - nightly'
+$script:DirectoryTaskName = 'Copilot audit - directory on request'
 $script:CertSubject = 'CN=Copilot audit pipeline'
 if (-not $SettingsPath) { $SettingsPath = Join-Path $script:Root 'copilot-audit.settings.psd1' }
 
@@ -347,6 +348,33 @@ function Register-NightlyTask {
     Write-Done "'$script:TaskName' runs daily at $Time as $Account"
 }
 
+function Register-DirectoryTask {
+    <#
+        Every 15 minutes, the pipeline with -DirectoryOnRequest: it does nothing unless an administrator asked for a
+        directory load on the dashboard (Admin > Directory quality), and then loads the users from AD and rebuilds the
+        org chart. Same account as the nightly task; one copy at a time.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string] $Account, [pscredential] $Credential)
+    $pipeline = Join-Path $script:Root 'Invoke-CopilotPipeline.ps1'
+    $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+    $action = New-ScheduledTaskAction -Execute $pwsh -WorkingDirectory $script:Root `
+        -Argument "-NoProfile -NonInteractive -File `"$pipeline`" -DirectoryOnRequest"
+    $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 15)
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4)
+    if (-not $PSCmdlet.ShouldProcess($script:DirectoryTaskName, "Schedule every 15 minutes as $Account")) { return }
+    if ($Account.EndsWith('$')) {
+        $principal = New-ScheduledTaskPrincipal -UserId $Account -LogonType Password -RunLevel Limited
+        Register-ScheduledTask -TaskName $script:DirectoryTaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
+    }
+    else {
+        if (-not $Credential) { throw "$Account is not a gMSA: pass -ServiceAccountCredential so the task can store its password." }
+        Register-ScheduledTask -TaskName $script:DirectoryTaskName -Action $action -Trigger $trigger -Settings $settings `
+            -User $Credential.UserName -Password $Credential.GetNetworkCredential().Password -RunLevel Limited -Force | Out-Null
+    }
+    Write-Done "'$script:DirectoryTaskName' looks every 15 minutes for a directory load asked for on the dashboard, as $Account"
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -454,6 +482,7 @@ function Invoke-Main {
     if (-not $SkipSchedule) {
         Write-Step 'Nightly task'
         Register-NightlyTask -Account $account -Credential $ServiceAccountCredential -Time $taskAt
+        Register-DirectoryTask -Account $account -Credential $ServiceAccountCredential
     }
 
     Write-Information '' -InformationAction Continue

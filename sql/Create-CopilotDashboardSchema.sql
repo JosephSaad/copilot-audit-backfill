@@ -973,6 +973,15 @@ IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
         Message         NVARCHAR(2000)  NULL
     );
 
+/* The users' AD domain set on Admin > Directory quality, for the Governance Workbench's seat read: it reads the seat
+   groups from AD in that domain. A view of the one row, so the worker's account is given this and not dash.Setting. */
+EXEC (N'
+CREATE OR ALTER VIEW dash.WorkbenchDirectory
+AS
+SELECT NULLIF(LTRIM(RTRIM(s.Value)), N'''') AS Domain
+FROM dash.Setting AS s
+WHERE s.Name = ''DirectoryDomain'';');
+
 /* Agents with their friendly names: the agent workbook's first, as the list of the current agents; then one set
    by hand in Admin, for an agent the workbook does not name (one since deleted); then the audit log's. */
 EXEC (N'

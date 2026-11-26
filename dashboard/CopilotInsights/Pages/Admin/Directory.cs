@@ -69,6 +69,24 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
         public int TotalRows { get; set; }
     }
 
+    /// <summary>
+    /// Asks the job server for a directory load now (dash.Setting DirectoryLoadRequested: when, and by whom). Its task
+    /// "Copilot audit - directory on request" looks every 15 minutes, loads the users from AD and rebuilds the org
+    /// chart, and writes how it went to DirectoryLoadState.
+    /// </summary>
+    public const string RequestSql = @"
+MERGE dash.Setting AS t USING (SELECT 'DirectoryLoadRequested' AS Name) AS s ON t.Name = s.Name
+WHEN MATCHED THEN UPDATE SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
+     VALUES (s.Name, @v, N'A directory load asked for on Admin › Directory quality. The job server clears it when it starts the load.', @by);";
+
+    public Task<IActionResult> OnPostLoadAsync() => AdminChangeAsync(async () =>
+    {
+        var by = Viewer.Upn ?? Viewer.WindowsName;
+        await Db.ExecuteAsync(RequestSql, new { v = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) + " by " + by, by });
+        return "The directory load is asked for: the job server starts it within 15 minutes, then the org chart is rebuilt. This page says when it is done.";
+    });
+
     const string From = "FROM dash.Person AS p LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = p.Upn";
 
     protected override async Task BuildAsync()
@@ -97,7 +115,21 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
             "Every read of users or groups from Active Directory goes to this domain: the nightly load of users, the groups that grant roles or mark " +
             "non-human accounts, the two groups the weekly Copilot report counts as Users Enabled, and the dashboard's lookup of who is signed in. " +
             "Set it when the dashboard or the job server is in another domain than the users. Empty: TargetDomain, CopilotLicenseGroup and " +
-            "CopilotChatGroup in copilot-audit.settings.psd1 on the job server. A value here wins over the file. It applies from the next nightly load.", "half"));
+            "CopilotChatGroup in copilot-audit.settings.psd1 on the job server. A value here wins over the file. It applies from the next nightly load, or from a load asked for below.", "half"));
+
+        /* 3.5.1: a directory load now, run by the job server's on-request task, so a change in AD or above shows the same day. */
+        var load = (await Db.QueryAsync<(string Name, string? Value)>(
+            "SELECT Name, Value FROM dash.Setting WHERE Name IN ('DirectoryLoadRequested', 'DirectoryLoadState');")).ToDictionary(x => x.Name, x => x.Value ?? "");
+        var asked = load.GetValueOrDefault("DirectoryLoadRequested") ?? "";
+        var state = load.GetValueOrDefault("DirectoryLoadState") ?? "";
+        var status = asked.Length > 0
+            ? $"<b>Asked for</b> {System.Net.WebUtility.HtmlEncode(asked)}: waiting for the job server, which looks every 15 minutes."
+            : state.Length > 0 ? System.Net.WebUtility.HtmlEncode(state) : "Not asked for yet: the directory is loaded each night.";
+        Panels.Add(new("Load the directory now", new HtmlString($"<p class=\"res-state\" role=\"status\">{status}</p>" +
+            (asked.Length > 0 ? "" : Form("load", Button("Load the directory now", "Ask the job server to load the users from AD now and rebuild the org chart?")))),
+            "Loads the users from AD and rebuilds the org chart now, as the nightly run does, without waiting for the night: after a change in AD or in the domain and groups beside. " +
+            "The job server's task \"Copilot audit - directory on request\" picks it up within 15 minutes (tools\\Install-CopilotJobServer.ps1 adds it), and the load takes as long as the night's directory step and dashboard refresh. " +
+            "It waits while the nightly run or an upgrade holds the database.", "half"));
 
         var check = Checks.FirstOrDefault(c => c.Key == Request.Query["check"]);
         var t = new Table { Headers = ["Check", "People", "Share", "Why it matters", ""], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };

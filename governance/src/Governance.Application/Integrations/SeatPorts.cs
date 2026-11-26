@@ -2,8 +2,8 @@ namespace Governance.Application.Integrations;
 
 /// <summary>
 /// Microsoft Graph reads for Copilot seat licenses (X13), app-only and read-only:
-/// LicenseAssignment.Read.All (subscribed SKUs, users' license states), GroupMember.Read.All (seat groups)
-/// and Reports.Read.All (Copilot usage report).
+/// LicenseAssignment.Read.All (subscribed SKUs, users' license states), GroupMember.Read.All (seat groups, unless they are
+/// read from on-premises AD: <see cref="IAdGroupApi"/>) and Reports.Read.All (Copilot usage report).
 /// </summary>
 public interface ISeatLicenseApi
 {

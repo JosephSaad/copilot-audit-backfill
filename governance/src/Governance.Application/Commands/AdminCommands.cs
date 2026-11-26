@@ -160,6 +160,20 @@ public sealed class AdminCommands(CommandRunner run, DecisionRecorder decisions,
             await run.AuditAsync(uow, "group.map", "GroupRoleMap", groupId, $"{(remove ? "remove" : "add")} {roleCode}");
         });
 
+    /// <summary>A Workbench setting changed on Workbench settings › Settings, checked by <see cref="WorkbenchSettings.Check"/>, audited with its old and new value.</summary>
+    public Task SaveSettingAsync(Guid idem, string key, string? value)
+        => run.RunAsync(idem, "setting.save", async uow =>
+        {
+            RequireAdmin();
+            if (!WorkbenchSettings.OnSettingsPage(key)) throw new DomainException("That setting is changed on its own page.");
+            var v = WorkbenchSettings.Check(key, value);
+            var old = await uow.ScalarAsync<string?>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = @key", new { key })
+                ?? throw new DomainException("That setting is not a Workbench setting.");
+            await uow.ExecuteAsync("UPDATE ref.Setting SET SettingValue = @v, UpdatedUtc = SYSUTCDATETIME(), UpdatedByPersonId = @me WHERE SettingKey = @key",
+                new { v, key, me = Me.PersonId });
+            await run.AuditAsync(uow, "setting.save", "Setting", null, $"{key}: {old} -> {v}");
+        });
+
     /// <summary>Business wording: an administrator drafts, the Platform Owner approves (P3: the operating model as data).</summary>
     public Task SaveTextAsync(Guid idem, string key, string body)
         => run.RunAsync(idem, "text.draft", async uow =>

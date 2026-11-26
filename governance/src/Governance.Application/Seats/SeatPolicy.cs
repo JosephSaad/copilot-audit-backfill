@@ -152,6 +152,44 @@ public sealed record SeatSettings(
     public int PurchaseGatePercent { get; init; } = 95;
     /// <summary>The unassigned seats counted when the gate started; 0 until an administrator sets it.</summary>
     public int GateBaselineUnassigned { get; init; }
+    /// <summary>Where the seat read takes the seat groups' members: ENTRA, AD or AUTO (Seats.GroupMembersFrom).</summary>
+    public string GroupMembersFrom { get; init; } = "AUTO";
+    /// <summary>The AD domain of the seat groups (Seats.AdDomain); empty: Copilot Insights' users' domain, else the server's own.</summary>
+    public string AdDomain { get; init; } = "";
+
+    /// <summary>
+    /// A seat setting's value as it is kept, or a refusal saying what it takes. Only the Seats.* settings the seat pages
+    /// read. Pure, for the tests; whether a funding owner code exists is the command's check.
+    /// </summary>
+    public static string Check(string key, string? value)
+    {
+        var v = (value ?? "").Trim();
+        static string Whole(string v, int min, int max, string what) =>
+            int.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n >= min && n <= max ? n.ToString(CultureInfo.InvariantCulture)
+                : throw new DomainException($"{what} is a whole number from {min} to {max}.");
+        return key switch
+        {
+            "Seats.EaAnniversary" => v.Split('-') is [var m, var d] && int.TryParse(m, out var mm) && int.TryParse(d, out var dd) && mm is >= 1 and <= 12
+                                     && dd >= 1 && dd <= DateTime.DaysInMonth(2025, mm)
+                ? $"{mm:00}-{dd:00}" : throw new DomainException("The EA anniversary is month-day, for example 04-01."),
+            "Seats.TrueDownWindowDays" => Whole(v, 0, 365, "The true-down window"),
+            "Seats.OperationalBufferSeats" => Whole(v, 0, 1_000_000, "The buffer"),
+            "Seats.InactiveDays" => Whole(v, 1, 730, "Inactive days"),
+            "Seats.PurchaseGatePercent" => Whole(v, 1, 100, "The purchase gate"),
+            "Seats.GateBaselineUnassigned" => Whole(v, 0, 10_000_000, "The gate's baseline"),
+            "Seats.RatePerSeatMonth" => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) && r >= 0 && r < 100_000
+                ? r.ToString("0.00", CultureInfo.InvariantCulture) : throw new DomainException("The rate is an amount, for example 30.00."),
+            "Seats.Currency" => v.Length == 3 && v.All(char.IsAsciiLetter) ? v.ToUpperInvariant() : throw new DomainException("The currency is a three-letter code, for example USD."),
+            "Seats.IncreaseEffective" => v.ToUpperInvariant() is "DECISION_DATE" or "NEXT_MONTH" ? v.ToUpperInvariant() : throw new DomainException("An increase takes effect at DECISION_DATE or NEXT_MONTH."),
+            "Seats.ChargebackYear" => v.Length is > 0 and <= 20 && v.All(c => char.IsAsciiLetter(c) || c == '_') ? v.ToUpperInvariant() : throw new DomainException("The chargeback year is a word such as CALENDAR."),
+            "Seats.UsagePeriod" => v.ToUpperInvariant() is "D7" or "D30" or "D90" or "D180" ? v.ToUpperInvariant() : throw new DomainException("The usage period is D7, D30, D90 or D180."),
+            "Seats.NoLobChargedTo" => v.Length <= 50 ? v : throw new DomainException("A funding owner's code, or empty."),
+            "Seats.GroupMembersFrom" => v.ToUpperInvariant() is "AUTO" or "AD" or "ENTRA" ? v.ToUpperInvariant() : throw new DomainException("Group members come from AUTO, AD or ENTRA."),
+            "Seats.AdDomain" => v.Length == 0 || v.Length <= 253 && v.Split('.').All(l => l.Length is > 0 and <= 63 && l.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
+                ? v.ToLowerInvariant() : throw new DomainException("The AD domain is a DNS name such as users.contoso.com, or empty."),
+            _ => throw new DomainException("That setting is not a seat setting."),
+        };
+    }
 
     public static SeatSettings From(IReadOnlyDictionary<string, string> v)
     {
@@ -174,6 +212,8 @@ public sealed record SeatSettings(
             NoLobChargedTo = v.GetValueOrDefault("Seats.NoLobChargedTo")?.Trim() ?? "",
             PurchaseGatePercent = Int(v, "Seats.PurchaseGatePercent", 95) is var g && g is >= 1 and <= 100 ? g : 95,
             GateBaselineUnassigned = Int(v, "Seats.GateBaselineUnassigned", 0),
+            GroupMembersFrom = Integrations.AdGroups.Mode(v.GetValueOrDefault("Seats.GroupMembersFrom")),
+            AdDomain = v.GetValueOrDefault("Seats.AdDomain")?.Trim() ?? "",
         };
     }
 

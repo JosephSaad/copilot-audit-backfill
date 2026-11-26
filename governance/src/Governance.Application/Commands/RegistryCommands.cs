@@ -178,10 +178,23 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
 
     // ---------------------------------------------------------------- roles and delegations
 
+    /// <summary>Counts today's Platform Owner assignments (@today).</summary>
+    public const string PlatformOwnerHeldSql =
+        "SELECT COUNT(*) FROM sec.RoleAssignment WHERE RoleCode = 'PLATFORM_OWNER' AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)";
+
+    /// <summary>
+    /// The first Platform Owner: while nobody holds the role, a Copilot Insights administrator may name one, themselves
+    /// included, since central roles are otherwise given only by the Platform Owner (or synced from an Entra group, which
+    /// needs Microsoft Graph's group permission). Pure, for the tests.
+    /// </summary>
+    public static bool FirstPlatformOwner(string roleCode, bool insightsAdmin, int platformOwnersToday)
+        => roleCode == Roles.PlatformOwner && insightsAdmin && platformOwnersToday == 0;
+
     public Task AssignRoleAsync(Guid idem, int personId, string roleCode, int? fundingOwnerId, DateTime? effectiveTo)
         => run.RunAsync(idem, "role.assign", async uow =>
         {
-            if (personId == Me.PersonId) throw new DomainException("You cannot assign a role to yourself. Another person with this permission assigns it.");
+            var first = FirstPlatformOwner(roleCode, Me.AppRoles.Contains(AppRoles.Admin), await uow.ScalarAsync<int>(PlatformOwnerHeldSql, new { today = Today }));
+            if (personId == Me.PersonId && !first) throw new DomainException("You cannot assign a role to yourself. Another person with this permission assigns it.");
             var scope = await uow.ScalarAsync<string>("SELECT ScopeType FROM sec.RoleDefinition WHERE RoleCode = @roleCode", new { roleCode }) ?? throw new DomainException("Unknown role.");
             if (scope == ScopeTypes.FundingOwner)
             {
@@ -190,7 +203,7 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
             }
             else
             {
-                run.Require(Permissions.RoleAssignCentral, null, "The Platform Owner assigns central roles.");
+                if (!first) run.Require(Permissions.RoleAssignCentral, null, "The Platform Owner assigns central roles.");
                 fundingOwnerId = null;
             }
             if (roleCode is Roles.LobBusinessOwner or Roles.SharedServiceOwner) throw new DomainException("Name the business owner on the funding owner's page.");
