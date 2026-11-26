@@ -33,7 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its own (`?service=`): its spend over time, its meters, what grew and its resources. A budget forecast to go over
   heads the daily brief's list to act on.
 - **My agents** (`/agents/mine`), an agent builder's own page: the agents they own, used in the period, the people using
-  each across the organization, how many came back, interactions, Copilot Credits a month (estimate) and the trend, and
+  each across the organization, how many came back, interactions, Copilot Credits a month (estimate), whether it is
+  growing or falling (its people in the last week against the week before) and the trend, and
   the agents of theirs in the agent list nobody used. Whole-organization viewers and administrators may open any
   owner's.
 - **Agent detail** adds what its builder checks every day: interactions in the last 7 days against the 7 before, its

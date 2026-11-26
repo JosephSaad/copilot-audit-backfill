@@ -105,21 +105,37 @@ WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
 
         var t = new Table
         {
-            Headers = ["Agent", "Built in", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"],
+            Headers = ["Agent", "Built in", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Moving", "Trend (people)"],
             Numeric = new HashSet<int> { 3, 4, 5, 6, 7 }, EmptyText = "None of these agents was used in the period.",
         };
         double? Point(int key, DateTime b) => trendAt.TryGetValue((key, b), out var n) ? n : 0;
+        /* Moving (3.4.0): its people in the last week the trend holds against the week before, each day's or week's count
+           added up; only the points before the newest two days, which may not all be in yet. */
+        var whole = buckets.Where(b => b.Key <= Ctx.End.AddDays(-2)).Select(b => b.Key).ToList();
+        var weekly = whole.Count > 1 && (whole[1] - whole[0]).TotalDays >= 7;
+        var lastWeek = weekly ? whole.TakeLast(1).ToList() : whole.TakeLast(7).ToList();
+        var weekBefore = weekly ? whole.SkipLast(1).TakeLast(1).ToList() : whole.SkipLast(7).TakeLast(7).ToList();
+        object? Moving(int key)
+        {
+            if (lastWeek.Count == 0 || weekBefore.Count == 0) return null;
+            var now = lastWeek.Sum(b => Point(key, b) ?? 0); var before = weekBefore.Sum(b => Point(key, b) ?? 0);
+            if (before < Ctx.MinGroupSize && now < Ctx.MinGroupSize) return null;
+            if (before == 0) return new Microsoft.AspNetCore.Html.HtmlString("<span class=\"tag info\">New</span>");
+            var change = now / before - 1;
+            var (tone, word) = change <= -0.3 ? ("crit", "Falling") : change <= -0.1 ? ("warn", "Easing") : change >= 0.1 ? ("good", "Growing") : ("", "Steady");
+            return new Microsoft.AspNetCore.Html.HtmlString($"<span class=\"tag {tone}\">{word} {change:+0%;-0%;0%}</span>");
+        }
         foreach (var r in used.OrderByDescending(r => r.People))
         {
             var shown = AtLeastMin(r.People);
             t.Rows.Add([new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.FirstSeenUtc.Date,
                         shown, shown is null ? null : Pct(Ratio(r.Returning, r.People)), r.N, shown is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
-                        creditOf.TryGetValue(r.AgentKey, out var cr) && cr.Credits > 0 ? Math.Round(cr.Credits) : null,
+                        creditOf.TryGetValue(r.AgentKey, out var cr) && cr.Credits > 0 ? Math.Round(cr.Credits) : null, shown is null ? null : Moving(r.AgentKey),
                         shown is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName)]);
         }
         CsvTable = t;
         Panels.Add(new("Used in the period", WithTrendNote(t.Render()),
-            $"Across the organization. Came back: the share of its people who used it on more than one day. Credits a month: its billed use (people without a license, and Copilot Studio channels) as Agents costing credits estimates it. People are shown where {Ctx.MinGroupSize} or more used it. Select an agent for its detail.", "full", CsvUrl()));
+            $"Across the organization. Came back: the share of its people who used it on more than one day. Credits a month: its billed use (people without a license, and Copilot Studio channels) as Agents costing credits estimates it. Moving: its people in the last week the trend holds against the week before (falling: 30% fewer or more). People are shown where {Ctx.MinGroupSize} or more used it. Select an agent for its detail.", "full", CsvUrl()));
         if (used.Count > 0)
             Panels.Add(new("People by agent", Chart.Bars(used.Where(r => AtLeastMin(r.People) is not null).OrderByDescending(r => r.People).Take(12)
                     .Select((r, i) => new Bar(r.AgentName, r.People, Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"), Slot: i % 8 + 1)).ToList(), Fmt.Count, "People using each of your agents"),
