@@ -4,6 +4,50 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The whole AI bill in Azure.** The Foundry load reads what every AI service costs as Cost Management bills it, not
+  only the Foundry accounts: Copilot Studio and the Power Platform billed to Azure, Microsoft 365 Copilot
+  pay-as-you-go, AI Search, Machine Learning and Bot Service (`audit.AiCostDay`). Four ways wider than before:
+  - **Copilot Studio and Power Platform meters**: each line under its service, Copilot Studio apart from the rest of
+    the Power Platform by its meter.
+  - **Amortized cost** beside actual cost: a reservation (PTU, say) billed on its day, or spread over the days it covers.
+  - **Billing-account and EA scopes**: `AiCostScopes` names where to read it (a subscription, a billing account, an
+    enrollment or a department); by default each subscription of `FoundrySubscriptions`. `AiCostResourceTypes`
+    replaces the resource types read.
+  - **Budgets and the forecast**: each scope's budgets, spent and forecast (`audit.AiBudget`), and Cost Management's
+    forecast of the month's days still ahead (`audit.AiCostForecastDay`).
+  Each read is optional: one Azure refuses is named in the run's detail, and `-CheckOnly` tries each.
+- **Daily brief** (`/leadership/brief`), the executive's first page of the day: people using Copilot and interactions
+  in the last 7 days against the 7 before, adoption, new agents, AI spend a month and its return, this month's AI bill
+  against the monthly budgets, saved to date, licenses on disabled accounts, and what to act on this week (the three
+  biggest savings, then What to act on's largest lists), each figure opening the page behind it. It can be subscribed
+  to daily.
+- **AI spend across Azure** (`/leadership/ai-spend`): the whole AI bill by service, actual and amortized, the
+  reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, and
+  the 25 costliest AI resources.
+- **My agents** (`/agents/mine`), an agent builder's own page: the agents they own, used in the period, the people using
+  each across the organization, how many came back, interactions, Copilot Credits a month (estimate) and the trend, and
+  the agents of theirs in the agent list nobody used. Whole-organization viewers and administrators may open any
+  owner's.
+- **Start your day** on the start page: the daily brief, My agents and AI spend across Azure, for those who may open them.
+- **Data sources** lists the whole AI bill as a source of its own.
+
+### Changed
+
+- **Color by section.** Each menu section has a hue of its own, in the light and dark themes: the page's eyebrow, its
+  headline figures' top edge, panel titles, the section's dot in the menu and its card on the start page. A figure's
+  tone (good, a warning, critical) colors its edge and value; statuses in tables are colored tags with their word.
+
+### Fixed
+
+- A page asking whether a table holds rows failed where the table was not there yet (the statement named it): Foundry
+  overview and the AI pages before their load's tables existed. It now asks in two steps.
+- The SQL integration suite's time-zone check says what the installer answered when it fails (it failed once on a
+  tag's run and passed when run again).
+
 ## [3.3.0] - 2026-11-25
 
 Foundry and GitHub Copilot join the ledger. A new AI platforms section gives the teams that run them six pages of

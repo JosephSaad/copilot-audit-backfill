@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-144 tables (plus 2 left over from 1.x), 39 views, 1740 columns, from 22 scripts.
+147 tables (plus 2 left over from 1.x), 39 views, 1770 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -18,7 +18,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.CopilotLicenseHolder`](#auditcopilotlicenseholder), [`audit.CopilotLicenseRemoval`](#auditcopilotlicenseremoval), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.ReportGroupMember`](#auditreportgroupmember), [`audit.ReportGroupDay`](#auditreportgroupday), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
-- [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.GitHubIdentity`](#auditgithubidentity), [`audit.GitHubCopilotPolicy`](#auditgithubcopilotpolicy), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.FoundryAccount`](#auditfoundryaccount), [`audit.FoundryContentFilter`](#auditfoundrycontentfilter), [`audit.FoundryModelCatalog`](#auditfoundrymodelcatalog), [`audit.FoundryAccountSeen`](#auditfoundryaccountseen), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
+- [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.GitHubIdentity`](#auditgithubidentity), [`audit.GitHubCopilotPolicy`](#auditgithubcopilotpolicy), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.FoundryAccount`](#auditfoundryaccount), [`audit.FoundryContentFilter`](#auditfoundrycontentfilter), [`audit.FoundryModelCatalog`](#auditfoundrymodelcatalog), [`audit.FoundryAccountSeen`](#auditfoundryaccountseen), [`audit.AiCostDay`](#auditaicostday), [`audit.AiBudget`](#auditaibudget), [`audit.AiCostForecastDay`](#auditaicostforecastday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
 - [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity), [`audit.ActivityUserDay`](#auditactivityuserday), [`audit.DlpDay`](#auditdlpday), [`audit.DlpMatch`](#auditdlpmatch)
 - [The weekly report (3.1.2)](#the-weekly-report-312): [`audit.WeeklyReportSend`](#auditweeklyreportsend)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
@@ -1615,6 +1615,76 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_FoundryAccountSeen`: primary key, clustered (SubscriptionId, ResourceGroup, Account)
+
+### audit.AiCostDay
+
+*Table.* The whole AI bill in Azure (3.4.0): what every AI service costs as Cost Management bills it, read by the Foundry load at each scope of AiCostScopes: Foundry and Azure OpenAI, Copilot Studio and the Power Platform billed to Azure, Microsoft 365 Copilot pay-as-you-go, AI Search, Machine Learning and Bot Service. A row per scope, day, cost type, resource and meter. The days loaded are written again for each scope and cost type.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RowId` | bigint | **no** | identity |  |
+| 2 | `Scope` | nvarchar(300) | **no** |  | /subscriptions/&lt;id&gt;, /providers/Microsoft.Billing/billingAccounts/&lt;id&gt; ... |
+| 3 | `Day` | date | **no** |  | UTC |
+| 4 | `CostType` | varchar(10) | **no** |  | Actual \| Amortized: a reservation billed on its day, or spread over the days it covers |
+| 5 | `Service` | nvarchar(60) | **no** |  | named from the resource type; Copilot Studio apart from the rest of the Power Platform by its meter |
+| 6 | `ResourceType` | nvarchar(120) | yes |  |  |
+| 7 | `SubscriptionId` | varchar(36) | yes |  |  |
+| 8 | `ResourceGroup` | nvarchar(90) | yes |  |  |
+| 9 | `ResourceName` | nvarchar(260) | yes |  |  |
+| 10 | `Meter` | nvarchar(200) | yes |  |  |
+| 11 | `Cost` | decimal(19,6) | **no** |  | before tax |
+| 12 | `Currency` | varchar(8) | yes |  |  |
+| 13 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AiCostDay`: primary key, nonclustered (RowId)
+- `CIX_AiCostDay`: clustered (CostType, Day, Service)
+
+### audit.AiBudget
+
+*Table.* The budgets set in Azure at each scope the whole AI bill is read at (3.4.0): amount, period, spent so far and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI. Replaced whole for a scope by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(300) | **no** | **PK** |  |
+| 2 | `Budget` | nvarchar(150) | **no** | **PK** |  |
+| 3 | `Category` | varchar(16) | yes |  | Cost \| Usage |
+| 4 | `Amount` | decimal(19,4) | yes |  |  |
+| 5 | `TimeGrain` | varchar(20) | yes |  | Monthly \| Quarterly \| Annually ... |
+| 6 | `StartDate` | date | yes |  |  |
+| 7 | `EndDate` | date | yes |  |  |
+| 8 | `CurrentSpend` | decimal(19,4) | yes |  | spent in the budget's current period |
+| 9 | `ForecastSpend` | decimal(19,4) | yes |  | Azure's forecast for the period's end |
+| 10 | `Currency` | varchar(8) | yes |  |  |
+| 11 | `Filter` | nvarchar(4000) | yes |  | the budget's own filter, as JSON |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AiBudget`: primary key, clustered (Scope, Budget)
+
+### audit.AiCostForecastDay
+
+*Table.* Cost Management's forecast of the AI services' actual cost for each day still ahead in the month (3.4.0), at each scope the whole AI bill is read at. Replaced whole for a scope by each load.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(300) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** |  |
+| 3 | `Cost` | decimal(19,6) | **no** |  |  |
+| 4 | `Currency` | varchar(8) | yes |  |  |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AiCostForecastDay`: primary key, clustered (Scope, Day)
 
 ### audit.ExternalUsageRun
 
