@@ -1,6 +1,8 @@
+using System.Net;
 using CopilotInsights.Charts;
 using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
+using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Agents;
 
@@ -34,11 +36,19 @@ public sealed class MineModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
+        await MineAsync();
+        if (Viewer.OrgWide || Viewer.AnyAdmin) await OwnersAsync();
+    }
+
+    async Task MineAsync()
+    {
         var asked = Request.Query["owner"].ToString().Trim();
+        if (asked.Length > 256) asked = "";
         Owner = asked.Length > 0 && (Viewer.OrgWide || Viewer.AnyAdmin) ? asked : Viewer.Upn;
+        var others = Viewer.OrgWide || Viewer.AnyAdmin;
         if (string.IsNullOrWhiteSpace(Owner))
         {
-            Notice = "Your sign-in name is not known to the dashboard, so it cannot tell which agents are yours. Agents in use lists every agent with its owner.";
+            Notice = "Your sign-in name is not known to the dashboard, so it cannot tell which agents are yours" + (others ? ": pick an owner below." : ". Agents in use lists every agent with its owner.");
             return;
         }
         var args = Ctx.Args(new { owner = Owner });
@@ -53,6 +63,7 @@ public sealed class MineModel(PageServices s) : InsightsPage(s)
             Notice = $"No agent is owned by {Owner} in the audit log or the agent list. An agent's owner comes from the agent workbook (Admin › Reference data sets one it does not list).";
             return;
         }
+        if (others && !PrivacyMode) Kpis.Add(new("Owner", (await NamesAsync([Owner]))(Owner) ?? Owner, Owner == Viewer.Upn ? "you" : "chosen below"));
         var keys = mine.Select(m => m.AgentKey).Concat(listed.Where(l => l.AgentKey is not null).Select(l => l.AgentKey!.Value)).Distinct().ToArray();
         var rowsTask = keys.Length == 0 ? Task.FromResult(new List<Row>()) : Db.QueryAsync<Row>($@"
 WITH g AS (SELECT u.Item, SUM(CAST(u.Interactions AS BIGINT)) AS N, COUNT(CASE WHEN {ReportContext.IsEnabled()} THEN 1 END) AS People,
@@ -110,5 +121,19 @@ WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
             foreach (var l in idleListed.OrderBy(l => l.Name)) it.Rows.Add([l.Name ?? l.Id, l.CreatedAt?.Date]);
             Panels.Add(new("Not used in the period", it.Render(), "In the agent list, owned by you, with no interaction in the period: each still holds its environment's capacity and is one more to keep secure.", "half"));
         }
+    }
+
+    /// <summary>For a whole-organization viewer or an administrator: the owners with the most agents, each a link to their page of this report.</summary>
+    async Task OwnersAsync()
+    {
+        if (PrivacyMode) return;
+        var owners = await Db.QueryAsync<(string Owner, int N)>(
+            "SELECT TOP (24) Owner, COUNT(*) FROM dash.Agent WHERE Owner IS NOT NULL AND Owner <> N'' AND AgentSource <> N'(no agent)' GROUP BY Owner ORDER BY COUNT(*) DESC, Owner;");
+        if (owners.Count == 0) return;
+        var name = await NamesAsync(owners.Select(o => (string?)o.Owner));
+        var chips = owners.Select(o => $"<a class=\"chip{(string.Equals(o.Owner, Owner, StringComparison.OrdinalIgnoreCase) ? " on" : "")}\" href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "owner=" + Uri.EscapeDataString(o.Owner)))}\">"
+                                       + $"{WebUtility.HtmlEncode(name(o.Owner) ?? o.Owner)} <span class=\"muted\">{o.N:#,0}</span></a>");
+        Panels.Add(new("Look at another owner's agents", new HtmlString("<div class=\"chips\">" + string.Join("", chips) + "</div>"),
+            "The owners with the most agents, and how many each owns: whole-organization viewers and administrators may open any owner's page.", "full"));
     }
 }

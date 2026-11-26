@@ -75,10 +75,14 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
 
         /* What to do this week: the three biggest savings, then the action list's counts. */
         var counts = await countsTask;
+        var said = string.Join(" ", lines);
         foreach (var (key, n) in counts.Where(c => c.Value > 0).OrderByDescending(c => c.Value).Take(4))
-            if (Pages.Forecasting.ActionsModel.Kinds.TryGetValue(key, out var k))
-                lines.Add($"<li><b>{n:#,0} people</b>: {WebUtility.HtmlEncode(k.Label.ToLowerInvariant())}. {WebUtility.HtmlEncode(k.Action)}"
-                          + (Open("/forecasting/actions", $"kind={key}") is { } au ? $" <a href=\"{WebUtility.HtmlEncode(au)}\">Open the list</a>" : "") + "</li>");
+        {
+            /* A list the savings above already name (the unused licenses to revoke) is not said twice. */
+            if (!Says.TryGetValue(key, out var what) || key == "revoke" && said.Contains("unused Copilot licenses", StringComparison.OrdinalIgnoreCase)) continue;
+            lines.Add($"<li><b>{n:#,0} {(n == 1 ? "person" : "people")}</b> {WebUtility.HtmlEncode(what)}"
+                      + (Open("/forecasting/actions", $"kind={key}") is { } au ? $" <a href=\"{WebUtility.HtmlEncode(au)}\">Open the list</a>" : "") + "</li>");
+        }
         Panels.Add(new("This week, act on", new HtmlString(lines.Count == 0 ? "<p class=\"muted\">Nothing waiting: no saving or action stands out this week.</p>" : "<ol class=\"tips\">" + string.Join("", lines) + "</ol>"),
             "The largest savings Costs and savings finds, then the people What to act on lists, largest first.", "full"));
 
@@ -89,6 +93,14 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
         if (links.Count > 0)
             Panels.Add(new("Go deeper", new HtmlString("<div class=\"chips\">" + string.Join("", links) + "</div>"), "The pages behind these figures you may open.", "full"));
     }
+
+    /// <summary>What each of What to act on's lists asks, as a line after its count.</summary>
+    static readonly Dictionary<string, string> Says = new()
+    {
+        ["upgrade"] = "use the free Copilot Chat most days: ready for a Premium license.",
+        ["train"] = "hold a Premium license and barely use it: train them, then review.",
+        ["revoke"] = "hold a Premium license and have not used it: take it back.",
+    };
 
     /// <summary>This month's AI bill in Azure, billed so far and forecast, against the budgets set there: null before the wider bill is loaded.</summary>
     async Task<Kpi?> AiBillAsync()

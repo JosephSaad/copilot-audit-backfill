@@ -108,7 +108,7 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1 GROUP BY Service, ResourceN
                              used is null ? null : Pct((double)used.Value), b.ForecastSpend is null ? null : Math.Round(b.ForecastSpend.Value),
                              new HtmlString(goesOver ? "<span class=\"tag crit\">Forecast over</span>" : used > 0.8m ? "<span class=\"tag warn\">Over 80%</span>" : "<span class=\"tag good\">On track</span>")]);
             }
-            Panels.Add(new("Budgets", bt.Render(), "Each budget set in Azure at a scope read, its spend so far in its period and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI.", "half"));
+            Panels.Add(new("Budgets", bt.Render(), "Each budget set in Azure at a scope read, its spend so far in its period and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI.", "full"));
         }
 
         var t = new Table { Headers = ["Service", "Resource", "Resource group", $"Actual ({cur})", $"Amortized ({cur})"], Numeric = new HashSet<int> { 3, 4 } };
