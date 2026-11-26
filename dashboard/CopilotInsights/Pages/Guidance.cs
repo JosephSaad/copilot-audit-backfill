@@ -49,6 +49,7 @@ public static class Guidance
         ["/licensing/swap"] = new("Reassign idle licenses instead of buying new ones.", "Apply the take-back file, then the give-out file."),
         ["/licensing/license-for-credits"] = new("Spot people whose Copilot Credits cost more than a license.", "License them: the cost falls and they gain Copilot in the apps."),
         ["/licensing/fading"] = new("Catch license holders drifting away before the license goes idle.", "Ask their managers to check in, or offer a refresher session."),
+        ["/licensing/agent-365"] = new("Size the Agent 365 purchase from who owns, delegates to and uses agents.", "License the owners first; confirm with Microsoft who else must be, before licensing everyone."),
         ["/licensing/demand"] = new("See who already relies on the free Copilot Chat.", "License these people first when seats come free."),
         ["/licensing/changes"] = new("Audit license assignments and removals.", "Look into licenses removed while still in use, and ones that came back."),
         ["/licensing/pool"] = new("Know the seats you pay for, assigned or not.", "Assign or give up seats bought but not assigned before the renewal."),

@@ -64,7 +64,7 @@ public static class Nav
             new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption, Sections.Adoption),
         new("Licensing", "Licensing, IT asset management and FinOps", [
             new("License inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
-            new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"),
+            new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"), new("Agent 365 sizing", "/licensing/agent-365"),
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),

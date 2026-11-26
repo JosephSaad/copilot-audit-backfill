@@ -63,6 +63,7 @@ public static class NavText
         ["/licensing/changes"] = ("Every Copilot license assigned and removed in the period.", "Inventory and pool"),
         ["/licensing/chargeback"] = ("The monthly license cost each group holds, and how much of it is used.", "Inventory and pool"),
         ["/licensing/demand"] = ("People without a license who use the free Copilot Chat: where demand is.", "Inventory and pool"),
+        ["/licensing/agent-365"] = ("Who must, likely and could hold an Agent 365 license, and what each way of buying costs.", "Inventory and pool"),
         ["/licensing/unused"] = ("License holders who have not used Copilot recently: reclaim or follow up.", "Cost savings"),
         ["/licensing/ranking"] = ("Everyone ranked by all use, free use, and use that needs the license.", "Cost savings"),
         ["/licensing/payg"] = ("License holders whose use would cost less on pay-as-you-go credits.", "Cost savings"),

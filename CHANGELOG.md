@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Agent 365 sizing** (Licensing, `/licensing/agent-365`): how many Agent 365 licenses the organization needs and
+  what each way of buying costs. Agent 365 is licensed per user; Microsoft requires it for agents' owners and for people
+  who let agents act with their access, and recommends it for everyone who uses a managed agent. The page counts each
+  person once, in the narrowest of three tiers (owners; people who used an agent that signs them in with their own
+  account; everyone else using agents), prices each option at `Agent365MonthlyPrice` (Admin › Targets and
+  assumptions, 15 a user a month), shows the saving against licensing everyone, counts Microsoft 365 E7 holders apart,
+  and lists the owners by name for the Licensing role.
+
 ## [3.4.0] - 2026-11-26
 
 Every day, for the people who run AI. Executives get a daily brief (the week against the one before, what AI costs and

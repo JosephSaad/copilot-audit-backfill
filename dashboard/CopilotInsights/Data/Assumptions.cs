@@ -61,6 +61,8 @@ public static class Assumptions
         /* 2.7.2 */
         new("CreditChargeRate", "Copilot Credit charge rate, a credit", "Prices", CreditChargeback, "rate",
             "Credit chargeback (each line of business's charge), its month-end snapshots. Empty: the price list's pay-as-you-go credit", null),
+        /* 3.5.0 */
+        new("Agent365MonthlyPrice", "Agent 365, a user a month", "Prices", Targets, "Agent365MonthlyPrice", "Agent 365 sizing", "15"),
         new("CreditCommitmentAlertDays", "Credit commitment warning", "Use and thresholds", CreditCommitment, "alertDays",
             "Credit commitment (runs out early, or left unused), the weekly alert", "30", Unit: "days"),
     ];
