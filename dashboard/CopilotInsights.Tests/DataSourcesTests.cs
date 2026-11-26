@@ -58,7 +58,7 @@ public class DataSourcesTests
         var pages = Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, path) in DataSources.OpenPaths)
             Assert.True(pages.Contains(path), $"{key} opens {path}, which no menu section lists");
-        Assert.Equal(9, DataSources.OpenPaths.Select(o => o.Key).Distinct().Count());
+        Assert.Equal(10, DataSources.OpenPaths.Select(o => o.Key).Distinct().Count());   // 3.4.0: the whole AI bill
     }
 
     [Fact]

@@ -3300,7 +3300,7 @@ Assert-That ($once -notlike '*flattening*') 'and only once: the next run finds n
 Assert-That ($up -like '*bi, in full*' -and $up -like '*Refresh the Power BI model in full once*') 'and bi rebuilt in full, with the model refresh left to do'
 $moved = try { & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -ReportingTimeZone 'Pacific Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
 $still = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
-Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') 'the time zone cannot be changed once records are loaded'
+Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') "the time zone cannot be changed once records are loaded ($still; the installer said: $moved)"
 
 # Upgrading from 2.4.10: the records of agents were flattened without their id and friendly name. The installer reads
 # them once, from those records' JSON, and names the agents in bi; the next run has nothing to read.

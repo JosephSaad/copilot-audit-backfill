@@ -68,6 +68,7 @@ public static class DataSources
         if (sources.Any(s => s.Key == "powerplatform" && IsConnected(s))) bill.AddRange(["Power BI", "Power Platform"]);
         if (sources.Any(s => s.Key == "github" && IsConnected(s))) bill.Add("GitHub Copilot");
         if (sources.Any(s => s.Key == "foundry" && IsConnected(s))) bill.Add("Microsoft Foundry");
+        if (sources.Any(s => s.Key == "aibill" && IsConnected(s))) bill.Add("the rest of the AI bill in Azure");
         var head = $"{on} of {sources.Count} sources connected. ";
         return withCount ? head + CoverageDetail(bill, off) : CoverageDetail(bill, off);
     }
@@ -111,6 +112,9 @@ public static class DataSources
         new("foundry", "Microsoft Foundry", "Foundry and Azure OpenAI model deployments, the tokens they used and their cost, by subscription", "rows loaded by the last run",
             ["/platforms/foundry", "/platforms/foundry/deployments", "/platforms/foundry/posture", "/leadership/costs"],
             "Monitoring Reader and Cost Management Reader on the subscriptions, for the audit app registration (docs/FOUNDRY-USAGE.md).", true),
+        new("aibill", "The whole AI bill in Azure", "Every AI service's cost as Azure bills it, actual and amortized: Foundry, Copilot Studio, Microsoft 365 Copilot pay-as-you-go, AI Search and more; the budgets and the month's forecast", "cost rows",
+            ["/leadership/ai-spend", "/leadership/brief"],
+            "Read by the Foundry load (3.4.0): Cost Management Reader where the AI services are billed, those scopes in AiCostScopes (docs/FOUNDRY-USAGE.md).", true),
     ];
 
     /// <summary>Each source's key and the report paths it opens, for the tests: every path must be a menu page.</summary>
@@ -187,6 +191,9 @@ SELECT TOP (1) COALESCE(r.EndedUtc, r.StartedUtc) AS LastUtc,
        CAST(CASE WHEN r.Status IN (N'Succeeded', N'Partial', N'Running') THEN 0 ELSE 1 END AS BIT) AS Failed,
        CAST(CASE r.Status WHEN N'Partial' THEN N'The last load got only a part of the data.' WHEN N'Running' THEN N'A load is running.' END AS NVARCHAR(400)) AS Detail
 FROM audit.ExternalUsageRun AS r WHERE r.Source = N'{(key == "github" ? ExternalUsage.GitHub : ExternalUsage.Foundry)}' ORDER BY r.RunId DESC;",
+            "aibill" => @"
+IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NULL SELECT CAST(NULL AS DATETIME2(0)) AS LastUtc, CAST(NULL AS DATE) AS NewestDay, CAST(NULL AS BIGINT) AS Rows, CAST(0 AS BIT) AS Failed, CAST(NULL AS NVARCHAR(400)) AS Detail;
+ELSE EXEC (N'SELECT MAX(LoadedUtc) AS LastUtc, MAX([Day]) AS NewestDay, COUNT_BIG(*) AS Rows, CAST(0 AS BIT) AS Failed, CAST(NULL AS NVARCHAR(400)) AS Detail FROM audit.AiCostDay;');",
             _ => throw new ArgumentOutOfRangeException(nameof(key)),
         };
         try

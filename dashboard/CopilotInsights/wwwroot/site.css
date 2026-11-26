@@ -792,6 +792,8 @@ body[data-section="admin"], .grp[data-grp="Admin"] { --sec: #55626d; }
 .kpi.accent .kvalue { color: var(--sec); }
 .panel .phead h2 { border-left: 3px solid var(--sec); padding-left: 8px; }
 /* A status in a cell or a line: a soft colored badge, its word always shown beside the color. */
+.jump.today .chip.day { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.jump.today .chip.day b { color: var(--accent); }
 .chip.on { border-color: var(--sec); background: color-mix(in srgb, var(--sec) 10%, var(--surface)); color: var(--sec); font-weight: 600; }
 .tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--grid); color: var(--ink); }
 .tag.good { background: var(--good-soft); color: var(--good-ink); }
