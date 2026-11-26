@@ -201,7 +201,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
     static readonly (string Key, string Label)[] Recipients =
     [
         ("AlertAdminTo", "Pipeline failures and stale data"), ("AlertSecurityTo", "Security signals"),
-        ("AlertLicensingTo", "License pool running out; licenses on disabled accounts"), ("AlertAdoptionTo", "Drops and spikes in use"),
+        ("AlertLicensingTo", "License pool running out; licenses on disabled accounts; AI budgets forecast to go over"), ("AlertAdoptionTo", "Drops and spikes in use"),
         ("AlertAgentsTo", "Agents used for the first time"),
     ];
 
