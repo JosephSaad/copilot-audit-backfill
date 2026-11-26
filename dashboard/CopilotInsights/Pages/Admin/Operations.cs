@@ -245,6 +245,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             string.Concat(Numbers.Select(n => Input(n.Key, n.Label, V(n.Key), 6, "number"))) +
             Input("AlertLabelRank", "Labels at or above this order are sensitive (empty off)", V("AlertLabelRank"), 4, "number") +
             $"<label><input type=\"checkbox\" name=\"NewAgentAlert\" value=\"1\"{(V("NewAgentAlert") != "0" ? " checked" : "")}/> Alert on agents used for the first time</label>" +
+            $"<label><input type=\"checkbox\" name=\"AiBudgetAlert\" value=\"1\"{(V("AiBudgetAlert") != "0" ? " checked" : "")}/> Alert, once a week, on an AI budget in Azure forecast to go over (to the licensing addresses)</label>" +
             $"<label><input type=\"checkbox\" name=\"EventLogAlerts\" value=\"1\"{(V("EventLogAlerts") != "0" ? " checked" : "")}/> Also write alerts to the Windows Application log (source Copilot Insights)</label>" +
             Button("Save"))),
             "A security signal (jailbreak attempts, prompt injections, blocked resources, sensitive labeled content) alerts when a day's count reaches its threshold, or when the day is the spike factor times its 28-day daily average. Drops and spikes in use are those on Adoption › Drops and spikes. Label order is set in Admin › Reference data. " +
@@ -371,6 +372,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         var rank = Request.Form["AlertLabelRank"].ToString();
         values["AlertLabelRank"] = string.IsNullOrWhiteSpace(rank) ? null : SettingWriter.Int(rank, "The label order", 0, 250).ToString(CultureInfo.InvariantCulture);
         values["NewAgentAlert"] = Request.Form["NewAgentAlert"] == "1" ? "1" : "0";
+        values["AiBudgetAlert"] = Request.Form["AiBudgetAlert"] == "1" ? "1" : "0";
         values["EventLogAlerts"] = Request.Form["EventLogAlerts"] == "1" ? "1" : "0";
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
     });

@@ -45,7 +45,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Agents in use** has each agent's Copilot Credits a month (estimate), and each owner opens their My agents (for
   whole-organization viewers and administrators).
 - **An alert when an AI budget is forecast to go over**: to the licensing addresses, once a week while it lasts, with each
-  budget's forecast and spend so far (`AiBudgetAlert` 0 turns it off).
+  budget's forecast and spend so far; its tick under Admin › Alerts and digests › *When to alert* turns it off.
 - **Start your day** on the start page: the daily brief, My agents and AI spend across Azure, for those who may open them.
 - **Data sources** lists the whole AI bill as a source of its own.
 
