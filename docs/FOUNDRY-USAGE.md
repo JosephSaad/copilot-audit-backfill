@@ -117,6 +117,8 @@ Succeeded. Loaded 6 account(s), 14 deployment(s), 733 usage row(s), 1208 cost ro
     AiCostScopes = @('/providers/Microsoft.Billing/billingAccounts/12345678', '/subscriptions/3c4d5e6f-0000-0000-0000-000000000000')
 ```
 
+**Scopes must not overlap**: a billing account and a subscription billed to it would count that subscription's AI cost twice on every page. Name the billing account (or the EA department) alone, or the subscriptions alone.
+
 `AiCostResourceTypes` replaces the resource types it reads (by default `microsoft.cognitiveservices/accounts`, `microsoft.machinelearningservices/workspaces`, `microsoft.powerplatform/accounts`, `microsoft.syntex/accounts`, `microsoft.search/searchservices` and `microsoft.botservice/botservices`). Each part is optional: one Azure refuses is named in the run's detail as *Not read (optional)*, and the run's status is unchanged. Leadership › *AI spend across Azure* and the *Daily brief* show it.
 
 From the next night, the run has a last step, *Foundry usage and cost*, which loads the last 10 days again (cost for recent days is still settling, and an open month's cost is an estimate until five days after it ends). Without `FoundrySubscriptions` in the settings, the run skips the step and says so in its log; nothing fails.
