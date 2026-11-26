@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   account; everyone else using agents), prices each option at `Agent365MonthlyPrice` (Admin › Targets and
   assumptions, 15 a user a month), shows the saving against licensing everyone, counts Microsoft 365 E7 holders apart,
   and lists the owners by name for the Licensing role.
+- **A grace period before a disabled account's license is reclaimable** (`DisabledGraceDays`, Admin › Access,
+  default 90 days, 0 to 365): a Copilot license on a disabled account counts as reclaimable only once that many days
+  have passed since its last Copilot use, so someone on leave or disabled by mistake keeps it meanwhile. A license
+  never used, or on an account gone from the directory, is reclaimable at once. Licenses on disabled accounts shows
+  both (In the grace period, and a Reclaimable from column); its headline, its removal files and every other count of
+  licenses to take back (Licensing, Unused licenses, Suite fit, Costs and savings, the daily brief, the start page,
+  the leavers alert, the data API) count only those past it.
 
 ## [3.4.0] - 2026-11-26
 

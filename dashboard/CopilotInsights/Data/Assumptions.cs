@@ -40,6 +40,8 @@ public static class Assumptions
         new("ReservationRate", "Copilot reservation rate in force, a license a month", "Prices", Reservations, "rate",
             "Copilot reservations (monthly and remaining obligation), month-end snapshots", null, AssumptionKind.Rate),
         new("InactiveDays", "Unused after", "Use and thresholds", Access, "InactiveDays", "Unused licenses, Use ranking, the license recommendations", "28", Unit: "days"),
+        new("DisabledGraceDays", "Disabled accounts: reclaim after, since last use", "Use and thresholds", Access, "DisabledGraceDays",
+            "Licenses on disabled accounts, Costs and savings, Suite fit, the daily brief, the start page, the leavers alert", "90", Unit: "days"),
         new("SpareSeatPercent", "Spare seats kept unassigned, of those bought", "Use and thresholds", Targets, "SpareSeatPercent", "Costs and savings (unassigned seats: Copilot and each license without its own share)", "10", Unit: "%"),
         new("CostIdleDays", "Idle after (seats, Power Platform licenses, AI accounts)", "Use and thresholds", Targets, "CostIdleDays", "Costs and savings, Suite fit", "30", Unit: "days"),
         new("MinGroupSize", "Minimum group size", "Use and thresholds", Access, "MinGroupSize", "Every breakdown: smaller groups are folded together", "10", Unit: "people"),

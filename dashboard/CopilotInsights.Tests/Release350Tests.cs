@@ -52,4 +52,23 @@ public class Release350Tests
         Assert.Contains("('Agent365MonthlyPrice', N'15',", Repo("sql", "Create-CopilotDashboardSchema.sql"));
         Assert.Contains("| | Agent 365 sizing |", Repo("docs", "DASHBOARD.md"));
     }
+
+    [Fact]
+    public void A_disabled_accounts_license_is_reclaimable_only_after_the_grace_period_since_its_last_use()
+    {
+        Assert.Equal(90, OpsData.DefaultGraceDays);
+        Assert.Contains(Assumptions.Settings, d => d.Key == "DisabledGraceDays" && d.Default == "90" && d.Page == Assumptions.Access);
+        Assert.Contains("('DisabledGraceDays', N'90',", Repo("sql", "Create-CopilotDashboardSchema.sql"));
+        var ops = Repo("dashboard", "CopilotInsights", "Data", "OpsData.cs");
+        /* Gone from the directory or never used: no grace; otherwise the last use plus the days set. */
+        Assert.Contains("OR lu.LastUsed IS NULL THEN NULL", ops);
+        Assert.Contains("ELSE DATEADD(DAY, @grace, lu.LastUsed) END AS GraceEnds", ops);
+        Assert.Contains("AND (@withGrace = 1 OR g.GraceEnds IS NULL OR g.GraceEnds <= td.[Date])", ops);
+        /* Every list of licenses to take back keeps them out: the unused list and Suite fit too. */
+        Assert.Contains("AND NOT (du.AccountEnabled = 0 AND du.DirectoryStatus <> N'NotFound' AND x.LastKey > @graceKey)", Repo("dashboard", "CopilotInsights", "Pages", "Licensing", "Licensing.cs"));
+        Assert.Contains("THEN CASE WHEN {lastUse} > DATEADD(DAY, -@grace, @today) THEN 1 ELSE 0 END", Repo("dashboard", "CopilotInsights", "Data", "SuiteData.cs"));
+        var admin = Repo("dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs");
+        Assert.Contains("Input(\"DisabledGraceDays\"", admin);
+        Assert.Contains("if (DisabledGraceDays is < 0 or > 365)", admin);
+    }
 }

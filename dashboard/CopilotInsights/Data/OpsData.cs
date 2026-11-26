@@ -39,6 +39,9 @@ public sealed class LeaverRow
     public string Reason { get; set; } = "";
     public DateTime? LicensedSinceUtc { get; set; }
     public DateTime? LastUsed { get; set; }
+    /// <summary>A disabled account's license stays out of the reclaim lists until this day: its last use plus DisabledGraceDays.</summary>
+    public DateTime? GraceEnds { get; set; }
+    public bool InGrace { get; set; }
     public int TotalRows { get; set; }
 }
 
@@ -140,9 +143,21 @@ SELECT SkuPartNumber, SkuId, CAST(CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 1
 FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 ELSE 1 END, SkuPartNumber;");
     }
 
-    /// <summary>Copilot licenses held today by accounts that are disabled (in AD or Entra) or gone from the directory.</summary>
-    public async Task<List<LeaverRow>> LeaversAsync(string? root = null, string? q = null, string orderAndPage = "ORDER BY u.DisplayName OFFSET 0 ROWS")
+    /// <summary>The days a disabled account's license is kept after its last use before it counts as reclaimable, when none is set.</summary>
+    public const int DefaultGraceDays = 90;
+
+    /// <summary>The grace period in force: DisabledGraceDays, 0 to 365.</summary>
+    public async Task<int> GraceDaysAsync() => Math.Clamp(await settings.IntAsync("DisabledGraceDays", DefaultGraceDays), 0, 365);
+
+    /// <summary>
+    /// Copilot licenses held today by accounts that are disabled (in AD or Entra) or gone from the directory, and so
+    /// reclaimable. A disabled account is reclaimable only once DisabledGraceDays have passed since its last Copilot use
+    /// (someone on leave, or disabled by mistake, keeps the license meanwhile); one never used, or gone from the
+    /// directory, at once. <paramref name="withGrace"/> also returns those still in their grace period, marked InGrace.
+    /// </summary>
+    public async Task<List<LeaverRow>> LeaversAsync(string? root = null, string? q = null, string orderAndPage = "ORDER BY u.DisplayName OFFSET 0 ROWS", bool withGrace = false)
     {
+        var grace = await GraceDaysAsync();
         var hasEntra = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL THEN 0 ELSE 1 END") == 1;
         var entra = hasEntra ? "cl.EntraAccountEnabled" : "CAST(NULL AS BIT)";
         var scope = root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = u.UserKey";
@@ -165,15 +180,23 @@ SELECT u.UserPrincipalName, u.DisplayName, u.Department, u.ManagerName,
             WHEN {entra} = 0 THEN N'Disabled in Entra'
             ELSE N'Disabled in AD' END AS Reason,
        u.LicensedSinceUtc,
-       (SELECT dl.[Date] FROM bi.DimDate AS dl WHERE dl.DateKey = {lastKey}) AS LastUsed,
+       lu.LastUsed,
+       g.GraceEnds,
+       CAST(CASE WHEN g.GraceEnds > td.[Date] THEN 1 ELSE 0 END AS BIT) AS InGrace,
        COUNT(*) OVER () AS TotalRows
 FROM bi.FactLicensedDay AS ld
 JOIN today ON ld.DateKey = today.K
+JOIN bi.DimDate AS td ON td.DateKey = today.K
 JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey {scope}
 LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = u.UserPrincipalName
+CROSS APPLY (SELECT (SELECT dl.[Date] FROM bi.DimDate AS dl WHERE dl.DateKey = {lastKey}) AS LastUsed) AS lu
+/* Gone from the directory, or never used: no grace. Otherwise the last use plus the grace period. */
+CROSS APPLY (SELECT CASE WHEN u.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR lu.LastUsed IS NULL THEN NULL
+                         ELSE DATEADD(DAY, @grace, lu.LastUsed) END AS GraceEnds) AS g
 WHERE (u.AccountEnabled = 0 OR u.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0) {addOn}
+  AND (@withGrace = 1 OR g.GraceEnds IS NULL OR g.GraceEnds <= td.[Date])
   AND (@q IS NULL OR u.DisplayName LIKE @q OR u.UserPrincipalName LIKE @q OR u.Department LIKE @q)
-{orderAndPage};", new { root, q });
+{orderAndPage};", new { root, q, grace, withGrace });
     }
 
     /// <summary>Agents first used after the given moment.</summary>

@@ -188,7 +188,8 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override bool UsesFilters => true;
-    public override string Intro => "People holding a Copilot license today whose account is disabled in AD or Entra, or who have left the directory. Nobody can use these licenses: reclaim them.";
+    public override string Intro => "People holding a Copilot license today whose account is disabled in AD or Entra, or who have left the directory. Nobody can use these licenses: reclaim them, " +
+        "once a disabled account's grace period has passed since its last use (Admin › Access, default 90 days), so someone on leave keeps theirs meanwhile.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -201,24 +202,31 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
     {
         var (price, cur) = await Price.GetAsync(S.Settings);
         var pg = new Paging(Request, Sorts, "name");
-        var rows = await ops.LeaversAsync(Ctx.Root, pg.Like, pg.OrderAndPage());
+        var grace = await ops.GraceDaysAsync();
+        /* Every disabled or departed account, those still in their grace period marked; the headline and the files are
+           the reclaimable ones only, as every other page counts them. */
+        var rows = await ops.LeaversAsync(Ctx.Root, pg.Like, pg.OrderAndPage(), withGrace: true);
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        Kpis.Add(new("Licenses on disabled or departed accounts", Num(pg.Total), $"{pg.Total * price:#,0} {cur} a month", pg.Total > 0 ? "crit" : null,
-            Why: await WhyAsync($"Licenses on disabled or departed accounts ({pg.Total:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
+        var inGrace = pg.Like is null && pg.Total == rows.Count ? rows.Count(r => r.InGrace) : (await ops.LeaversAsync(Ctx.Root, withGrace: true)).Count(r => r.InGrace);
+        var reclaim = (await ops.LeaversAsync(Ctx.Root)).Count;
+        Kpis.Add(new("Licenses to reclaim on disabled or departed accounts", Num(reclaim), $"{reclaim * price:#,0} {cur} a month", reclaim > 0 ? "crit" : null,
+            Why: await WhyAsync($"Licenses on disabled or departed accounts past the grace period ({reclaim:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost", "DisabledGraceDays")));
+        Kpis.Add(new("In the grace period", Num(inGrace), grace == 0 ? "no grace period is set" : $"disabled, last used less than {grace} days ago: kept for now",
+            Why: await WhyAsync($"Disabled accounts whose last Copilot use was under {grace} days ago ({inGrace:#,0}): not reclaimable until {grace} days after it.", "DisabledGraceDays")));
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Why", "Licensed since", "Last used"], EmptyText = "No licenses on disabled accounts.",
-            Server = new(pg, Request, ["name", "upn", "dept", "manager", "why", "since", "recent"], new HashSet<int> { 6 }),
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Why", "Licensed since", "Last used", "Reclaimable from"], EmptyText = "No licenses on disabled accounts.",
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "why", "since", "recent", "recent"], new HashSet<int> { 6 }),
         };
-        foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.Reason, r.LicensedSinceUtc?.Date, r.LastUsed]);
+        foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.Reason, r.LicensedSinceUtc?.Date, r.LastUsed, r.InGrace ? r.GraceEnds : "Now"]);
         CsvTable = t;
         /* The files are for the part of the organization shown: built from the bare address, they carried no org=,
            so a division's five accounts on the page became the whole organization's twenty-seven in the file and the record. */
-        var exports = pg.Total == 0 ? "" :
+        var exports = reclaim == 0 ? "" :
             $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk remove members file")} · " +
             $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")} (run by a license administrator; the dashboard changes nothing).</div>";
         Panels.Add(new("People", new HtmlString(exports + pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department", ["since"] = "Licensed longest" }).Value + t.Render().Value),
-            "Why: disabled in AD, in Entra or in both, or gone from the directory. AD's account state comes from the nightly directory load, Entra's from the license tool. Last used: the last day with a Copilot interaction.", "full", CsvUrl()));
+            "Why: disabled in AD, in Entra or in both, or gone from the directory. AD's account state comes from the nightly directory load, Entra's from the license tool. Last used: the last day with a Copilot interaction. Reclaimable from: a disabled account's last use plus the grace period ({grace} days); never used, or gone from the directory, at once. The files hold the reclaimable ones only.", "full", CsvUrl()));
     }
 
     /* Posted, with the anti-forgery token (see LicenseActions.Button). */

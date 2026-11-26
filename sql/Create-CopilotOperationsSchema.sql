@@ -589,6 +589,133 @@ USING (VALUES
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
 
+/*
+    Model tokens by business unit, spending limits, and agent policies.
+      dash.TokenRoute          each value the AI gateway stamps as the business unit, to a unit: an L2 executive (level 2
+                               of the org chart) and, within it, an L3 executive (level 3; NULL for the L2's whole unit),
+                               from a date. A value that is a person's sign-in needs no route: the org chart gives it.
+      dash.SpendLimit          each spending limit the dashboard tracks: the ones read at their source (matched by Source
+                               and ExternalId, so a reload keeps what an administrator set here) and the ones entered;
+                               the unit it belongs to, when to warn, hidden or not. A limit no longer at its source keeps
+                               its row, with GoneUtc set.
+      dash.SpendLimitSnapshot  each limit's position at the end of a period (limit and spent), kept once.
+      dash.AgentPolicyRule     the agent rules checked each night (no owner, unused, costly for few people, shared and
+                               not certified): a threshold and what to propose. Off until turned on.
+      dash.AgentAction         each proposed action on an agent (notify its owner, quarantine, release, reassign its
+                               owner): who decided, when it ran, and the result. Never a deletion.
+*/
+IF OBJECT_ID(N'dash.TokenRoute', N'U') IS NULL
+    CREATE TABLE dash.TokenRoute
+    (
+        RouteId          INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashTokenRoute PRIMARY KEY,
+        GatewayValue     NVARCHAR(256)  NOT NULL,   -- audit.GatewayTokenDay.BusinessUnit
+        L2Upn            NVARCHAR(256)  NOT NULL,   -- the L2 executive whose unit it is
+        L3Upn            NVARCHAR(256)  NULL,       -- the L3 executive within it; NULL: the L2's whole unit
+        EffectiveFrom    DATE           NOT NULL,
+        EffectiveTo      DATE           NULL,
+        Note             NVARCHAR(400)  NULL,
+        UpdatedBy        NVARCHAR(256)  NULL,
+        UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashTokenRoute_Updated DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_DashTokenRoute_Dates CHECK (EffectiveTo IS NULL OR EffectiveTo >= EffectiveFrom),
+        INDEX IX_DashTokenRoute_Value (GatewayValue, EffectiveFrom)
+    );
+
+IF OBJECT_ID(N'dash.SpendLimit', N'U') IS NULL
+    CREATE TABLE dash.SpendLimit
+    (
+        LimitId          INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashSpendLimit PRIMARY KEY,
+        Source           VARCHAR(16)    NOT NULL,   -- Graph | GitHub | Gateway | Entered
+        ExternalId       NVARCHAR(400)  NULL,       -- audit.SpendLimitSource's; NULL for an entered limit
+        Kind             VARCHAR(24)    NOT NULL,   -- as audit.SpendLimitSource
+        Name             NVARCHAR(400)  NOT NULL,
+        ScopeType        VARCHAR(24)    NULL,
+        Scope            NVARCHAR(1000) NULL,
+        Unit             VARCHAR(8)     NOT NULL,   -- Credits | Tokens | USD
+        Amount           DECIMAL(19, 4) NULL,
+        Period           VARCHAR(16)    NOT NULL CONSTRAINT DF_DashSpendLimit_Period DEFAULT ('Monthly'),
+        PerUser          BIT            NOT NULL CONSTRAINT DF_DashSpendLimit_PerUser DEFAULT (0),
+        L2Upn            NVARCHAR(256)  NULL,       -- the unit it belongs to: its L2 executive
+        L3Upn            NVARCHAR(256)  NULL,       -- and L3 executive; NULL: the L2's whole unit
+        WarnAtPercent    INT            NULL,       -- NULL: warn only when it is projected to be reached
+        Hidden           BIT            NOT NULL CONSTRAINT DF_DashSpendLimit_Hidden DEFAULT (0),
+        GoneUtc          DATETIME2(0)   NULL,       -- no longer at its source since
+        Note             NVARCHAR(400)  NULL,
+        UpdatedBy        NVARCHAR(256)  NULL,
+        UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashSpendLimit_Updated DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_DashSpendLimit_Warn CHECK (WarnAtPercent IS NULL OR WarnAtPercent BETWEEN 1 AND 100)
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.SpendLimit') AND name = N'UX_DashSpendLimit_Source')
+    EXEC (N'CREATE UNIQUE INDEX UX_DashSpendLimit_Source ON dash.SpendLimit (Source, ExternalId) WHERE ExternalId IS NOT NULL;');
+
+IF OBJECT_ID(N'dash.SpendLimitSnapshot', N'U') IS NULL
+    CREATE TABLE dash.SpendLimitSnapshot
+    (
+        LimitId          INT            NOT NULL,
+        PeriodStart      DATE           NOT NULL,
+        PeriodEnd        DATE           NOT NULL,
+        Amount           DECIMAL(19, 4) NULL,
+        Spent            DECIMAL(19, 4) NULL,
+        TakenUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DashSpendLimitSnapshot_Taken DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_DashSpendLimitSnapshot PRIMARY KEY (LimitId, PeriodStart)
+    );
+
+IF OBJECT_ID(N'dash.AgentPolicyRule', N'U') IS NULL
+    CREATE TABLE dash.AgentPolicyRule
+    (
+        RuleId           INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashAgentPolicyRule PRIMARY KEY,
+        RuleKind         VARCHAR(24)    NOT NULL CONSTRAINT CK_DashAgentPolicyRule_Kind CHECK (RuleKind IN ('NoOwner', 'Unused', 'CostlyFewUsers', 'SharedNotCertified')),
+        Days             INT            NULL,       -- NoOwner, Unused: for this many days
+        Credits          INT            NULL,       -- CostlyFewUsers: more credits a month than this
+        People           INT            NULL,       -- CostlyFewUsers: with fewer people than this
+        ProposedAction   VARCHAR(16)    NOT NULL CONSTRAINT CK_DashAgentPolicyRule_Action CHECK (ProposedAction IN ('Notify', 'Quarantine')),
+        Enabled          BIT            NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Enabled DEFAULT (0),
+        AutoApprove      BIT            NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Auto DEFAULT (0),   -- run without a decision (reversible actions only)
+        UpdatedBy        NVARCHAR(256)  NULL,
+        UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Updated DEFAULT (SYSUTCDATETIME())
+    );
+IF NOT EXISTS (SELECT 1 FROM dash.AgentPolicyRule)
+    INSERT INTO dash.AgentPolicyRule (RuleKind, Days, Credits, People, ProposedAction, UpdatedBy)
+    VALUES ('NoOwner', 30, NULL, NULL, 'Notify', N'install'),
+           ('Unused', 90, NULL, NULL, 'Quarantine', N'install'),
+           ('CostlyFewUsers', NULL, 10000, 5, 'Notify', N'install'),
+           ('SharedNotCertified', 30, NULL, NULL, 'Notify', N'install');
+
+IF OBJECT_ID(N'dash.AgentAction', N'U') IS NULL
+    CREATE TABLE dash.AgentAction
+    (
+        ActionId         INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashAgentAction PRIMARY KEY,
+        InventoryAgentId NVARCHAR(100)  NOT NULL,   -- dash.AgentInventory's: the agent's id in Copilot Studio
+        AgentName        NVARCHAR(400)  NULL,
+        Environment      NVARCHAR(400)  NULL,
+        RuleId           INT            NULL,       -- NULL: proposed by a person
+        ActionKind       VARCHAR(16)    NOT NULL CONSTRAINT CK_DashAgentAction_Kind CHECK (ActionKind IN ('Notify', 'Quarantine', 'Release', 'Reassign')),
+        Reason           NVARCHAR(1000) NULL,
+        NewOwnerUpn      NVARCHAR(256)  NULL,       -- Reassign: who takes the agent over
+        Status           VARCHAR(16)    NOT NULL CONSTRAINT DF_DashAgentAction_Status DEFAULT ('Proposed')
+                                        CONSTRAINT CK_DashAgentAction_Status CHECK (Status IN ('Proposed', 'Approved', 'Rejected', 'Done', 'Failed', 'Dismissed')),
+        ProposedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_DashAgentAction_Proposed DEFAULT (SYSUTCDATETIME()),
+        ProposedBy       NVARCHAR(256)  NULL,       -- 'rule' for a rule's
+        DecidedBy        NVARCHAR(256)  NULL,
+        DecidedUtc       DATETIME2(0)   NULL,
+        DoneUtc          DATETIME2(0)   NULL,
+        Result           NVARCHAR(2000) NULL,       -- what the call answered, or why it failed
+        CheckedUtc       DATETIME2(0)   NULL,       -- the next night's check that it holds
+        INDEX IX_DashAgentAction_Agent (InventoryAgentId, Status)
+    );
+
+MERGE dash.Setting AS t
+USING (VALUES
+    ('TokenUnitLevels',             N'2,3', N'3.5.0: the org chart levels a business unit is made of, for Leadership > Model tokens: its L2 and L3 executives.'),
+    ('SpendLimitAlertTo',           CAST(NULL AS NVARCHAR(400)), N'3.5.0: who gets A spend limit will be reached, separated by semicolons. Empty: nobody, the alert is off.'),
+    ('SpendLimitAlertToExecutives', N'0', N'3.5.0: 1 also sends a limit''s alert to the L2 and L3 executives of the unit it belongs to.'),
+    ('SpendLimitAlertDays',         N'5', N'3.5.0: warn when a limit is projected to be reached this many days or more before its period ends.'),
+    ('SpendLimitHeadroomPercent',   N'10', N'3.5.0: headroom added to the suggested limit for next quarter, in percent.'),
+    ('SpendLimitSuggestFrom',       N'P80', N'3.5.0: the forecast the suggested limit is taken from: P80 or P95.'),
+    ('AgentActionsEnabled',         N'0', N'3.5.0: 1 lets tools/Invoke-AgentActions.ps1 carry out approved agent actions (quarantine, release, reassign) through the Power Platform API. 0: proposals only.')
+) AS s (Name, Value, Description)
+ON t.Name = s.Name
+WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
+
 /* The credit routes' added rule: Enterprise Shared is funded centrally and names no line of business, as the
    page refuses; a row written in SQL with one was left out of the charge yet shown in its credits. */
 IF OBJECT_ID(N'dash.CK_DashCreditRoute_Shared', N'C') IS NULL
@@ -988,6 +1115,11 @@ GRANT INSERT, UPDATE, DELETE ON dash.LineOfBusinessName TO CopilotInsightsApp; -
 GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- Forecasting > Credit commitment
 GRANT DELETE ON dash.CreditChargeSnapshot TO CopilotInsightsApp;                -- An administrator clears a month to take it again
 GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp;      -- and takes it again
+GRANT INSERT, UPDATE, DELETE ON dash.TokenRoute TO CopilotInsightsApp;         -- Leadership > Model tokens routes a gateway value to a unit
+GRANT INSERT, UPDATE ON dash.SpendLimit TO CopilotInsightsApp;                 -- Forecasting > Spend limits: an entered limit, a limit's unit and warning
+GRANT INSERT ON dash.SpendLimitSnapshot TO CopilotInsightsApp;                 -- a period's end, kept once
+GRANT UPDATE ON dash.AgentPolicyRule TO CopilotInsightsApp;                    -- Governance > Agent policies turns a rule on and sets it
+GRANT INSERT, UPDATE ON dash.AgentAction TO CopilotInsightsApp;                -- and decides on a proposal
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
@@ -1021,7 +1153,9 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
                              (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource'), (N'ActivityUserDay'), (N'DlpDay'),
                              /* 3.1.3: the weekly report's AD groups, shown on Admin > Alerts and digests. */
-                             (N'ReportGroupDay')) AS v (name)
+                             (N'ReportGroupDay'),
+                             /* 3.5.0: the gateway's tokens and the limits read at their sources. */
+                             (N'GatewayTokenDay'), (N'SpendLimitSource')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

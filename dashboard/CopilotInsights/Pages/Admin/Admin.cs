@@ -375,7 +375,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
     public override string Intro => "Who sees which sections, and how much of the organization. Every section of the menu is granted here: a section no grant opens for a person is not in their menu and its reports are refused, whatever their level. " +
         "Levels decide how much a section shows: levels 1 and 2 below the top see the whole organization, everyone else their own part of it, unless a grant says the whole organization.";
 
-    static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays"];
+    static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays", "DisabledGraceDays"];
 
     sealed class GrantRow
     {
@@ -412,6 +412,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
             Select("DefaultDays", "Default period", ReportContext.DayChoices.Select(d => (d.ToString(), ReportContext.ChoiceLabel(d))), set.GetValueOrDefault("DefaultDays")) +
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
+            Input("DisabledGraceDays", "Disabled accounts: reclaim after (days since last use)", set.GetValueOrDefault("DisabledGraceDays") ?? OpsData.DefaultGraceDays.ToString(), 4, "number") +
             Input("LicenseMonthlyCost", "Copilot license cost a month, after discount", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
             Input("PaygInteractionCost", $"Pay-as-you-go cost an interaction ({set.GetValueOrDefault("LicenseCurrency") ?? "USD"})", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
@@ -422,6 +423,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports (levels 1 and 2) see the whole organization in the sections granted to them. Empty by default: the dashboard then uses the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
             "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to. Default 5.</li>" +
             "<li><b>Default period.</b> The period every report opens with, until the viewer chooses another at the top of the page. Default 30 days.</li>" +
+            "<li><b>Disabled accounts: reclaim after.</b> A license on a disabled account counts as reclaimable only once this many days have passed since its last Copilot use, so someone on leave or disabled by mistake keeps it meanwhile. A license never used, or on an account gone from the directory, is reclaimable at once. 0 to 365; default 90.</li>" +
             "<li><b>Unused after.</b> The days without any Copilot use after which a Copilot license counts as unused, wherever a report counts unused licenses. 7 to 180; default 30.</li>" +
             "<li><b>License cost a month, and currency.</b> The price of one Microsoft 365 Copilot license a month, after any discount, used wherever a cost or a saving is shown. Default 30 USD.</li>" +
             "<li><b>Pay-as-you-go cost an interaction.</b> What one agent or work-grounded chat interaction costs in Copilot Credits without a license, for Licensing &gt; Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, and tenant data, 10) at 0.01 each. Default 0.12.</li>" +
@@ -780,7 +782,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
         return $"<label>Time zone<select name=\"TimeZone\">{options}</select></label>";
     }
 
-    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency, string? PaygInteractionCost, string? TimeZone) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency, string? PaygInteractionCost, string? TimeZone, int? DisabledGraceDays = null) => AdminChangeAsync(async () =>
     {
         TimeZone = string.IsNullOrWhiteSpace(TimeZone) ? null : TimeZone.Trim();
         if (TimeZone is not null)
@@ -792,6 +794,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
         if (MinGroupSize is < 1 or > 50) throw new ArgumentException("the minimum group size must be 1 to 50.");
         if (!ReportContext.DayChoices.Contains(DefaultDays)) throw new ArgumentException("the default period must be one of the periods offered.");
         if (InactiveDays is < 7 or > 180) throw new ArgumentException("unused-after must be 7 to 180 days.");
+        if (DisabledGraceDays is < 0 or > 365) throw new ArgumentException("the grace period for disabled accounts must be 0 to 365 days.");
         if (!decimal.TryParse(LicenseMonthlyCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cost) || cost < 0 || cost > 10000)
             throw new ArgumentException("the license cost is a number, such as 30 or 31.50.");
         if (!decimal.TryParse(string.IsNullOrWhiteSpace(PaygInteractionCost) ? "0.12" : PaygInteractionCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var payg) || payg < 0 || payg > 100)
@@ -799,6 +802,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
         LicenseCurrency = (LicenseCurrency ?? "").Trim().ToUpperInvariant();
         if (LicenseCurrency.Length is < 1 or > 8) throw new ArgumentException("the currency is a short code, such as USD or CAD.");
         var values = new Dictionary<string, string?> { ["OrgTopUpn"] = OrgTopUpn, ["MinGroupSize"] = MinGroupSize.ToString(), ["DefaultDays"] = DefaultDays.ToString(), ["InactiveDays"] = InactiveDays.ToString(),
+                                                        ["DisabledGraceDays"] = (DisabledGraceDays ?? OpsData.DefaultGraceDays).ToString(),
                                                         ["LicenseMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenseCurrency"] = LicenseCurrency,
                                                         ["PaygInteractionCost"] = payg.ToString(System.Globalization.CultureInfo.InvariantCulture), [Zones.Setting] = TimeZone };
         var before = await S.Settings.AllAsync();

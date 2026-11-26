@@ -60,10 +60,14 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
            add-ons only. Licensed today's link went there with a different number; this figure has the same one. */
         if (t.LicensedNotEnabled > 0)
         {
-            var leavers = (await ops.LeaversAsync(Ctx.Root)).Count;
-            var inSuite = t.LicensedNotEnabled - leavers;
+            /* Those still in the grace period after their last use are named, not counted to take back. */
+            var all = await ops.LeaversAsync(Ctx.Root, withGrace: true);
+            var leavers = all.Count(r => !r.InGrace);
+            var held = all.Count - leavers;
+            var inSuite = t.LicensedNotEnabled - all.Count;
             Kpis.Add(new("On disabled accounts", Num(leavers),
-                "add-on licenses on disabled or departed accounts, to take back" + (inSuite > 0 ? $"; {inSuite:#,0} more hold Copilot only inside a suite (Licensing › Suite fit)" : ""),
+                "add-on licenses on disabled or departed accounts, to take back" + (held > 0 ? $"; {held:#,0} more still in the grace period after their last use" : "") +
+                (inSuite > 0 ? $"; {inSuite:#,0} more hold Copilot only inside a suite (Licensing › Suite fit)" : ""),
                 leavers > 0 ? "warn" : null, Href: Open("/licensing/leavers")));
         }
         Kpis.Add(new("Assigned in the period", Num(added), Href: Open("/licensing/changes")));
@@ -143,7 +147,8 @@ public sealed class UnusedModel(PageServices s) : InsightsPage(s)
     public override string Title => "Unused licenses";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "People holding a Microsoft 365 Copilot license who have not used Copilot for the number of days chosen below: candidates to reclaim or to follow up. Disabled accounts are included.";
+    public override string Intro => "People holding a Microsoft 365 Copilot license who have not used Copilot for the number of days chosen below: candidates to reclaim or to follow up. " +
+        "Disabled accounts are included once their grace period after their last use has passed (Admin › Access, default 90 days).";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -173,6 +178,7 @@ public sealed class UnusedModel(PageServices s) : InsightsPage(s)
     {
         var idleDays = int.TryParse(Request.Query["idle"], out var i) && i is 7 or 14 or 30 or 60 or 90 ? i : Ctx.InactiveDays;
         var pg = new Paging(Request, Sorts, "idle");
+        var grace = Math.Clamp(await S.Settings.IntAsync("DisabledGraceDays", OpsData.DefaultGraceDays), 0, 365);
         var rows = await Db.QueryAsync<Row>($@"
 SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, du.CopilotSku, du.LicensedSinceUtc,
        dl.[Date] AS LastUsed, COUNT(*) OVER () AS TotalRows
@@ -185,8 +191,10 @@ LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
   AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}
+  /* A disabled account used within its grace period (DisabledGraceDays) is kept for now, as Licenses on disabled accounts keeps it. */
+  AND NOT (du.AccountEnabled = 0 AND du.DirectoryStatus <> N'NotFound' AND x.LastKey > @graceKey)
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, idle = idleDays, idleKey = ReportContext.Key(Ctx.End.AddDays(-(idleDays - 1))) }));
+{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, idle = idleDays, idleKey = ReportContext.Key(Ctx.End.AddDays(-(idleDays - 1))), graceKey = ReportContext.Key(Ctx.End.AddDays(-grace)) }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
         var t = new Table
@@ -205,7 +213,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         var choices = string.Join(" · ", new[] { 7, 14, 30, 60, 90 }.Select(d =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"idle={d}"))}\"{(d == idleDays ? " class=\"on\"" : "")}>{d} days</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Licenses held today whose holder has not used Copilot for the days chosen. Never: no Copilot use on record.", "full", CsvUrl()));
+            $"Licenses held today whose holder has not used Copilot for the days chosen. Never: no Copilot use on record. A disabled account last used under {grace} days ago is left out until its grace period ends.", "full", CsvUrl()));
     }
 }
 

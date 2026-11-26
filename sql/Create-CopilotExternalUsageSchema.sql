@@ -494,6 +494,50 @@ IF OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL
         CONSTRAINT PK_PowerPlatformCreditDay PRIMARY KEY ([Day], EnvironmentName, Product, Billing)
     );
 
+/* ---- The AI gateway and the spending limits at their sources ---- */
+/*
+    Model tokens through the organization's AI gateway (Azure API Management's llm-emit-token-metric or
+    azure-openai-emit-token-metric policy, sent to Application Insights), read by tools/Import-GatewayTokenUsage.ps1:
+    counts only, by the dimensions the gateway stamps (the business unit, and optionally the model and agent).
+    The spending limits set where the spend happens, read by their loaders: Copilot spending policies (Microsoft
+    Graph beta), GitHub budgets, and the gateway's token quotas (llm-token-limit). Read only: nothing here sets a limit.
+*/
+IF OBJECT_ID(N'audit.GatewayTokenDay', N'U') IS NULL
+    CREATE TABLE audit.GatewayTokenDay
+    (
+        RowId            BIGINT IDENTITY(1, 1) NOT NULL,
+        Gateway          NVARCHAR(260)  NOT NULL,       -- the API Management service's name
+        [Day]            DATE           NOT NULL,       -- a UTC day
+        BusinessUnit     NVARCHAR(256)  NOT NULL,       -- the business-unit dimension's value; '' where the gateway stamped none
+        Model            NVARCHAR(200)  NOT NULL,       -- '' where not stamped
+        Agent            NVARCHAR(200)  NOT NULL,       -- '' where not stamped
+        Api              NVARCHAR(200)  NOT NULL,       -- the API Management API's id; '' where not given
+        PromptTokens     BIGINT         NULL,
+        CompletionTokens BIGINT         NULL,
+        TotalTokens      BIGINT         NULL,
+        Calls            BIGINT         NULL,           -- metric records summed (one a call, as the policy emits them)
+        LoadedUtc        DATETIME2(0)   NOT NULL CONSTRAINT DF_GatewayTokenDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GatewayTokenDay PRIMARY KEY NONCLUSTERED (RowId),
+        INDEX CIX_GatewayTokenDay CLUSTERED ([Day], Gateway)
+    );
+IF OBJECT_ID(N'audit.SpendLimitSource', N'U') IS NULL
+    CREATE TABLE audit.SpendLimitSource
+    (
+        Source           VARCHAR(16)    NOT NULL,       -- Graph | GitHub | Gateway
+        ExternalId       NVARCHAR(400)  NOT NULL,       -- the limit's id at its source
+        Kind             VARCHAR(24)    NOT NULL,       -- CopilotUser | CopilotResource | GatewayQuota | GatewayRate | GitHubBudget
+        Name             NVARCHAR(400)  NULL,
+        ScopeType        VARCHAR(24)    NULL,           -- AllUsers | Group | Environment | Agent | CounterKey | Enterprise | Organization | CostCenter | User
+        Scope            NVARCHAR(1000) NULL,           -- the group, environment, counter key, organization ... it applies to
+        Unit             VARCHAR(8)     NOT NULL,       -- Credits | Tokens | USD
+        Amount           DECIMAL(19, 4) NULL,
+        Period           VARCHAR(16)    NULL,           -- Minute | Hourly | Daily | Weekly | Monthly | Yearly
+        PerUser          BIT            NOT NULL CONSTRAINT DF_SpendLimitSource_PerUser DEFAULT (0),   -- the amount is each person's (or each counter key's)
+        Raw              NVARCHAR(MAX)  NULL,           -- the limit as its source gave it, JSON or XML
+        LoadedUtc        DATETIME2(0)   NOT NULL CONSTRAINT DF_SpendLimitSource_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_SpendLimitSource PRIMARY KEY (Source, ExternalId)
+    );
+
 /* ---- The loads' own log ---------------------------------------------------- */
 
 /* One row per run of either tool, from its start, so a failure shows too. Admin > Health reads the last of
@@ -502,7 +546,7 @@ IF OBJECT_ID(N'audit.ExternalUsageRun', N'U') IS NULL
     CREATE TABLE audit.ExternalUsageRun
     (
         RunId                INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_ExternalUsageRun PRIMARY KEY,
-        Source               VARCHAR(16)    NOT NULL,   -- GitHub | Foundry
+        Source               VARCHAR(16)    NOT NULL,   -- GitHub | Foundry | Gateway | SpendLimits | AgentActions
         Scope                NVARCHAR(400)  NULL,       -- the enterprise or organization, or the subscriptions
         StartedUtc           DATETIME2(0)   NOT NULL CONSTRAINT DF_ExternalUsageRun_Started DEFAULT (SYSUTCDATETIME()),
         EndedUtc             DATETIME2(0)   NULL,
@@ -542,4 +586,6 @@ BEGIN
     GRANT SELECT ON audit.AiCostDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.AiBudget TO CopilotInsightsApp;
     GRANT SELECT ON audit.AiCostForecastDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GatewayTokenDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.SpendLimitSource TO CopilotInsightsApp;
 END;

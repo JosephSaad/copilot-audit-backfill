@@ -68,6 +68,14 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
         var k30 = ReportContext.Key(c.End.AddDays(-29));
         var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, c, k30);
         var protectedLevels = await ProtectedLevels.SqlLevelsAsync(settings);
+        var grace = await ops.GraceDaysAsync();
+        /* The last day of use as Licenses on disabled accounts reads it: the refresh's per-person row, or, before the
+           refresh has built them, the person's days. */
+        var built = await ops.HasAsync("dash.UserActivity")
+            && await db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserActivity) THEN 1 ELSE 0 END;") == 1;
+        var lastUse = "(SELECT dd.[Date] FROM bi.DimDate AS dd WHERE dd.DateKey = " + (built
+            ? "(SELECT ua.LastActiveKey FROM dash.UserActivity AS ua WHERE ua.UserKey = du.UserKey))"
+            : "(SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = du.UserKey AND x.Interactions > 0))");
         var rows = await db.QueryAsync<Rec>($@"
 WITH {activity},
 sh AS (SELECT u.UserPrincipalName AS Upn, cs.SkuPattern
@@ -83,7 +91,10 @@ SELECT sh.Upn, sh.SkuPattern, du.DisplayName, du.Department, ISNULL(a.P, 0) AS C
        ISNULL(ad.Cop, 0) AS CopilotAddOn, ISNULL(ad.Bi, 0) AS PowerBiAddOn,
        {(biKnown ? "ISNULL(b.Used, 0)" : "-1")} AS PowerBi,
        CASE WHEN {ProtectedLevels.Not("sh.Upn", protectedLevels)} THEN 0 ELSE 1 END AS Protected,
-       CASE WHEN du.AccountEnabled = 0 OR du.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0 THEN 0 ELSE 1 END AS Enabled,
+       /* Disabled, but used within the grace period (DisabledGraceDays): kept for now, as Licenses on disabled accounts keeps it. */
+       CASE WHEN du.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' THEN 0
+            WHEN du.AccountEnabled = 0 OR {entra} = 0 THEN CASE WHEN {lastUse} > DATEADD(DAY, -@grace, @today) THEN 1 ELSE 0 END
+            ELSE 1 END AS Enabled,
        du.LicensedSinceUtc AS CopilotSince
 FROM sh
 {(scoped ? "JOIN" : "LEFT JOIN")} bi.DimUser AS du ON du.UserPrincipalName = sh.Upn
@@ -91,7 +102,7 @@ FROM sh
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN addon AS ad ON ad.Upn = sh.Upn
 LEFT JOIN pbi AS b ON b.UserPrincipalName = sh.Upn
-LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = sh.Upn;", c.Args(new { k30, idleDays }));
+LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = sh.Upn;", c.Args(new { k30, idleDays, grace, today = c.End.Date }));
 
         var byPattern = suites.ToDictionary(s => s.Pattern, StringComparer.OrdinalIgnoreCase);
         var today = c.End.Date;

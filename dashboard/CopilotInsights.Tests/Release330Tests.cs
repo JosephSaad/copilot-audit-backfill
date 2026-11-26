@@ -69,7 +69,9 @@ public class Release330Tests
         var page = Repo("dashboard", "CopilotInsights", "Pages", "Licensing", "Licensing.cs");
         Assert.DoesNotContain("Href: t.LicensedNotEnabled > 0 ? Open(\"/licensing/leavers\") : null", page);
         Assert.Contains("Kpis.Add(new(\"On disabled accounts\", Num(leavers)", page);
-        Assert.Contains("(await ops.LeaversAsync(Ctx.Root)).Count", page);
+        /* 3.5.0: the figure counts the reclaimable ones, as the page it opens does: those past the grace period. */
+        Assert.Contains("var leavers = all.Count(r => !r.InGrace);", page);
+        Assert.Contains("(await ops.LeaversAsync(Ctx.Root)).Count", Repo("dashboard", "CopilotInsights", "Pages", "Licensing", "Operations.cs"));
         Assert.Contains("'/licensing/license-for-credits|Cost of their credits'", Repo("tools", "dev", "ui", "Test-FigureLinks.ps1"));
     }
 }

@@ -67,7 +67,8 @@ USING (VALUES
     ('TokensPerTurn', N'1500', N'2.6.6: the tokens one Copilot turn takes before grounding (instructions, prompt, history), for the rough token estimate.'),
     ('TokensPerResource', N'1000', N'2.6.6: the tokens each file, mail or page read for grounding adds, for the rough token estimate.'),
     ('TokensPerAnswer', N'400', N'2.6.6: the tokens one answer gives back, for the rough token estimate.'),
-    ('Agent365MonthlyPrice', N'15', N'3.5.0: Agent 365''s price a user a month, for Licensing > Agent 365 sizing.')
+    ('Agent365MonthlyPrice', N'15', N'3.5.0: Agent 365''s price a user a month, for Licensing > Agent 365 sizing.'),
+    ('DisabledGraceDays', N'90', N'3.5.0: a license on a disabled account is reclaimable only this many days after its last Copilot use (0 to 365). Never used, or gone from the directory: at once.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
