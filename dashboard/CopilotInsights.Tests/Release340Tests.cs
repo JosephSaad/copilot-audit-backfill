@@ -132,4 +132,12 @@ public class Release340Tests
         foreach (var f in Directory.GetFiles(Path.Combine(pages.FullName, "CopilotInsights", "Pages"), "*.cs", SearchOption.AllDirectories))
             if (!f.EndsWith("Brief.cs", StringComparison.Ordinal)) Assert.DoesNotContain("Email: true", File.ReadAllText(f));
     }
+    [Fact]
+    public void An_email_of_a_page_counting_everyone_says_whole_organization()
+    {
+        Assert.Contains("var scope = page.CountsWholeOrganization ? \"Whole organization\" : c.ScopeLabel;", Repo("dashboard", "CopilotInsights", "Infrastructure", "SubscriptionSender.cs"));
+        foreach (var f in new[] { new[] { "Agents", "Mine.cs" }, new[] { "Leadership", "AiSpend.cs" }, new[] { "Platforms", "Foundry.cs" } })
+            Assert.Contains("public override bool CountsWholeOrganization => true;", Repo(["dashboard", "CopilotInsights", "Pages", .. f]));
+        Assert.Contains("public override bool CountsWholeOrganization => false;", Repo("dashboard", "CopilotInsights", "Pages", "Platforms", "GitHub.cs"));
+    }
 }

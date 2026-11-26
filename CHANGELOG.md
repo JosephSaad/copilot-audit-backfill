@@ -54,6 +54,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The email of a report that counts the whole organization (My agents, AI spend across Azure, the AI platforms
+  pages) named the subscriber's part of it under its title; it says *Whole organization*.
 - My agents counted an owner's agents' people across the organization but their credits within the viewer's part
   of it; both are now the organization's.
 - **Agent detail failed now and then** (since 3.1.4) with an error page: its four reads, run side by side, shared one

@@ -16,6 +16,7 @@ public abstract class PlatformPage(PageServices s) : InsightsPage(s)
 {
     public override string Persona => "AI platforms";
     public override bool UsesTeam => false;
+    public override bool CountsWholeOrganization => true;
 
     protected Task<bool> HasRowsAsync(string table) => TableHasRowsAsync(table);
 

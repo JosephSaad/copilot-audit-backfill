@@ -18,6 +18,7 @@ public sealed class MineModel(PageServices s, CreditData creditData) : InsightsP
     public override string Title => "My agents";
     public override string Persona => "Agents";
     public override bool UsesTeam => false;
+    public override bool CountsWholeOrganization => true;
     public override string Intro => "The agents you own, as their builder sees them: how many people used each in the period and across the organization, whether they come back, how use is moving, "
         + "and the agents of yours that nobody used. Counts only, each shown where enough people used it.";
 

@@ -16,6 +16,7 @@ public sealed class AiSpendModel(PageServices s) : InsightsPage(s)
     public override string Title => "AI spend across Azure";
     public override string Persona => "Leadership";
     public override bool UsesTeam => false;
+    public override bool CountsWholeOrganization => true;
     public override string Intro => "What every AI service costs in Azure, as Microsoft bills it: Foundry and Azure OpenAI, Copilot Studio, Microsoft 365 Copilot pay-as-you-go, AI Search and the rest. "
         + "Actual cost is what was billed each day; amortized cost spreads a reservation over the days it covers. With this month's forecast and the budgets set in Azure.";
 

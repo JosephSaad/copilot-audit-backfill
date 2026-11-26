@@ -247,6 +247,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// the organization beside it, are left out.
     /// </summary>
     public virtual bool UsesTeam => true;
+    /// <summary>The page counts the whole organization whoever opens it (3.4.0): its email says so, not the viewer's part.</summary>
+    public virtual bool CountsWholeOrganization => false;
 
     /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
     public virtual bool AllowedInPrivacyMode => false;

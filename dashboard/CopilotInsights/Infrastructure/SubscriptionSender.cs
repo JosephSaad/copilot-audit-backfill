@@ -341,8 +341,9 @@ public static partial class ReportEmail
         h.Append($"<table role=\"presentation\" width=\"{Width}\" cellpadding=\"0\" cellspacing=\"0\" style=\"width:100%;max-width:{Width}px;background:#ffffff;border:1px solid {Rule};border-radius:8px;font-family:Segoe UI,Arial,sans-serif;color:{Ink}\"><tr><td style=\"padding:20px 22px\">");
         h.Append($"<div style=\"font-size:12px;color:{Faint};text-transform:uppercase;letter-spacing:.04em\">Copilot Insights · {E(page.Persona)}</div>");
         h.Append($"<h1 style=\"font-size:21px;margin:4px 0 2px;color:{Ink}\">{E(title)}</h1>");
-        h.Append($"<div style=\"font-size:13px;color:{Muted}\">{E(c.ScopeLabel)} · {E(c.PeriodLabel)}</div>");
-        t.AppendLine(title).AppendLine($"{c.ScopeLabel} · {c.PeriodLabel}").AppendLine();
+        var scope = page.CountsWholeOrganization ? "Whole organization" : c.ScopeLabel;
+        h.Append($"<div style=\"font-size:13px;color:{Muted}\">{E(scope)} · {E(c.PeriodLabel)}</div>");
+        t.AppendLine(title).AppendLine($"{scope} · {c.PeriodLabel}").AppendLine();
         foreach (var note in new[] { lateNote, page.Stale, c.OrgNote }.OfType<string>())
         {
             h.Append($"<p style=\"font-size:13px;background:#fbf0de;color:{Ink};padding:8px 10px;border-radius:6px;margin:12px 0 0\">{E(note)}</p>");
