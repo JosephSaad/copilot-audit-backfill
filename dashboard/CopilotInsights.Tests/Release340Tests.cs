@@ -95,4 +95,15 @@ public class Release340Tests
         Assert.Contains("Owner = asked.Length > 0 && (Viewer.OrgWide || Viewer.AnyAdmin) ? asked : Viewer.Upn;", mine);
         Assert.Contains("AtLeastMin(r.People)", mine);
     }
+    [Fact]
+    public void Each_statement_runs_with_parameters_of_its_own()
+    {
+        /* One Ctx.Args shared by reads run side by side broke Agent detail now and then ("a concurrent update was
+           performed on this collection"): every statement the dashboard's Db runs is given a copy. */
+        var db = Repo("dashboard", "CopilotInsights", "Infrastructure", "Db.cs");
+        Assert.Contains("args is DynamicParameters d ? new DynamicParameters(d) : args", db);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(db, @"new CommandDefinition\(PlanHints\.Apply\(sql, args\), Own\(args\)").Count);
+        Assert.DoesNotContain("PlanHints.Apply(sql, args), args,", db);
+        Assert.DoesNotContain("ExecuteScalarAsync<T>(sql, args)", db);
+    }
 }

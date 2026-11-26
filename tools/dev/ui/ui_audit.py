@@ -117,7 +117,11 @@ AUDIT_JS = r"""
   }
   if (/^Something went wrong/.test(document.title) || /^Something went wrong/.test((document.querySelector('h1') || {}).textContent || ''))
     issues.push({kind: 'error-page', text: 'The page failed to build: it shows the error page.'});
-  return JSON.stringify({title: document.title, status: document.querySelector('.denied') ? 'denied' : 'ok', issues});
+  // A page that failed is an issue, not "ok": the developer error page, or a part replaced by an incident reference.
+  const body = document.body.innerText;
+  const failed = /unhandled exception occurred|finds the details under it in the web server's log/i.test(body);
+  if (failed) { const at = Math.max(0, body.search(/unhandled exception occurred|Reference [0-9A-F]{6}/i)); issues.push({kind: 'page-failed', text: body.slice(at, at + 160)}); }
+  return JSON.stringify({title: document.title, status: failed ? 'FAILED' : document.querySelector('.denied') ? 'denied' : 'ok', issues});
 })()
 """
 

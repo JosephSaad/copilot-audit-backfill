@@ -115,7 +115,7 @@ WHERE p.AgentInteractions > 0;", Ctx.Args()));
     }
 }
 
-public sealed class DetailModel(PageServices s) : InsightsPage(s)
+public sealed class DetailModel(PageServices s, CopilotInsights.Data.CreditData creditData) : InsightsPage(s)
 {
     public override string Title => AgentName ?? "Agent detail";
     public override string Persona => "Agents";
@@ -211,6 +211,7 @@ WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.N
         Kpis.Add(new("New people", few ? "—" : Num(tot.NewPeople), "first used it in the period"));
         Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "of its people used it on more than one day in the period"));
         Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person; includes use by accounts since disabled" : null));
+        await BuilderFiguresAsync(key.Value);
 
         var buckets = Buckets();
         /* Each point at the minimum group size or more, as the KPI above is. */
@@ -270,5 +271,35 @@ WHERE du.AccountEnabled = 1   -- a ranking of people: enabled accounts only (3.1
             t.Rows.Add([field, PrivacyMode && named.Contains(field) ? null : value?.ToString()]);
         Panels.Add(new("From the agent workbook", t.Render(),
             "Every column of this agent's row on the workbook's first sheet, as loaded last." + (PrivacyMode ? " Privacy mode is on, so the people behind it are not shown." : ""), "full"));
+    }
+
+    /// <summary>
+    /// What an agent's builder looks at every day (3.4.0): its owner (opening their My agents where the viewer may),
+    /// its interactions in the last 7 days against the 7 before, and what its billed use costs in Copilot Credits a
+    /// month, as Agents costing credits estimates it.
+    /// </summary>
+    async Task BuilderFiguresAsync(int key)
+    {
+        var creditsTask = creditData.TotalsAsync(Ctx);
+        var weekTask = Db.QueryAsync<(long Now, long Before)>(@"
+SELECT ISNULL(SUM(CASE WHEN f.DateKey >= @w0 THEN 1 END), 0), ISNULL(SUM(CASE WHEN f.DateKey < @w0 THEN 1 END), 0)
+FROM bi.FactInteraction AS f WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @b0 AND @k1;",
+            Ctx.Args(new { agent = key, w0 = ReportContext.Key(Ctx.End.AddDays(-6)), b0 = ReportContext.Key(Ctx.End.AddDays(-13)) }));
+        var ownerTask = Db.ScalarAsync<string?>("SELECT Owner FROM dash.Agent WHERE AgentKey = @key;", new { key });
+        await Task.WhenAll(creditsTask, weekTask, ownerTask);
+        var (now, before) = (await weekTask).Single();
+        Kpis.Add(new("Last 7 days", Num(now), before == 0 ? "no interaction the 7 days before" : $"{now / (double)before - 1:+0%;-0%;0%} on the 7 days before",
+            before > 0 && now >= before * 1.02 ? "good" : before > 0 && now <= before * 0.95 ? "warn" : null));
+        var month = (await creditsTask).Agents.FirstOrDefault(a => a.AgentKey == key)?.Month;
+        if (month is { Credits: > 0 } m)
+            Kpis.Add(new("Copilot Credits a month (estimate)", Num((long)Math.Round(m.Credits)), $"{CopilotInsights.Data.CostRules.Money(Math.Round(m.Cost), (await creditsTask).Currency)} a month from its billed use",
+                "warn", Href: Open("/agents/credits")));
+        if (await ownerTask is { Length: > 0 } owner && !PrivacyMode)
+        {
+            var name = (await NamesAsync([owner]))(owner) ?? owner;
+            var mine = string.Equals(owner, Viewer.Upn, StringComparison.OrdinalIgnoreCase) ? Open("/agents/mine")
+                     : Viewer.OrgWide || Viewer.AnyAdmin ? Open("/agents/mine", "owner=" + Uri.EscapeDataString(owner)) : null;
+            Kpis.Add(new("Owner", name, mine is null ? "who built or owns it" : "opens the owner's agents", Href: mine));
+        }
     }
 }

@@ -696,7 +696,7 @@ function Invoke-Main {
         if (Setting 'TrustServerCertificate') { $script:TrustServerCertificate = $true }
     }
 
-    $aiScopes = Get-AiCostScope -Configured @(Setting 'AiCostScopes') -Subs $subs
+    $aiScopes = @(Get-AiCostScope -Configured @(Setting 'AiCostScopes') -Subs $subs)   # @(): one scope is still a list
     $aiTypes = if (@(Setting 'AiCostResourceTypes').Count) { @(Setting 'AiCostResourceTypes' | ForEach-Object { "$_".ToLowerInvariant() }) } else { @($script:AiCostTypes.Keys) }
     if ($CheckOnly) {
         $bearer = if ($AccessToken) { [System.Net.NetworkCredential]::new('', $AccessToken).Password }
