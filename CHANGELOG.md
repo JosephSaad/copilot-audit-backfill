@@ -4,7 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.3.0] - 2026-11-25
+
+Foundry and GitHub Copilot join the ledger. A new AI platforms section gives the teams that run them six pages of
+their own: what Foundry costs and what is idle, under-used or retiring, each account's posture, and GitHub Copilot's
+seats, the people behind them and each organization's settings. The two loaders read more (account posture, content
+filters, model retirement, reserved capacity, every AI account in reach; who each GitHub login is, and each
+organization's settings) and can check their access before a first load. Each AI resource has a page of its own.
+
+**Install over 3.2.1** (over 3.2.0, 3.2.1's steps as well):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds seven tables (`audit.GitHubIdentity`,
+   `audit.GitHubCopilotPolicy`, `audit.FoundryAccount`, `audit.FoundryContentFilter`, `audit.FoundryModelCatalog`,
+   `audit.FoundryAccountSeen`, `dash.GitHubIdentityMap`), three columns (`RaiPolicy` on `audit.FoundryDeployment`,
+   `PtuUtilizationAvg` and `PtuUtilizationMax` on `audit.FoundryUsageDay`), two settings and the Platforms role;
+   nothing is removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added, and `Program.cs` and the project
+   file are unchanged.
+4. Grant the AI platforms section to the Foundry and GitHub platform teams (Admin › Access), with *Named people* for
+   those who should see who holds each GitHub seat.
+5. Where the Foundry or GitHub load runs, try its access first: `.\tools\Import-FoundryUsage.ps1 -CheckOnly` and
+   `.\tools\Import-GitHubCopilotUsage.ps1 -CheckOnly`. For an enterprise of managed users, add `scim:enterprise` to the
+   GitHub token.
 
 ### Added
 
@@ -65,6 +89,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   *microsoft 365 workload owners*): each now reads *Agents (Copilot Studio makers and the center of excellence): ...*.
 - **The figure-link audit's list of deliberately related links** named Better with a license's figure by an old label,
   so *Cost of their credits* was reported as not found; it is listed by its current name.
+
+### Known limits
+
+- **Not run against real Azure or GitHub.** Every new read of both loaders, and `-CheckOnly`, was tested against
+  stand-ins that answer as Microsoft and GitHub document; none has run on a real subscription or enterprise. The
+  first real run (`-CheckOnly`, then a load) is the test; what it finds goes into 3.3.1.
+- **A managed user's login is worked out, not read.** GitHub's SCIM list gives each person's UPN, not their login; the
+  login follows GitHub's rule for Enterprise Managed Users (the UPN before the @, other characters made hyphens, then
+  `_` and the short code). It matches the one real login checked, not yet a whole enterprise. Whether SCIM can be read
+  where the enterprise signs in with OIDC is unverified.
+- **GitHub's feature and model policies are not read** (their endpoints are in preview): the posture page shows each
+  organization's Copilot settings from its billing endpoint only.
+- **The administrator's list of GitHub logins and people** (`dash.GitHubIdentityMap`) has its table, but no page to
+  edit it yet: rows go in by SQL.
+- **Reserved (PTU) capacity use** was tested with stand-in metrics only: no provisioned deployment was available.
+- **The joining guide** (`docs/FOUNDRY-AND-GITHUB.md`) is not written yet; FOUNDRY-USAGE.md and GITHUB-COPILOT-USAGE.md
+  cover the setup and `-CheckOnly`.
+- **Cost per app on a shared AI resource** is an estimate on AI resource detail: the resource's cost shared by calls.
 
 ## [3.2.1] - 2026-11-25
 
