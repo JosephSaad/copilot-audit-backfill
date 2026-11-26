@@ -20,6 +20,8 @@ public static class Guidance
         ["/leadership/compare"] = new("Set two managers' teams side by side, whatever their size.", "Ask the lead of the team ahead what they did, and share it with the other."),
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
         ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
+        ["/leadership/brief"] = new("Start the day with the week in AI: use, cost, return, the bill and the risks.", "Act on the first saving listed; open any figure that moved against you."),
+        ["/leadership/ai-spend"] = new("See the whole AI bill in Azure, by service, against this month's forecast and the budgets.", "Ask the owner of any service growing fastest why; set a budget where there is none."),
         ["/leadership/costs"] = new("See what AI and automation cost, what can be saved, and what they return, in one view.", "Take the top three savings this month; send the growth items to their owners."),
         ["/leadership/credit-chargeback"] = new("See each line of business's Copilot Credits by path, and what they charge it.", "Route every environment first; then send each line of business its month."),
         ["/leadership/reservations"] = new("See reserved Copilot seats against licenses held, and what each part of the organization is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
@@ -72,6 +74,7 @@ public static class Guidance
         ["/compliance/person"] = new("Answer a data-subject request or support an investigation.", "Download the record; every look is audited."),
 
         // Agents
+        ["/agents/mine"] = new("See how the agents you built are used, and which nobody uses.", "Tell people about the agents they come back to; retire the ones nobody used."),
         ["/agents"] = new("See which agents people use and come back to.", "Promote the agents with returning users; review the ones nobody returns to."),
         ["/agents/inventory"] = new("Keep a register of every current agent, and whether anyone uses it.", "Retire or promote the agents nobody used in the period."),
         ["/agents/owners"] = new("Find the agents whose owner has left or is disabled.", "Give the used ones a new owner first; ask the old owner's manager."),

@@ -22,7 +22,7 @@
     @if (wb) { <link rel="stylesheet" href="~/workbench.css" asp-append-version="true" /> }
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
-<body>
+<body data-section="@(page is null ? null : InsightsPage.SectionSlug(page.Persona))">
 @* The first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
    past the whole list of reports, on every page. *@
 <a class="skip" href="#main">Skip to the page</a>

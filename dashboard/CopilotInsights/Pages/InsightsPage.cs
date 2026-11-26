@@ -772,6 +772,9 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected string Here => Ctx.Root is null && Viewer.OrgWide ? "the organization" : "this part of the organization";
 
     protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
+    /// <summary>A section's name as the page's body carries it, for its color: lower case letters and hyphens only ("AI platforms" is "ai-platforms").</summary>
+    public static string SectionSlug(string? persona) =>
+        string.Join('-', new string((persona ?? "").ToLowerInvariant().Select(c => c is >= 'a' and <= 'z' ? c : ' ').ToArray()).Split(' ', StringSplitOptions.RemoveEmptyEntries));
     protected static string Num(double? v) => Chart.Format(v, Fmt.Count);
     protected static double? Ratio(double a, double b) => b > 0 ? a / b : null;
     /// <summary>The trend's points (days or weeks), oldest first, and their labels.</summary>
