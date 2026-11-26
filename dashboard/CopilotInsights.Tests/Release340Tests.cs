@@ -140,4 +140,15 @@ public class Release340Tests
             Assert.Contains("public override bool CountsWholeOrganization => true;", Repo(["dashboard", "CopilotInsights", "Pages", .. f]));
         Assert.Contains("public override bool CountsWholeOrganization => false;", Repo("dashboard", "CopilotInsights", "Pages", "Platforms", "GitHub.cs"));
     }
+    [Fact]
+    public void An_AI_budget_forecast_to_go_over_is_an_alert_once_a_week()
+    {
+        var n = Repo("dashboard", "CopilotInsights", "Infrastructure", "Notifier.cs");
+        Assert.Contains("await BudgetAsync();", n);
+        Assert.Contains("\"Budget\" => 4004", n);   // its own event id in the Windows log
+        Assert.Contains("N'retry:budget'", n);       // a failed send is tried again, as the others are
+        Assert.Contains("WHERE Amount > 0 AND ForecastSpend > Amount", n);
+        Assert.Contains("AiBudgetAlert", n);
+        Assert.Contains("AiBudgetAlert", Repo("docs", "OPERATIONS.md"));
+    }
 }
