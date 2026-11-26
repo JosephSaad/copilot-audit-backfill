@@ -34,7 +34,7 @@ waiting for the night.
 
 ### Added
 - **Seat groups from on-premises AD.** The seat read finds each seat group by its AD account name, common name or
-  display name, reads its direct members in ranges (a group of any size), and matches each to their Entra account
+  display name, reads its direct members in ranges and its users in one paged search (a group of 20,000 is some 35 reads), and matches each to their Entra account
   by the SID Copilot Insights' directory load recorded, then by sign-in name, then by mail. Their counts are the
   same as from Entra. `Seats.GroupMembersFrom` says where members come from: `AUTO` (the default: Graph, and AD for
   on-premises groups when Graph refuses), `AD` or `ENTRA`. The domain is the one on Admin › Directory quality, or

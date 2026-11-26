@@ -52,7 +52,24 @@ public sealed class AdGroupReader : IAdGroupApi
         var groups = 0;
         var other = 0;
         var home = AdGroups.NamingContextOf(group.DistinguishedName) ?? "";
-        foreach (var inDomain in dns.GroupBy(d => AdGroups.NamingContextOf(d) ?? "", StringComparer.OrdinalIgnoreCase))
+        /* The group's own domain in one paged search (memberOf is the member list seen from the member's side): a group
+           of 20,000 is some 20 pages, not 400 lookups. What it does not return (members in other domains) is looked up
+           below, 50 at a time. */
+        var left = new HashSet<string>(dns, StringComparer.OrdinalIgnoreCase);
+        if (home.Length > 0 && left.Count > 0)
+        {
+            using var root = new DirectoryEntry(Root(domain) + PathOf(home));
+            using var s = new DirectorySearcher(root, $"(memberOf={AdGroups.Escape(group.DistinguishedName)})",
+                ["distinguishedName", "objectClass", "objectSid", "userPrincipalName", "mail"]) { PageSize = 1000, SizeLimit = 0 };
+            using var results = s.FindAll();
+            foreach (SearchResult r in results)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (Str(r, "distinguishedname") is not { } dn || !left.Remove(dn)) continue;
+                Classify(r, users, ref groups, ref other);
+            }
+        }
+        foreach (var inDomain in left.GroupBy(d => AdGroups.NamingContextOf(d) ?? "", StringComparer.OrdinalIgnoreCase))
         {
             if (inDomain.Key.Length == 0) { other += inDomain.Count(); continue; }
             /* The group's own domain through the server named in the settings; another domain of the forest by its DNS name. */
@@ -70,11 +87,7 @@ public sealed class AdGroupReader : IAdGroupApi
                     foreach (SearchResult r in results)
                     {
                         resolved++;
-                        var classes = r.Properties["objectclass"].Cast<object>().Select(o => o.ToString() ?? "").ToList();
-                        if (classes.Contains("group", StringComparer.OrdinalIgnoreCase)) groups++;
-                        else if (classes.Contains("user", StringComparer.OrdinalIgnoreCase) && !classes.Contains("computer", StringComparer.OrdinalIgnoreCase))
-                            users.Add(new AdUserData(Sid(r), Str(r, "userprincipalname"), Str(r, "mail")));
-                        else other++;
+                        Classify(r, users, ref groups, ref other);
                     }
                 }
             }
@@ -86,6 +99,16 @@ public sealed class AdGroupReader : IAdGroupApi
         }
         return new AdGroupMembersData(users, groups, other);
     }, ct);
+
+    /// <summary>A member as a user (with SID, sign-in and mail), a nested group, or neither (a contact, a computer).</summary>
+    static void Classify(SearchResult r, List<AdUserData> users, ref int groups, ref int other)
+    {
+        var classes = r.Properties["objectclass"].Cast<object>().Select(o => o.ToString() ?? "").ToList();
+        if (classes.Contains("group", StringComparer.OrdinalIgnoreCase)) groups++;
+        else if (classes.Contains("user", StringComparer.OrdinalIgnoreCase) && !classes.Contains("computer", StringComparer.OrdinalIgnoreCase))
+            users.Add(new AdUserData(Sid(r), Str(r, "userprincipalname"), Str(r, "mail")));
+        else other++;
+    }
 
     static string? Sid(SearchResult r) =>
         r.Properties.Contains("objectsid") && r.Properties["objectsid"].Count > 0 && r.Properties["objectsid"][0] is byte[] b ? new SecurityIdentifier(b, 0).Value : null;
