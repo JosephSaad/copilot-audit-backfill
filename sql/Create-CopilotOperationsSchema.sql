@@ -667,15 +667,15 @@ IF OBJECT_ID(N'dash.AgentPolicyRule', N'U') IS NULL
         Days             INT            NULL,       -- NoOwner, Unused: for this many days
         Credits          INT            NULL,       -- CostlyFewUsers: more credits a month than this
         People           INT            NULL,       -- CostlyFewUsers: with fewer people than this
-        ProposedAction   VARCHAR(16)    NOT NULL CONSTRAINT CK_DashAgentPolicyRule_Action CHECK (ProposedAction IN ('Notify', 'Quarantine')),
+        ProposedAction   VARCHAR(16)    NOT NULL CONSTRAINT CK_DashAgentPolicyRule_Action CHECK (ProposedAction IN ('Notify', 'Quarantine', 'Reassign')),   -- Reassign: to the former owner's manager
         Enabled          BIT            NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Enabled DEFAULT (0),
-        AutoApprove      BIT            NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Auto DEFAULT (0),   -- run without a decision (reversible actions only)
+        AutoApprove      BIT            NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Auto DEFAULT (0),   -- run without a decision (Notify and Quarantine only: both undone by a person)
         UpdatedBy        NVARCHAR(256)  NULL,
         UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashAgentPolicyRule_Updated DEFAULT (SYSUTCDATETIME())
     );
 IF NOT EXISTS (SELECT 1 FROM dash.AgentPolicyRule)
     INSERT INTO dash.AgentPolicyRule (RuleKind, Days, Credits, People, ProposedAction, UpdatedBy)
-    VALUES ('NoOwner', 30, NULL, NULL, 'Notify', N'install'),
+    VALUES ('NoOwner', 30, NULL, NULL, 'Reassign', N'install'),
            ('Unused', 90, NULL, NULL, 'Quarantine', N'install'),
            ('CostlyFewUsers', NULL, 10000, 5, 'Notify', N'install'),
            ('SharedNotCertified', 30, NULL, NULL, 'Notify', N'install');
@@ -715,6 +715,37 @@ USING (VALUES
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
+
+/* The limits read at their sources (audit.SpendLimitSource), brought into the dashboard's list: a new one added, a
+   changed one's amount, scope and name updated, and the unit, warning and hidden flag an administrator set kept. A
+   limit no longer at its source is marked gone (GoneUtc), never deleted, and only for a source that has rows, so a
+   source that is not set up or failed its last load does not empty the list. Run by the dashboard and the nightly alert. */
+IF OBJECT_ID(N'audit.SpendLimitSource', N'U') IS NOT NULL
+EXEC (N'
+CREATE OR ALTER PROCEDURE dash.usp_SyncSpendLimits
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    BEGIN TRANSACTION;
+    MERGE dash.SpendLimit WITH (HOLDLOCK) AS t
+    USING (SELECT Source, ExternalId, Kind, ISNULL(Name, ExternalId) AS Name, ScopeType, Scope, Unit, Amount, ISNULL(Period, ''Monthly'') AS Period, PerUser
+           FROM audit.SpendLimitSource) AS s
+    ON t.Source = s.Source AND t.ExternalId = s.ExternalId
+    WHEN MATCHED AND (t.Kind <> s.Kind OR t.Name <> s.Name OR ISNULL(t.ScopeType, '''') <> ISNULL(s.ScopeType, '''') OR ISNULL(t.Scope, N'''') <> ISNULL(s.Scope, N'''')
+                      OR t.Unit <> s.Unit OR ISNULL(t.Amount, -1) <> ISNULL(s.Amount, -1) OR t.Period <> s.Period OR t.PerUser <> s.PerUser OR t.GoneUtc IS NOT NULL)
+        THEN UPDATE SET Kind = s.Kind, Name = s.Name, ScopeType = s.ScopeType, Scope = s.Scope, Unit = s.Unit, Amount = s.Amount, Period = s.Period,
+                        PerUser = s.PerUser, GoneUtc = NULL, UpdatedBy = N''source'', UpdatedUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED BY TARGET
+        THEN INSERT (Source, ExternalId, Kind, Name, ScopeType, Scope, Unit, Amount, Period, PerUser, UpdatedBy)
+             VALUES (s.Source, s.ExternalId, s.Kind, s.Name, s.ScopeType, s.Scope, s.Unit, s.Amount, s.Period, s.PerUser, N''source'');
+    UPDATE l SET GoneUtc = SYSUTCDATETIME(), UpdatedBy = N''source'', UpdatedUtc = SYSUTCDATETIME()
+    FROM dash.SpendLimit AS l
+    WHERE l.Source <> ''Entered'' AND l.GoneUtc IS NULL
+      AND EXISTS (SELECT 1 FROM audit.SpendLimitSource AS a WHERE a.Source = l.Source)
+      AND NOT EXISTS (SELECT 1 FROM audit.SpendLimitSource AS a WHERE a.Source = l.Source AND a.ExternalId = l.ExternalId);
+    COMMIT TRANSACTION;
+END;');
 
 /* The credit routes' added rule: Enterprise Shared is funded centrally and names no line of business, as the
    page refuses; a row written in SQL with one was left out of the charge yet shown in its credits. */
@@ -1118,6 +1149,7 @@ GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp;      -
 GRANT INSERT, UPDATE, DELETE ON dash.TokenRoute TO CopilotInsightsApp;         -- Leadership > Model tokens routes a gateway value to a unit
 GRANT INSERT, UPDATE ON dash.SpendLimit TO CopilotInsightsApp;                 -- Forecasting > Spend limits: an entered limit, a limit's unit and warning
 GRANT INSERT ON dash.SpendLimitSnapshot TO CopilotInsightsApp;                 -- a period's end, kept once
+IF OBJECT_ID(N'dash.usp_SyncSpendLimits', N'P') IS NOT NULL GRANT EXECUTE ON dash.usp_SyncSpendLimits TO CopilotInsightsApp;   -- and brings in the limits read at their sources
 GRANT UPDATE ON dash.AgentPolicyRule TO CopilotInsightsApp;                    -- Governance > Agent policies turns a rule on and sets it
 GRANT INSERT, UPDATE ON dash.AgentAction TO CopilotInsightsApp;                -- and decides on a proposal
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
