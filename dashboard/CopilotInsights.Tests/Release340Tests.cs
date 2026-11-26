@@ -58,7 +58,7 @@ public class Release340Tests
         foreach (var g in Nav.Groups)
         {
             var slug = InsightsPage.SectionSlug(g.Persona);
-            Assert.Contains($"body[data-section=\"{slug}\"], .grp[data-grp=\"{g.Persona}\"] {{ --sec:", css);
+            Assert.Contains($"body[data-section=\"{slug}\"], [data-grp=\"{g.Persona}\"] {{ --sec:", css);
             Assert.Contains($":root[data-theme=\"dark\"] body[data-section=\"{slug}\"]", css);
             Assert.Contains($":root:not([data-theme=\"light\"]) body[data-section=\"{slug}\"]", css);
         }

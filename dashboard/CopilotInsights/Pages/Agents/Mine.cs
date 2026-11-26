@@ -13,7 +13,7 @@ namespace CopilotInsights.Pages.Agents;
 /// whoever the viewer is: an owner needs to see their agent's whole audience. Counts only, each at the minimum group
 /// size. A whole-organization viewer may look at another owner's (?owner=).
 /// </summary>
-public sealed class MineModel(PageServices s) : InsightsPage(s)
+public sealed class MineModel(PageServices s, CreditData creditData) : InsightsPage(s)
 {
     public override string Title => "My agents";
     public override string Persona => "Agents";
@@ -76,7 +76,11 @@ FROM g JOIN dash.Agent AS ag ON ag.AgentKey = g.Item;", Ctx.Args(new { keys }));
         var trendTask = keys.Length == 0 ? Task.FromResult(new List<(int, DateTime, int)>()) : Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"
 SELECT u.Item, u.Bucket, COUNT(*) FROM {Ctx.PerItemPoint('G')} AS u {ReportContext.EnabledJoin("u.UserKey")}
 WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
-        await Task.WhenAll(rowsTask, trendTask);
+        /* What each agent's billed use costs in Copilot Credits, as Agents costing credits and Credit use estimate it (kept). */
+        var creditsTask = keys.Length == 0 ? null : creditData.TotalsAsync(Ctx);
+        await Task.WhenAll(new Task?[] { rowsTask, trendTask, creditsTask }.OfType<Task>());
+        var credits = creditsTask is null ? null : await creditsTask;
+        var creditOf = credits?.Agents.Where(a => keys.Contains(a.AgentKey)).GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First().Month) ?? [];
         var rows = await rowsTask;
         var trendAt = (await trendTask).ToDictionary(t => (t.Item1, t.Item2), t => t.Item3);
         var buckets = Buckets();
@@ -92,13 +96,16 @@ WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
         Kpis.Add(new("Used in the period", Num(used.Count), $"{used.Count(isNew):#,0} of them new: first used since {Ctx.Start:d MMM}", used.Count > 0 ? "good" : null));
         Kpis.Add(new("Uses by people", AtLeastMin(people) is null ? "fewer than " + Ctx.MinGroupSize : Num(people), "each person counted once an agent: the agents' audiences added up"));
         Kpis.Add(new("Interactions", Num(used.Sum(r => r.N)), $"answered by your agents from {Ctx.Start:d MMM} to {Ctx.End:d MMM yyyy}"));
+        if (credits is not null && creditOf.Values.Sum(m => m.Credits) > 0)
+            Kpis.Add(new($"Copilot Credits a month (estimate)", Num((long)Math.Round(creditOf.Values.Sum(m => m.Credits))),
+                $"{CostRules.Money(Math.Round(creditOf.Values.Sum(m => m.Cost)), credits.Currency)} a month, from their billed use, estimated as Credit use estimates it", "warn", Href: Open("/agents/credits")));
         if (listed.Count > 0)
             Kpis.Add(new("Not used in the period", Num(idleListed.Count), "in the agent list, with no interaction: retire them, or tell people they are there", idleListed.Count > 0 ? "warn" : "good"));
 
         var t = new Table
         {
-            Headers = ["Agent", "Built in", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
-            Numeric = new HashSet<int> { 3, 4, 5, 6 }, EmptyText = "None of these agents was used in the period.",
+            Headers = ["Agent", "Built in", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"],
+            Numeric = new HashSet<int> { 3, 4, 5, 6, 7 }, EmptyText = "None of these agents was used in the period.",
         };
         double? Point(int key, DateTime b) => trendAt.TryGetValue((key, b), out var n) ? n : 0;
         foreach (var r in used.OrderByDescending(r => r.People))
@@ -106,11 +113,12 @@ WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
             var shown = AtLeastMin(r.People);
             t.Rows.Add([new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.FirstSeenUtc.Date,
                         shown, shown is null ? null : Pct(Ratio(r.Returning, r.People)), r.N, shown is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
+                        creditOf.TryGetValue(r.AgentKey, out var cr) && cr.Credits > 0 ? Math.Round(cr.Credits) : null,
                         shown is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName)]);
         }
         CsvTable = t;
         Panels.Add(new("Used in the period", WithTrendNote(t.Render()),
-            $"Across the organization. Came back: the share of its people who used it on more than one day. People are shown where {Ctx.MinGroupSize} or more used it. Select an agent for its detail.", "full", CsvUrl()));
+            $"Across the organization. Came back: the share of its people who used it on more than one day. Credits a month: its billed use (people without a license, and Copilot Studio channels) as Agents costing credits estimates it. People are shown where {Ctx.MinGroupSize} or more used it. Select an agent for its detail.", "full", CsvUrl()));
         if (used.Count > 0)
             Panels.Add(new("People by agent", Chart.Bars(used.Where(r => AtLeastMin(r.People) is not null).OrderByDescending(r => r.People).Take(12)
                     .Select((r, i) => new Bar(r.AgentName, r.People, Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"), Slot: i % 8 + 1)).ToList(), Fmt.Count, "People using each of your agents"),

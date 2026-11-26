@@ -102,7 +102,7 @@
         {
             var id = "home-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
             var first = g.Pages[0];
-            <div class="hcard">
+            <div class="hcard" data-grp="@g.Persona">
                 <a class="hopen" href="@first.Path" data-dialog="@id" aria-haspopup="dialog">
                     <span class="hname">@g.Persona</span>
                     <span class="hwho">@g.Who</span>
