@@ -91,7 +91,7 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
         }
         await SinceYesterdayAsync();
         Panels.Add(new("This week, act on", new HtmlString(lines.Count == 0 ? "<p class=\"muted\">Nothing waiting: no saving or action stands out this week.</p>" : "<ol class=\"tips\">" + string.Join("", lines) + "</ol>"),
-            "The largest savings Costs and savings finds, then the people What to act on lists, largest first.", "full"));
+            "The largest savings Costs and savings finds, then the people What to act on lists, largest first.", "full", Email: true));
 
         var links = new List<string>();
         foreach (var (text, path) in new[] { ("AI spend across Azure", "/leadership/ai-spend"), ("Costs and savings", "/leadership/costs"), ("What to act on", "/leadership/act"), ("Agents in use", "/agents"),
@@ -140,7 +140,7 @@ FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] BETWEEN DATEADD(DAY, -7
                           (bill.Before > 0 ? $" ({(double)(bill.Cost / bill.Before) - 1:+0%;-0%;0%} on the 7 days' average)" : "") + $". <a href=\"{WebUtility.HtmlEncode(spend)}\">AI spend across Azure</a></li>");
         }
         Panels.Add(new("Since yesterday", new HtmlString("<ul class=\"tips\">" + string.Join("", lines) + "</ul>"),
-            $"The newest whole day the reports hold, {day:d MMM}, against the same weekday a week before; Azure bills a day 8 to 24 hours after it.", "full"));
+            $"The newest whole day the reports hold, {day:d MMM}, against the same weekday a week before; Azure bills a day 8 to 24 hours after it.", "full", Email: true));
     }
 
     /// <summary>What each of What to act on's lists asks, as a line after its count.</summary>

@@ -28,7 +28,11 @@ public sealed record WhyInput(string Label, string Value, string? Href, string? 
 }
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
-public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
+/// <param name="Email">
+/// A panel of a few sentences that names no one (3.4.0): sent in a subscription's email as its text, without its
+/// links. Tables and lists of people are never sent, whatever this says; only the page that writes the sentences sets it.
+/// </param>
+public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null, bool Email = false);
 
 public sealed record Link(string Text, string Href);
 

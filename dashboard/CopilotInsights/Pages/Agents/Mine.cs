@@ -77,7 +77,7 @@ FROM g JOIN dash.Agent AS ag ON ag.AgentKey = g.Item;", Ctx.Args(new { keys }));
 SELECT u.Item, u.Bucket, COUNT(*) FROM {Ctx.PerItemPoint('G')} AS u {ReportContext.EnabledJoin("u.UserKey")}
 WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
         /* What each agent's billed use costs in Copilot Credits, as Agents costing credits and Credit use estimate it (kept). */
-        var creditsTask = keys.Length == 0 ? null : creditData.TotalsAsync(Ctx);
+        var creditsTask = keys.Length == 0 ? null : creditData.TotalsAsync(OpsReports.Window(Ctx, Ctx.End, Ctx.Days, wholeOrganization: true));   // across the organization, as the people are
         await Task.WhenAll(new Task?[] { rowsTask, trendTask, creditsTask }.OfType<Task>());
         var credits = creditsTask is null ? null : await creditsTask;
         var creditOf = credits?.Agents.Where(a => keys.Contains(a.AgentKey)).GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First().Month) ?? [];

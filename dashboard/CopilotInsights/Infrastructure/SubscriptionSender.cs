@@ -383,6 +383,18 @@ public static partial class ReportEmail
             var whole = p.Body is CopilotInsights.Charts.ChartSvg cs ? cs.Render(Width - 44) : null;
             html = whole ?? HtmlOf(p.Body);
             var found = Charts(html);
+            /* A panel of sentences the page marks as naming no one: sent as text, without its links (they lead nowhere from a
+               mailbox; the email's own link opens the report). */
+            if (p.Email && found.Count == 0 && !html.Contains("<table", StringComparison.OrdinalIgnoreCase))
+            {
+                var words = System.Text.RegularExpressions.Regex.Replace(html, "\\s*<a\\b[^>]*>.*?</a>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+                h.Append($"<h2 style=\"font-size:16px;margin:22px 0 4px;color:{Ink}\">{E(p.Title)}</h2>");
+                h.Append($"<div style=\"font-size:14px;line-height:1.5;color:{Ink}\">{words}</div>");
+                t.AppendLine().AppendLine(p.Title);
+                foreach (System.Text.RegularExpressions.Match li in System.Text.RegularExpressions.Regex.Matches(words, "<li>(.*?)</li>", System.Text.RegularExpressions.RegexOptions.Singleline))
+                    t.AppendLine("  - " + Text(li.Groups[1].Value));
+                continue;
+            }
             if (found.Count == 0) { listsLeft |= html.Contains("<table", StringComparison.OrdinalIgnoreCase) || html.Contains("<ul", StringComparison.OrdinalIgnoreCase); continue; }
             if (html.Contains("<table", StringComparison.OrdinalIgnoreCase)) listsLeft = true;
             h.Append($"<h2 style=\"font-size:16px;margin:22px 0 4px;color:{Ink}\">{E(p.Title)}</h2>");

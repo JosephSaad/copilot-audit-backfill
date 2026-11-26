@@ -117,4 +117,19 @@ public class Release340Tests
         Assert.Contains("IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NULL OR (SELECT Value FROM dash.Setting WHERE Name = N'WeeklyReportSavings') = N'0'", weekly);
         Assert.DoesNotContain("IS NULL OR NOT EXISTS (SELECT 1 FROM audit.AiCostDay)", weekly);
     }
+    [Fact]
+    public void The_briefs_sentences_are_emailed_and_tables_never_are()
+    {
+        var sender = Repo("dashboard", "CopilotInsights", "Infrastructure", "SubscriptionSender.cs");
+        Assert.Contains("if (p.Email && found.Count == 0 && !html.Contains(\"<table\", StringComparison.OrdinalIgnoreCase))", sender);
+        Assert.Contains("Regex.Replace(html, \"\\\\s*<a\\\\b[^>]*>.*?</a>\"", sender);   // links are left out: they would lead nowhere from a mailbox
+        Assert.False(new Panel("x", new Microsoft.AspNetCore.Html.HtmlString("")).Email);   // off unless a page says so
+        var brief = Repo("dashboard", "CopilotInsights", "Pages", "Leadership", "Brief.cs");
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(brief, "Email: true").Count);
+        /* Only the brief's own sentences, which name no one: no other page sets it. */
+        var pages = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!Directory.Exists(Path.Combine(pages.FullName, "CopilotInsights", "Pages"))) pages = pages.Parent!;
+        foreach (var f in Directory.GetFiles(Path.Combine(pages.FullName, "CopilotInsights", "Pages"), "*.cs", SearchOption.AllDirectories))
+            if (!f.EndsWith("Brief.cs", StringComparison.Ordinal)) Assert.DoesNotContain("Email: true", File.ReadAllText(f));
+    }
 }

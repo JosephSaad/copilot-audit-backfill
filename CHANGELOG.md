@@ -25,7 +25,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   against the monthly budgets, saved to date, licenses on disabled accounts, and what to act on this week (the three
   biggest savings, then What to act on's largest lists), each figure opening the page behind it; and *Since yesterday*:
   the newest day against the same weekday a week before, the agents first used that day, the security signals that
-  day (Security role), and the AI bill's newest day against the 7 before. It can be subscribed to daily.
+  day (Security role), and the AI bill's newest day against the 7 before. It can be subscribed to daily: its email
+  carries the figures and both lists of sentences (they name no one; tables and lists of people are still never sent).
 - **AI spend across Azure** (`/leadership/ai-spend`): the whole AI bill by service, actual and amortized, the
   reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, what
   grew fastest (the last 7 days against the 7 before), and the 25 costliest AI resources. Each service opens a view of
@@ -53,6 +54,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- My agents counted an owner's agents' people across the organization but their credits within the viewer's part
+  of it; both are now the organization's.
 - **Agent detail failed now and then** (since 3.1.4) with an error page: its four reads, run side by side, shared one
   set of parameters, which the database library writes into as it runs. Every statement now runs with parameters of
   its own, so no page can meet it again.
