@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Agents;
 
-public sealed class IndexModel(PageServices s) : InsightsPage(s)
+public sealed class IndexModel(PageServices s, CopilotInsights.Data.CreditData creditData) : InsightsPage(s)
 {
     public override string Title => "Agents in use";
     public override string Persona => "Agents";
@@ -31,6 +31,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         /* Each person's use of each agent and each trend point's people come from the totals the refresh keeps per
            person and agent; the agents the page lists are still those dash.Agent does not mark "(no agent)". The three
            reads are independent: run side by side. */
+        var creditsTask = creditData.TotalsAsync(Ctx);   // read beside the three below
         var (rows, trend, agentPeople) = await Queries(Db.QueryAsync<Row>($@"
 /* People are accounts enabled today; interactions are everyone's. Summed per agent before the join to dash.Agent, a
    view of four tables: joined first, its two million rows were sorted and looked up one by one (5 s of processor at
@@ -91,25 +92,32 @@ WHERE p.AgentInteractions > 0;", Ctx.Args()));
         var t = new Table
         {
             Headers = book
-                ? ["Agent", "Built in", "Owner", "Shared", "In the agent list", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"]
-                : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
-            Numeric = book ? new HashSet<int> { 6, 7, 8, 9 } : new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
+                ? ["Agent", "Built in", "Owner", "Shared", "In the agent list", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"]
+                : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"],
+            Numeric = book ? new HashSet<int> { 6, 7, 8, 9, 10 } : new HashSet<int> { 4, 5, 6, 7, 8 }, EmptyText = "No agents were used in the period.",
         };
         var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Owners by name
+        /* 3.4.0: each agent's Copilot Credits a month, as Agents costing credits estimates it (kept), and each owner
+           opening their My agents, for those who may open another owner's. */
+        var credits = (await creditsTask).Agents.GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First().Month.Credits);
+        var mineUrl = Viewer.OrgWide || Viewer.AnyAdmin ? Open("/agents/mine") : null;
+        object? OwnerCell(string? owner) => PrivacyMode || owner is null ? null
+            : mineUrl is null ? ownerName(owner) : new Link(ownerName(owner) ?? owner, Ctx.Url("/agents/mine", extra: "owner=" + Uri.EscapeDataString(owner)));
         foreach (var r in rows.OrderByDescending(r => r.People))
         {
-            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, PrivacyMode ? null : ownerName(r.Owner) };
+            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, OwnerCell(r.Owner) };
             /* The workbook lists Copilot Studio agents: one of those it does not list was deleted, or is not in it yet. */
             if (book) cells.AddRange([r.IsShared ? "Yes" : "No",
                                       r.InventoryAgentId is not null ? "Yes" : r.AgentSource == "Copilot Studio" ? "No: deleted, or not listed" : "No"]);
             cells.AddRange([r.FirstSeenUtc.Date,
                 AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
+                credits.TryGetValue(r.AgentKey, out var cr) && cr > 0 ? Math.Round(cr) : null,
                 AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName)]);
             t.Rows.Add([.. cells]);
         }
         Panels.Add(new("All agents", WithTrendNote(t.Render()),
-            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail." +
+            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail, an owner for their agents. Credits a month: its billed use, as Agents costing credits estimates it." +
             (PrivacyMode ? " Privacy mode is on, so owners are not shown." : ""), "full", CsvUrl()));
         CsvTable = t;
     }
