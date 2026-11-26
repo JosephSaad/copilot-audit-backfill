@@ -694,7 +694,10 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /// The same, choosing whether the team shown is kept: a page that shows the whole organization whatever the team
     /// (Costs and savings) passes false, so its figures lead to lists of the whole organization, as they count it.
     /// </summary>
-    protected string? Open(string path, string? extra, bool keepOrg)
+    protected string? Open(string path, string? extra, bool keepOrg) => Open(path, extra, keepOrg, null);
+
+    /// <summary>The same for another period (3.4.0): a week's figure opens its page over the 7 days it counts.</summary>
+    protected string? Open(string path, string? extra, bool keepOrg, int? days)
     {
         /* A path that carries its own query ("/forecasting/actions?kind=revoke") keeps it after the period and team. */
         var parts = path.Split('?', 2);
@@ -707,9 +710,9 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
                 {
                     /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
                     listed = true;
-                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, days: days, keepOrg: keepOrg, extra: extra);
                 }
-        return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+        return listed ? null : Ctx.Url(bare, days: days, keepOrg: keepOrg, extra: extra);
     }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>

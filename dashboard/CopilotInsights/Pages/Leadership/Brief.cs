@@ -46,8 +46,8 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
         string? Tone(double a, double? b) => b is double x && x > 0 ? (a / x - 1 >= 0.02 ? "good" : a / x - 1 <= -0.05 ? "warn" : null) : null;
 
         Kpis.Add(new("People using Copilot this week", Num(now.Active), $"{Change(now.Active, prev?.Active)}; 7 days to {end:d MMM}", Tone(now.Active, prev?.Active), Href: Open("/adoption")));
-        Kpis.Add(new("Interactions this week", Num(now.Interactions), Change(now.Interactions, prev?.Interactions), Tone(now.Interactions, prev?.Interactions), Href: Open("/leadership/mix")));
-        Kpis.Add(new("Adoption", Pct(Ratio(now.ActiveLicensed, now.LicensedNow)), $"of {now.LicensedNow:#,0} Premium license holders used it with the license this week", Href: Open("/adoption")));
+        Kpis.Add(new("Interactions this week", Num(now.Interactions), Change(now.Interactions, prev?.Interactions), Tone(now.Interactions, prev?.Interactions), Href: Open("/leadership", null, true, 7)));
+        Kpis.Add(new("Adoption", Pct(Ratio(now.ActiveLicensed, now.LicensedNow)), $"of {now.LicensedNow:#,0} Premium license holders used it with the license this week", Href: Open("/leadership", null, true, 7)));
         Kpis.Add(new("New agents this week", Num(newAgents), newBefore > 0 || full ? $"{newBefore:#,0} the week before" : "first used in the 7 days", newAgents > newBefore ? "good" : null, Href: Open("/agents")));
 
         var lines = new List<string>();
@@ -58,7 +58,7 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
             {
                 Kpis.Add(new($"AI spend a month ({v.Currency})", StartFigures.Money(v.Spend, v.Currency), $"across {Count(v.Areas.Count, "area")}: licenses held and the other sources' last 30 days", "accent", Href: Open("/leadership/costs")));
                 if (v.Spend > 0 && v.Value > 0)
-                    Kpis.Add(new("Return on the spend", StartFigures.Times(v.Value / v.Spend), $"{StartFigures.Money(v.Value, v.Currency)} a month of time saved, at the hourly cost set in Admin", v.Value >= v.Spend ? "good" : "warn", Href: Open("/leadership/value")));
+                    Kpis.Add(new("Return on the spend", StartFigures.Times(v.Value / v.Spend), $"{StartFigures.Money(v.Value, v.Currency)} a month of time saved, at the hourly cost set in Admin", v.Value >= v.Spend ? "good" : "warn", Href: Open("/leadership/costs")));
                 foreach (var o in v.Opportunities.Where(o => o.Kind == OpportunityKind.Save && o.Saving > 0).OrderByDescending(o => o.Saving).Take(3))
                     lines.Add($"<li><b>{WebUtility.HtmlEncode(StartFigures.Money(o.Saving, v.Currency))} a month</b>: {WebUtility.HtmlEncode(o.Title)}. {WebUtility.HtmlEncode(o.Action)}"
                               + (o.Href is not null && Open(o.Href) is { } oh ? $" <a href=\"{WebUtility.HtmlEncode(oh)}\">Open</a>" : "") + "</li>");

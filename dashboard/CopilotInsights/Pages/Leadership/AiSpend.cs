@@ -89,7 +89,7 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1{only} GROUP BY Service, Res
             Kpis.Add(new("Budgets used", Pct((double)(budgetSpent / budgetAmount)), $"{Money(budgetSpent, cur)} of {Money(budgetAmount, cur)} across {Count(withBudget.Count, "budget")}; {(over > 0 ? $"{Count(over, "budget")} forecast to go over" : "none forecast to go over")}",
                 over > 0 ? "crit" : budgetSpent / budgetAmount > 0.8m ? "warn" : "good"));
         if (svc.Length == 0)
-            Kpis.Add(new($"Copilot Studio ({cur})", Money(studio, cur), "messages and Copilot Credits billed to Azure in the period", Href: studio > 0 ? Open("/agents/credits") : null));
+            Kpis.Add(new($"Copilot Studio ({cur})", Money(studio, cur), "messages and Copilot Credits billed to Azure in the period", Href: studio > 0 ? Open("/leadership/ai-spend", "service=" + Uri.EscapeDataString("Copilot Studio")) : null));
         if (svc.Length == 0 && m365 > 0)
             Kpis.Add(new($"Microsoft 365 Copilot pay-as-you-go ({cur})", Money(m365, cur), "agents and Copilot Chat billed by use"));
         if (actual > 0 && amortized > 0 && Math.Abs(actual - amortized) >= 1)

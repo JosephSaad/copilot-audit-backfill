@@ -54,6 +54,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Four of the new headline figures opened a page with another number (found by the figure-link check before
+  release): the brief's week figures now open their pages over the same 7 days, its return Costs and savings, and AI
+  spend's Copilot Studio figure its own service view. A figure may now open its page over another period.
 - The email of a report that counts the whole organization (My agents, AI spend across Azure, the AI platforms
   pages) named the subscriber's part of it under its title; it says *Whole organization*.
 - My agents counted an owner's agents' people across the organization but their credits within the viewer's part
