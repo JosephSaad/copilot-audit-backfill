@@ -398,7 +398,7 @@ function ConvertFrom-AiBudget {
                                      CurrentSpend = $(if ($null -ne (Get-Prop $cur 'amount')) { [decimal] (Get-Prop $cur 'amount') })
                                      ForecastSpend = $(if ($null -ne (Get-Prop $fc 'amount')) { [decimal] (Get-Prop $fc 'amount') })
                                      Currency = $(if (Get-Prop $cur 'unit') { "$(Get-Prop $cur 'unit')" })
-                                     Filter = $(if ($filter) { $filter | ConvertTo-Json -Depth 8 -Compress }) })
+                                     Filter = $(if ($filter) { $j = $filter | ConvertTo-Json -Depth 8 -Compress; if ($j.Length -gt 4000) { $j.Substring(0, 3990) + ' (cut)' } else { $j } }) })
     }
     , $rows.ToArray()
 }

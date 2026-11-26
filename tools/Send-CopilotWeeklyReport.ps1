@@ -694,7 +694,7 @@ SELECT ISNULL((SELECT SUM(Cost) FROM audit.AiCostDay WHERE CostType = 'Actual' A
     if ([int] $r.HasForecast -eq 1) {
         $more = (Invoke-ReportQuery $Connection @"
 SELECT ISNULL((SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE [Day] >= @today AND [Day] < DATEADD(MONTH, 1, DATEFROMPARTS(YEAR(@today), MONTH(@today), 1))), 0) AS Ahead,
-       ISNULL((SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain = 'Monthly'), 0) AS Budget;
+       ISNULL((SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain IN ('Monthly', 'BillingMonth')), 0) AS Budget;
 "@ @{ '@today' = $Today }).Tables[0].Rows[0]
         $ahead = [decimal] $more.Ahead; $budget = [decimal] $more.Budget
     }

@@ -89,7 +89,7 @@ WHERE u.Item IN @keys GROUP BY u.Item, u.Bucket;", Ctx.Args(new { keys }));
         var used = rows.Where(r => r.N > 0).ToList();
         var usedKeys = used.Select(r => r.AgentKey).ToHashSet();
         var idleListed = listed.Where(l => l.AgentKey is null || !usedKeys.Contains(l.AgentKey.Value)).ToList();
-        var people = used.Sum(r => r.People);
+        var people = used.Where(r => AtLeastMin(r.People) is not null).Sum(r => r.People);   // the agents shown only: a small one is not worked out by subtraction
         var total = Math.Max(mine.Count, 0) + listed.Count(l => l.AgentKey is null || mine.All(m => m.AgentKey != l.AgentKey));
         var isNew = (Row r) => r.FirstSeenUtc.Date >= Ctx.Start;
 

@@ -57,6 +57,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- From a review of the release before it went out: AI spend set a month against quarterly and yearly budgets too (only
+  the monthly ones now); the brief's newest AI bill day and *Growing fastest* used a day Azure was still filling in (the
+  day before it now); a budget filter over 4,000 characters lost that scope's budgets (it is cut); My agents' total of
+  people could reveal an agent under the minimum group size by subtraction (it adds up the agents shown); the budget
+  alert called every budget at a scope an AI budget (*Azure budget*, saying it counts what its own filter says).
 - Four of the new headline figures opened a page with another number (found by the figure-link check before
   release): the brief's week figures now open their pages over the same 7 days, its return Costs and savings, and AI
   spend's Copilot Studio figure its own service view. A figure may now open its page over another period.
@@ -75,6 +80,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overview and the AI pages before their load's tables existed. It now asks in two steps.
 - The SQL integration suite's time-zone check says what the installer answered when it fails (it failed once on a
   tag's run and passed when run again).
+
+### Known limits
+
+- **Not run against real Azure.** The wider AI bill (both cost types, budgets, the forecast, billing-account and EA
+  scopes) and `-CheckOnly`'s new lines were tested against a stand-in that answers as Microsoft documents; none has run
+  on a real subscription or billing account. The first real run (`-CheckOnly`, then a load) is the test.
+- **Scopes must not overlap.** A billing account and a subscription billed to it, both in `AiCostScopes`, count that
+  subscription's AI cost twice on every page.
+- **Budgets are the scope's, not AI's alone.** A budget counts what its own filter says (a whole subscription, say);
+  the pages and the alert show the budgets set at the scopes read, monthly ones against a month.
+- **Reservation purchases.** Actual cost is read for the AI resource types; a reservation's purchase line may carry
+  no AI resource and so not be in *Actual* (its use is in *Amortized*). Unverified against a real bill.
+- **One currency.** Costs billed in two currencies are added up under the more common one.
+- **Agent detail's credits** are estimated for the viewer's part of the organization, My agents' for the whole of it:
+  a viewer who sees part of it reads two figures.
+- **Speed with real cost data at scale** is untested: the lab database (160 million interactions) has no Azure bill,
+  so AI spend and the Foundry pages showed their not-loaded note there. Their tables are small (a row per resource,
+  meter and day).
 
 ## [3.3.0] - 2026-11-25
 

@@ -363,9 +363,9 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
             string M(decimal v, string? c) => $"{Math.Round(v, 0):#,0} {c ?? "USD"}";
             await RaiseAsync("budget", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Budget", "AlertLicensingTo",
-                over.Count == 1 ? $"The AI budget {over[0].Budget} is forecast to go over" : $"{over.Count} AI budgets are forecast to go over",
+                over.Count == 1 ? $"The Azure budget {over[0].Budget} is forecast to go over" : $"{over.Count} Azure budgets are forecast to go over",
                 over.Select(b => $"{b.Budget}: forecast {M(b.Forecast, b.Currency)} against {M(b.Amount, b.Currency)}, {M(b.Spent, b.Currency)} spent so far.")
-                    .Append("Leadership › AI spend across Azure shows what grew fastest, service by service.").ToList(), "/leadership/ai-spend");
+                    .Append("Each is a budget set in Azure at a scope the AI bill is read at, counting what its own filter says. Leadership › AI spend across Azure shows what grew fastest, service by service.").ToList(), "/leadership/ai-spend");
         }
 
         async Task LeaversAsync(bool first)

@@ -71,7 +71,8 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1{only} GROUP BY Service, Res
         var amortized = Sum("Amortized");
         var studio = Sum("Amortized", x => x == "Copilot Studio");
         var m365 = Sum("Amortized", x => x.StartsWith("Microsoft 365 Copilot", StringComparison.Ordinal));
-        var withBudget = budgets.Where(b => b.Amount > 0).ToList();
+        /* A month is set against the monthly budgets only: a quarterly or yearly one is no month's measure. */
+        var withBudget = budgets.Where(b => b.Amount > 0 && b.TimeGrain is "Monthly" or "BillingMonth").ToList();
         var budgetAmount = withBudget.Sum(b => b.Amount ?? 0);
         var budgetSpent = withBudget.Sum(b => b.CurrentSpend ?? 0);
         var over = withBudget.Count(b => (b.ForecastSpend ?? b.CurrentSpend ?? 0) > b.Amount);
@@ -86,7 +87,7 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1{only} GROUP BY Service, Res
         else
             Kpis.Add(new($"This month so far ({cur})", Money(monthToDate, cur), "billed since the 1st; no forecast loaded"));
         if (withBudget.Count > 0)
-            Kpis.Add(new("Budgets used", Pct((double)(budgetSpent / budgetAmount)), $"{Money(budgetSpent, cur)} of {Money(budgetAmount, cur)} across {Count(withBudget.Count, "budget")}; {(over > 0 ? $"{Count(over, "budget")} forecast to go over" : "none forecast to go over")}",
+            Kpis.Add(new("Budgets used", Pct((double)(budgetSpent / budgetAmount)), $"{Money(budgetSpent, cur)} of {Money(budgetAmount, cur)} across {Count(withBudget.Count, "monthly budget")}; {(over > 0 ? $"{Count(over, "budget")} forecast to go over" : "none forecast to go over")}",
                 over > 0 ? "crit" : budgetSpent / budgetAmount > 0.8m ? "warn" : "good"));
         if (svc.Length == 0)
             Kpis.Add(new($"Copilot Studio ({cur})", Money(studio, cur), "messages and Copilot Credits billed to Azure in the period", Href: studio > 0 ? Open("/leadership/ai-spend", "service=" + Uri.EscapeDataString("Copilot Studio")) : null));
@@ -94,7 +95,7 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1{only} GROUP BY Service, Res
             Kpis.Add(new($"Microsoft 365 Copilot pay-as-you-go ({cur})", Money(m365, cur), "agents and Copilot Chat billed by use"));
         if (actual > 0 && amortized > 0 && Math.Abs(actual - amortized) >= 1)
             Kpis.Add(new($"Reservations' effect ({cur})", Money(actual - amortized, cur),
-                actual > amortized ? "billed up front in the period beyond what it used: the reservation is paid ahead" : "used from reservations bought before the period", null));
+                actual > amortized ? "actual cost above amortized: billed up front in the period beyond what it used" : "amortized cost above actual: reservation use spread over its days (a purchase itself may not be an AI resource's line)", null));
 
         var services = byService.Where(x => x.CostType == "Amortized").OrderByDescending(x => x.Cost).Select(x => x.Service).ToList();
         if (services.Count == 0) services = byService.OrderByDescending(x => x.Cost).Select(x => x.Service).Distinct().ToList();
@@ -126,11 +127,12 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1 AND Service = @svc GROUP BY
                              used is null ? null : Pct((double)used.Value), b.ForecastSpend is null ? null : Math.Round(b.ForecastSpend.Value),
                              new HtmlString(goesOver ? "<span class=\"tag crit\">Forecast over</span>" : used > 0.8m ? "<span class=\"tag warn\">Over 80%</span>" : "<span class=\"tag good\">On track</span>")]);
             }
-            Panels.Add(new("Budgets", bt.Render(), "Each budget set in Azure at a scope read, its spend so far in its period and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI.", "full"));
+            Panels.Add(new("Budgets", bt.Render(), "Each budget set in Azure at a scope read, its spend so far in its period and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI; the figure at the top adds up the monthly ones.", "full"));
         }
 
         /* What grew most: each resource's amortized cost in the last 7 days loaded against the 7 before, largest rise first. */
-        var last = await Db.ScalarAsync<DateTime?>($"SELECT CAST(MAX([Day]) AS DATETIME2(0)) FROM audit.AiCostDay WHERE CostType = 'Amortized'{only};", new { svc });
+        /* The newest day is left out: Azure is still filling it in (8 to 24 hours), and it would read as a drop. */
+        var last = await Db.ScalarAsync<DateTime?>($"SELECT CAST(DATEADD(DAY, -1, MAX([Day])) AS DATETIME2(0)) FROM audit.AiCostDay WHERE CostType = 'Amortized'{only};", new { svc });
         if (last is { } l)
         {
             var moves = await Db.QueryAsync<(string Service, string? Resource, decimal Now, decimal Before)>($@"

@@ -132,7 +132,7 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey IN (@k, @kw);
         if ((Viewer.OrgWide || Viewer.Has(Roles.Licensing)) && Open("/leadership/ai-spend") is { } spend && await TableHasRowsAsync("audit.AiCostDay"))
         {
             var bill = (await Db.QueryAsync<(DateTime? Last, decimal Cost, decimal Before, string? Currency)>(@"
-DECLARE @l DATE = (SELECT MAX([Day]) FROM audit.AiCostDay WHERE CostType = 'Actual');
+DECLARE @l DATE = (SELECT DATEADD(DAY, -1, MAX([Day])) FROM audit.AiCostDay WHERE CostType = 'Actual');   -- the newest whole day: Azure is still filling in the last
 SELECT CAST(@l AS DATETIME2(0)), ISNULL(SUM(CASE WHEN [Day] = @l THEN Cost END), 0), ISNULL(SUM(CASE WHEN [Day] < @l THEN Cost END), 0) / 7, MAX(Currency)
 FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] BETWEEN DATEADD(DAY, -7, @l) AND @l;")).Single();
             if (bill.Last is { } last && bill.Cost > 0)
@@ -165,7 +165,7 @@ SELECT (SELECT SUM(Cost) FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day
         if (await TableHasRowsAsync("audit.AiCostForecastDay"))
             r.Ahead = await Db.ScalarAsync<decimal?>("SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE [Day] >= @t AND [Day] < @m1;", new { t = today, m1 = m0.AddMonths(1) });
         if (await TableHasRowsAsync("audit.AiBudget"))
-            r.Budget = await Db.ScalarAsync<decimal?>("SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain = 'Monthly';");
+            r.Budget = await Db.ScalarAsync<decimal?>("SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain IN ('Monthly', 'BillingMonth');");
         var cur = r.Currency ?? "USD";
         var month = (r.Billed ?? 0) + (r.Ahead ?? 0);
         var over = r.Budget > 0 && month > r.Budget;
