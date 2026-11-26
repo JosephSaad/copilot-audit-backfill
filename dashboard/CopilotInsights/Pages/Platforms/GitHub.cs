@@ -101,6 +101,7 @@ SELECT ISNULL(s.Organization, N'(none)'), COUNT(*), SUM(CASE WHEN {IdleSql} THEN
 public sealed class GitHubSeatsModel(PageServices s) : GitHubPage(s)
 {
     public override string Title => "GitHub Copilot seats";
+    public override bool CountsWholeOrganization => false;   // the viewer's scope, unlike the section's other pages
     public override string? RequiredRole => Roles.Platforms;
     public override bool UsesPeriod => false;
     public override string Intro => "Every GitHub Copilot seat and the person behind it: when it was last used, in which editor, and the seats to take back, idle, never used, held by people who have left, or with no person matched.";

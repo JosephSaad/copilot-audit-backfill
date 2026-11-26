@@ -55,8 +55,8 @@ public static class Nav
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
-            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"),
+            new("Daily brief", "/leadership/brief"), new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("AI spend across Azure", "/leadership/ai-spend"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"),
             new("Board pack", "/leadership/boardpack"), new("How figures are calculated", "/leadership/assumptions")], Key: Sections.Leadership),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"),
@@ -79,7 +79,7 @@ public static class Nav
             new("Access to labeled content", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
             new("Copilot on non-human accounts", NonHuman, Roles.Compliance)], Roles.Compliance, Sections.Compliance),
         new("Agents", "Copilot Studio makers and the center of excellence", [
-            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Agents without an owner", "/agents/owners"), new("Agent checks", "/agents/checks"),
+            new("My agents", "/agents/mine"), new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Agents without an owner", "/agents/owners"), new("Agent checks", "/agents/checks"),
             new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"), new("Child agent usage", "/agents/children"),
             new("Agents costing credits", "/agents/credits")], Roles.Agents, Sections.Agents),
         new("Enablement", "Training leads and champions", [

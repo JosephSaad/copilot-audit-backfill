@@ -61,8 +61,8 @@ public sealed class AiResourceModel(PageServices s) : InsightsPage(s)
             Notice = "AI app calls cannot be shown yet. An administrator installs release 2.6.9 or later and sets up the activity database (docs/OPERATIONS.md, AI apps, Power BI and Power Apps).";
             return;
         }
-        var hasCost = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.FoundryCostDay) THEN 1 ELSE 0 END;") == 1;
-        var hasUsage = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.FoundryDeployment', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.FoundryDeployment) THEN 1 ELSE 0 END;") == 1;
+        var hasCost = await TableHasRowsAsync("audit.FoundryCostDay");
+        var hasUsage = await TableHasRowsAsync("audit.FoundryDeployment");
 
         /* The resources to choose from: every one a call has reached, and every account Azure billed. */
         var names = await Db.QueryAsync<string>($@"

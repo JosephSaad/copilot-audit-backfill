@@ -16,9 +16,9 @@ public abstract class PlatformPage(PageServices s) : InsightsPage(s)
 {
     public override string Persona => "AI platforms";
     public override bool UsesTeam => false;
+    public override bool CountsWholeOrganization => true;
 
-    protected async Task<bool> HasRowsAsync(string table) =>
-        await Db.ScalarAsync<int>($"SELECT CASE WHEN OBJECT_ID(N'{table}', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM {table}) THEN 1 ELSE 0 END;") == 1;
+    protected Task<bool> HasRowsAsync(string table) => TableHasRowsAsync(table);
 
     protected async Task<bool> HasTableAsync(string table) =>
         await Db.ScalarAsync<int>($"SELECT CASE WHEN OBJECT_ID(N'{table}', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;

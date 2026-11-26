@@ -195,7 +195,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             if (!OperatingSystem.IsWindows()) return;
             try
             {
-                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "Commitment" => 4003, "NonHuman" => 2002, "NewAgent" => 5001, _ => 1000 };
+                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "Commitment" => 4003, "Budget" => 4004, "NonHuman" => 2002, "NewAgent" => 5001, _ => 1000 };
                 System.Diagnostics.EventLog.WriteEntry("Copilot Insights", message.Length > 30000 ? message[..30000] : message,
                     kind is "Security" or "NonHuman" ? System.Diagnostics.EventLogEntryType.Warning : System.Diagnostics.EventLogEntryType.Information, id);
             }
@@ -250,7 +250,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var last = await StateAsync("refresh");
             /* Done for this refresh, unless one of its alerts waits to be emailed again: each check below keeps its own state, so running them again repeats nothing. */
             if (last == runId.Value.ToString(CultureInfo.InvariantCulture)
-                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
+                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment', N'retry:budget') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
                 return;
             var first = last is null;
 
@@ -259,6 +259,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             await AgentsAsync(first);
             await PoolAsync();
             await CommitmentAsync();
+            await BudgetAsync();
             await LeaversAsync(first);
             await NonHumanAsync();
             await SetStateAsync("refresh", runId.Value.ToString(CultureInfo.InvariantCulture));
@@ -348,6 +349,25 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             await RaiseAsync("commitment", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Commitment", "AlertLicensingTo", "The Copilot Credit commitment needs attention",
                 [warning, "Forecasting › Credit commitment shows what is drawn, what is left and who draws most; it is an estimate from the consumption report."], "/forecasting/credit-commitment");
         }
+        /* An AI budget set in Azure that Azure forecasts to go over (3.4.0, the whole AI bill): once a week while it lasts. */
+        async Task BudgetAsync()
+        {
+            if (await _settings.StringAsync("AiBudgetAlert") == "0"
+                || await _db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.AiBudget', N'U') IS NULL THEN 0 ELSE 1 END;") == 0)
+                return;
+            var over = await _db.QueryAsync<(string Budget, decimal Amount, decimal Forecast, decimal Spent, string? Currency)>(
+                "SELECT TOP (10) Budget, Amount, ForecastSpend, ISNULL(CurrentSpend, 0), Currency FROM audit.AiBudget WHERE Amount > 0 AND ForecastSpend > Amount ORDER BY ForecastSpend - Amount DESC;");
+            if (over.Count == 0) { await SetStateAsync("budget", null); return; }
+            var seen = await StateAsync("budget");
+            var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
+            if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
+            string M(decimal v, string? c) => $"{Math.Round(v, 0):#,0} {c ?? "USD"}";
+            await RaiseAsync("budget", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Budget", "AlertLicensingTo",
+                over.Count == 1 ? $"The Azure budget {over[0].Budget} is forecast to go over" : $"{over.Count} Azure budgets are forecast to go over",
+                over.Select(b => $"{b.Budget}: forecast {M(b.Forecast, b.Currency)} against {M(b.Amount, b.Currency)}, {M(b.Spent, b.Currency)} spent so far.")
+                    .Append("Each is a budget set in Azure at a scope the AI bill is read at, counting what its own filter says. Leadership › AI spend across Azure shows what grew fastest, service by service.").ToList(), "/leadership/ai-spend");
+        }
+
         async Task LeaversAsync(bool first)
         {
             var n = (await _ops.LeaversAsync()).Count;

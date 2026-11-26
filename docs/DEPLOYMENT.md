@@ -791,6 +791,8 @@ Each guide lists the values to collect, has a part written to hand to the admini
 # copilot-audit.settings.psd1
     GitHubEnterprise     = 'contoso'
     FoundrySubscriptions = @('1f2e3d4c-0000-0000-0000-000000000000')
+    # 3.4.0, optional: read the whole AI bill where it is billed, not only in those subscriptions
+    # AiCostScopes       = @('/providers/Microsoft.Billing/billingAccounts/12345678')
 ```
 
 With a setting in place, the nightly run loads that source as a last step. Without it, the run skips the step with a line in its log. A loader that fails is recorded and does not fail the night. Admin › Health shows each one's last run.

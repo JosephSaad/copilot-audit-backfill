@@ -40,6 +40,8 @@ public static class NavText
         ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
         ["/leadership/value"] = ("An estimate of the hours Copilot saved and what they are worth.", "What it is used for"),
+        ["/leadership/brief"] = ("The week in AI: use against the week before, cost, return, the AI bill and what to act on.", "At a glance"),
+        ["/leadership/ai-spend"] = ("Every AI service's cost in Azure, actual and amortized, against forecast and budgets.", "What it is used for"),
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/credit-chargeback"] = ("Each line of business's Copilot Credits by path, and what they charge it.", "Cost savings"),
@@ -85,6 +87,7 @@ public static class NavText
         ["/compliance/access"] = ("Who worked with labeled content through Copilot, and the most sensitive label.", null),
         ["/compliance/person"] = ("Everything recorded about one person's Copilot use, for an access request.", null),
 
+        ["/agents/mine"] = ("The agents you own: who uses them, whether they come back, and the ones nobody used.", null),
         ["/agents"] = ("Every agent people used: how many people, how often, and which are new.", null),
         ["/agents/inventory"] = ("Every current agent from the agent workbook, its owner and use; unused ones flagged.", null),
         ["/agents/owners"] = ("Agents whose owner left, is disabled or is not set, and agents by owner's department.", null),

@@ -326,6 +326,62 @@ IF OBJECT_ID(N'audit.FoundryAccountSeen', N'U') IS NULL
         CONSTRAINT PK_FoundryAccountSeen PRIMARY KEY (SubscriptionId, ResourceGroup, Account)
     );
 
+/* ---- The wider AI bill, from Cost Management ---- */
+/*
+    What every AI service costs in Azure, not only Foundry's accounts: Copilot Studio and the Power Platform
+    billed to Azure, Microsoft 365 Copilot pay-as-you-go, AI Search, Machine Learning and Bot Service. Read by
+    Import-FoundryUsage.ps1 at each scope named (a subscription, a billing account, an EA enrollment or
+    department), as actual cost and as amortized cost (reservations spread over the days they cover); each
+    scope's budgets, and Cost Management's forecast of the days left in the month. Each optional: a scope Azure
+    refuses is named in the run's detail.
+*/
+IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NULL
+    CREATE TABLE audit.AiCostDay
+    (
+        RowId          BIGINT IDENTITY(1, 1) NOT NULL,
+        Scope          NVARCHAR(300)  NOT NULL,       -- /subscriptions/<id>, /providers/Microsoft.Billing/billingAccounts/<id> ...
+        [Day]          DATE           NOT NULL,
+        CostType       VARCHAR(10)    NOT NULL,       -- Actual | Amortized
+        Service        NVARCHAR(60)   NOT NULL,       -- Foundry and Azure OpenAI | Copilot Studio | Power Platform | ...
+        ResourceType   NVARCHAR(120)  NULL,
+        SubscriptionId VARCHAR(36)    NULL,
+        ResourceGroup  NVARCHAR(90)   NULL,
+        ResourceName   NVARCHAR(260)  NULL,
+        Meter          NVARCHAR(200)  NULL,
+        Cost           DECIMAL(19, 6) NOT NULL,
+        Currency       VARCHAR(8)     NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_AiCostDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_AiCostDay PRIMARY KEY NONCLUSTERED (RowId),
+        INDEX CIX_AiCostDay CLUSTERED (CostType, [Day], Service)
+    );
+IF OBJECT_ID(N'audit.AiBudget', N'U') IS NULL
+    CREATE TABLE audit.AiBudget
+    (
+        Scope          NVARCHAR(300)  NOT NULL,
+        Budget         NVARCHAR(150)  NOT NULL,
+        Category       VARCHAR(16)    NULL,           -- Cost | Usage
+        Amount         DECIMAL(19, 4) NULL,
+        TimeGrain      VARCHAR(20)    NULL,           -- Monthly | Quarterly | Annually ...
+        StartDate      DATE           NULL,
+        EndDate        DATE           NULL,
+        CurrentSpend   DECIMAL(19, 4) NULL,           -- spent so far in the budget's current period
+        ForecastSpend  DECIMAL(19, 4) NULL,           -- Azure's forecast for the period's end
+        Currency       VARCHAR(8)     NULL,
+        Filter         NVARCHAR(4000) NULL,           -- the budget's own filter, as JSON
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_AiBudget_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_AiBudget PRIMARY KEY (Scope, Budget)
+    );
+IF OBJECT_ID(N'audit.AiCostForecastDay', N'U') IS NULL
+    CREATE TABLE audit.AiCostForecastDay
+    (
+        Scope          NVARCHAR(300)  NOT NULL,
+        [Day]          DATE           NOT NULL,
+        Cost           DECIMAL(19, 6) NOT NULL,       -- Cost Management's forecast of the AI services' actual cost that day
+        Currency       VARCHAR(8)     NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_AiCostForecastDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_AiCostForecastDay PRIMARY KEY (Scope, [Day])
+    );
+
 /* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform ---- */
 /*
     What the executive page Leadership > Costs and savings reads beside the licenses, GitHub and Foundry: each a
@@ -483,4 +539,7 @@ BEGIN
     GRANT SELECT ON audit.FoundryContentFilter TO CopilotInsightsApp;
     GRANT SELECT ON audit.FoundryModelCatalog TO CopilotInsightsApp;
     GRANT SELECT ON audit.FoundryAccountSeen TO CopilotInsightsApp;
+    GRANT SELECT ON audit.AiCostDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.AiBudget TO CopilotInsightsApp;
+    GRANT SELECT ON audit.AiCostForecastDay TO CopilotInsightsApp;
 END;

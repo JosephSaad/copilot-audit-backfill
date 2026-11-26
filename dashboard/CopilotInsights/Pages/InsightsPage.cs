@@ -28,7 +28,11 @@ public sealed record WhyInput(string Label, string Value, string? Href, string? 
 }
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
-public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
+/// <param name="Email">
+/// A panel of a few sentences that names no one (3.4.0): sent in a subscription's email as its text, without its
+/// links. Tables and lists of people are never sent, whatever this says; only the page that writes the sentences sets it.
+/// </param>
+public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null, bool Email = false);
 
 public sealed record Link(string Text, string Href);
 
@@ -243,6 +247,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// the organization beside it, are left out.
     /// </summary>
     public virtual bool UsesTeam => true;
+    /// <summary>The page counts the whole organization whoever opens it (3.4.0): its email says so, not the viewer's part.</summary>
+    public virtual bool CountsWholeOrganization => false;
 
     /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
     public virtual bool AllowedInPrivacyMode => false;
@@ -688,7 +694,10 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /// The same, choosing whether the team shown is kept: a page that shows the whole organization whatever the team
     /// (Costs and savings) passes false, so its figures lead to lists of the whole organization, as they count it.
     /// </summary>
-    protected string? Open(string path, string? extra, bool keepOrg)
+    protected string? Open(string path, string? extra, bool keepOrg) => Open(path, extra, keepOrg, null);
+
+    /// <summary>The same for another period (3.4.0): a week's figure opens its page over the 7 days it counts.</summary>
+    protected string? Open(string path, string? extra, bool keepOrg, int? days)
     {
         /* A path that carries its own query ("/forecasting/actions?kind=revoke") keeps it after the period and team. */
         var parts = path.Split('?', 2);
@@ -701,9 +710,9 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
                 {
                     /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
                     listed = true;
-                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                    if (g.OpenTo(Viewer) && Nav.Allowed(page, Viewer.ForSection(g.Key), PrivacyMode)) return Ctx.Url(bare, days: days, keepOrg: keepOrg, extra: extra);
                 }
-        return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+        return listed ? null : Ctx.Url(bare, days: days, keepOrg: keepOrg, extra: extra);
     }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>
@@ -772,6 +781,19 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected string Here => Ctx.Root is null && Viewer.OrgWide ? "the organization" : "this part of the organization";
 
     protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
+    /// <summary>
+    /// Whether a table is there and holds a row. The table is named in code, never by a visitor. Asked in two steps: a
+    /// statement naming a table that does not exist fails as it runs, whatever its CASE says first.
+    /// </summary>
+    protected async Task<bool> TableHasRowsAsync(string table)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(table, @"^[a-z]+\.[A-Za-z]+$")) throw new ArgumentException("Not a table name.", nameof(table));
+        return await Db.ScalarAsync<int>($"IF OBJECT_ID(N'{table}', N'U') IS NULL SELECT 0; ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}) THEN 1 ELSE 0 END;');") == 1;
+    }
+
+    /// <summary>A section's name as the page's body carries it, for its color: lower case letters and hyphens only ("AI platforms" is "ai-platforms").</summary>
+    public static string SectionSlug(string? persona) =>
+        string.Join('-', new string((persona ?? "").ToLowerInvariant().Select(c => c is >= 'a' and <= 'z' ? c : ' ').ToArray()).Split(' ', StringSplitOptions.RemoveEmptyEntries));
     protected static string Num(double? v) => Chart.Format(v, Fmt.Count);
     protected static double? Ratio(double a, double b) => b > 0 ? a / b : null;
     /// <summary>The trend's points (days or weeks), oldest first, and their labels.</summary>

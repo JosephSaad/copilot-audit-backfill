@@ -234,6 +234,39 @@ Assert-That ($gb.query -like "*microsoft.cognitiveservices/accounts*OpenAI*AISer
 $seen = ConvertFrom-ResourceGraph ('{"data":[{"id":"' + $id + '","kind":"AIServices","location":"eastus"},{"id":"/subscriptions/CCCC/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/other","kind":"OpenAI"},{"id":"/x"}]}' | ConvertFrom-Json) @('AAAA1111-0000-0000-0000-000000000000')
 Assert-That ($seen.Count -eq 2 -and $seen[0].Loaded -and -not $seen[1].Loaded -and $seen[1].Account -eq 'other') 'each account seen, marked loaded when its subscription is one the load reads'
 
+# The wider AI bill (3.4.0).
+Assert-That ((Get-AiService 'Microsoft.CognitiveServices/accounts' 'gpt-4o Input Tokens') -eq 'Foundry and Azure OpenAI' -and
+             (Get-AiService 'microsoft.powerplatform/accounts' 'Copilot Studio Messages') -eq 'Copilot Studio' -and
+             (Get-AiService 'microsoft.powerplatform/accounts' 'Dataverse Database Capacity') -eq 'Power Platform' -and
+             (Get-AiService 'microsoft.syntex/accounts' 'Microsoft 365 Copilot Chat Messages') -eq 'Microsoft 365 Copilot pay-as-you-go' -and
+             (Get-AiService 'microsoft.syntex/accounts' 'SharePoint Archive') -eq 'SharePoint and Syntex pay-as-you-go' -and
+             (Get-AiService 'microsoft.web/sites' 'x') -eq 'Other AI services') 'each cost line under its service: Copilot Studio apart from the rest of the Power Platform by its meter'
+$ab = Get-AiCostQueryBody -From ([datetime] '2026-10-01') -To ([datetime] '2026-10-03') -Type AmortizedCost -ResourceTypes 'microsoft.cognitiveservices/accounts', 'microsoft.powerplatform/accounts'
+Assert-That ($ab.type -eq 'AmortizedCost' -and $ab.dataset.granularity -eq 'Daily' -and $ab.dataset.grouping.Count -eq 2 -and $ab.dataset.filter.dimensions.values.Count -eq 2 -and
+             $ab.timePeriod.to -eq '2026-10-03T23:59:59Z') 'the wider bill asks for amortized cost a day, by resource and meter, of the AI resource types'
+Assert-That (Test-Throw { Get-AiCostQueryBody -From ([datetime] '2026-10-01') -To ([datetime] '2026-10-01') -Type Usage }) 'only actual or amortized cost'
+$fb = Get-AiForecastBody -From ([datetime] '2026-10-20') -To ([datetime] '2026-10-31') -ResourceTypes 'microsoft.cognitiveservices/accounts'
+Assert-That ($fb.includeActualCost -eq $false -and $fb.timePeriod.from -eq '2026-10-20T00:00:00Z' -and -not $fb.dataset.Contains('grouping')) 'the forecast: the days ahead only, not grouped'
+$line = [pscustomobject]@{ ResourceId = '/subscriptions/AAAA/resourceGroups/rg-pp/providers/Microsoft.PowerPlatform/accounts/billing-hr'; Meter = 'Copilot Studio Messages'; Day = [datetime] '2026-10-05'; Cost = [decimal] 12.5; Currency = 'USD' }
+$acr = ConvertTo-AiCostRow $line '/providers/Microsoft.Billing/billingAccounts/123' 'Amortized'
+Assert-That ($acr.Service -eq 'Copilot Studio' -and $acr.ResourceType -eq 'microsoft.powerplatform/accounts' -and $acr.SubscriptionId -eq 'aaaa' -and $acr.ResourceGroup -eq 'rg-pp' -and
+             $acr.ResourceName -eq 'billing-hr' -and $acr.CostType -eq 'Amortized' -and $acr.Scope -like '*billingAccounts/123') 'a cost line as a row: its service, subscription, group and name from its id'
+$noId = ConvertTo-AiCostRow ([pscustomobject]@{ ResourceId = ''; Meter = 'x'; Day = [datetime] '2026-10-05'; Cost = [decimal] 1; Currency = 'USD' }) '/subscriptions/a' 'Actual'
+Assert-That ($null -eq $noId.ResourceType -and $null -eq $noId.SubscriptionId -and $noId.Service -eq 'Other AI services') 'a line with no resource is still a row'
+$budget = ConvertFrom-AiBudget ('{"value":[{"name":"ai-monthly","properties":{"category":"Cost","amount":5000,"timeGrain":"Monthly","timePeriod":{"startDate":"2026-10-01T00:00:00Z"},
+    "currentSpend":{"amount":3120.4,"unit":"USD"},"forecastSpend":{"amount":5480,"unit":"USD"},"filter":{"dimensions":{"name":"ResourceType","operator":"In","values":["microsoft.cognitiveservices/accounts"]}}}},
+    {"name":"bare","properties":{}}]}' | ConvertFrom-Json) '/subscriptions/a'
+Assert-That ($budget.Count -eq 2 -and $budget[0].Amount -eq 5000 -and $budget[0].CurrentSpend -eq [decimal] 3120.4 -and $budget[0].ForecastSpend -eq 5480 -and $budget[0].Currency -eq 'USD' -and
+             $budget[0].StartDate -eq [datetime] '2026-10-01' -and $null -eq $budget[0].EndDate -and $budget[0].Filter -like '*cognitiveservices*' -and $null -eq $budget[1].Amount) `
+    'budgets: amount, spent, forecast and filter; a budget with nothing set is still listed'
+$fc = ConvertFrom-AiForecast ('{"properties":{"columns":[{"name":"Cost"},{"name":"UsageDate"},{"name":"CostStatus"},{"name":"Currency"}],
+    "rows":[[10.5,20261020,"Forecast","USD"],[2,20261020,"Forecast","USD"],[99,20261019,"Actual","USD"],[11,20261021,"Forecast","USD"]]}}' | ConvertFrom-Json) '/subscriptions/a'
+Assert-That ($fc.Count -eq 2 -and $fc[0].Day -eq [datetime] '2026-10-20' -and $fc[0].Cost -eq [decimal] 12.5 -and $fc[1].Cost -eq 11) 'the forecast a day, its lines added up, actual days left out'
+Assert-That ((ConvertFrom-AiForecast $null 's').Count -eq 0) 'no forecast is no rows'
+Assert-That ((@(Get-AiCostScope -Configured @() -Subs 'aaaa', 'bbbb') -join ',') -eq '/subscriptions/aaaa,/subscriptions/bbbb' -and
+             (@(Get-AiCostScope -Configured 'providers/Microsoft.Billing/billingAccounts/123/', '/subscriptions/aaaa' -Subs 'x') -join ',') -eq '/providers/Microsoft.Billing/billingAccounts/123,/subscriptions/aaaa') `
+    'the scopes: each subscription read by default, else those set, each starting with /'
+
 # ---- 4. The nightly run --------------------------------------------------------------------------
 Write-Host "`n4. Invoke-CopilotPipeline.ps1" -ForegroundColor Cyan
 . (Join-Path $root 'Invoke-CopilotPipeline.ps1')

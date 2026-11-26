@@ -45,10 +45,14 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
 
     public Task<ReportContext> ContextAsync(int days, string? root) => contexts.CreateAsync(SystemViewer(), days, root);
 
-    /// <summary>The same context for another window: <paramref name="days"/> days ending on <paramref name="end"/>.</summary>
-    public static ReportContext Window(ReportContext c, DateTime end, int days) => new()
+    /// <summary>
+    /// The same context for another window: <paramref name="days"/> days ending on <paramref name="end"/>; with
+    /// <paramref name="wholeOrganization"/>, over everyone rather than the viewer's part (3.4.0: My agents counts an
+    /// owner's agents' whole audience, and their credits with it).
+    /// </summary>
+    public static ReportContext Window(ReportContext c, DateTime end, int days, bool wholeOrganization = false) => new()
     {
-        Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, LastRecord = c.LastRecord, Root = c.Root, RootName = c.RootName, PathBase = c.PathBase,
+        Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, LastRecord = c.LastRecord, Root = wholeOrganization ? null : c.Root, RootName = wholeOrganization ? null : c.RootName, PathBase = c.PathBase,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
         Rollups = c.Rollups, RolledDays = RolledFor(c, end), RolledItemDays = RolledItemsFor(c, end),
         CreditDays = c.CreditDays, RolledCreditDays = end == c.End ? c.RolledCreditDays : new HashSet<int>(), ItemKinds = c.ItemKinds, Held = c.Held,

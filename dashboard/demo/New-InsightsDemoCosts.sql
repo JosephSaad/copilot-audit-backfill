@@ -427,6 +427,55 @@ INSERT INTO audit.FoundryAccountSeen (SubscriptionId, ResourceGroup, Account, Ki
 SELECT SubscriptionId, ResourceGroup, Account, Kind, Location, 1 FROM audit.FoundryAccount WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de'
 UNION ALL SELECT 'f00d0001-0000-4000-8000-0000000000f1', N'rg-marketing', N'contoso-openai-weu', N'OpenAI', N'westeurope', 0;
 
+/* 3.4.0: the wider AI bill as Cost Management bills it, at the subscription: Foundry's accounts (the provisioned
+   throughput bought as a monthly reservation, billed on the 1st and spread over the month when amortized), Copilot
+   Studio's pay-as-you-go credits, Microsoft 365 Copilot pay-as-you-go and AI Search; a monthly budget, and the
+   forecast of the month's days still ahead. */
+IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NOT NULL
+BEGIN
+    DECLARE @scope NVARCHAR(300) = N'/subscriptions/6b2c9d1e-0000-4000-8000-00000000c0de';
+    DELETE FROM audit.AiCostDay WHERE Scope = @scope;
+    INSERT INTO audit.AiCostDay (Scope, [Day], CostType, Service, ResourceType, SubscriptionId, ResourceGroup, ResourceName, Meter, Cost, Currency)
+    SELECT @scope, c.[Day], t.CostType, N'Foundry and Azure OpenAI', N'microsoft.cognitiveservices/accounts', c.SubscriptionId, c.ResourceGroup, c.Account, c.Meter, c.Cost, c.Currency
+    FROM audit.FoundryCostDay AS c CROSS JOIN (VALUES ('Actual'), ('Amortized')) AS t (CostType)
+    WHERE c.SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de' AND c.Account <> N'contoso-ptu-eus';
+    /* The reservation: a month's 15 PTU (about 70% of the hourly price) billed on its first day, or a 30th of it a day. */
+    INSERT INTO audit.AiCostDay (Scope, [Day], CostType, Service, ResourceType, SubscriptionId, ResourceGroup, ResourceName, Meter, Cost, Currency)
+    SELECT @scope, d.[Day], t.CostType, N'Foundry and Azure OpenAI', N'microsoft.cognitiveservices/accounts', '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus',
+           N'Provisioned Managed Throughput Unit reservation', CASE t.CostType WHEN 'Amortized' THEN 252 ELSE 7560 END, N'USD'
+    FROM #day AS d CROSS JOIN (VALUES ('Actual'), ('Amortized')) AS t (CostType)
+    WHERE d.Ago < 90 AND (t.CostType = 'Amortized' OR DAY(d.[Day]) = 1);
+    INSERT INTO audit.AiCostDay (Scope, [Day], CostType, Service, ResourceType, SubscriptionId, ResourceGroup, ResourceName, Meter, Cost, Currency)
+    SELECT @scope, x.[Day], t.CostType, N'Copilot Studio', N'microsoft.powerplatform/accounts', '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-power-platform', N'contoso-pp-billing',
+           N'Copilot Studio Copilot Credits', x.Cost, N'USD'
+    FROM (SELECT [Day], SUM(Credits) * 0.01 AS Cost FROM audit.PowerPlatformCreditDay WHERE Product = 'Copilot Studio' AND Billing = 'PayAsYouGo' GROUP BY [Day]) AS x
+    CROSS JOIN (VALUES ('Actual'), ('Amortized')) AS t (CostType)
+    WHERE x.[Day] > DATEADD(DAY, -90, @today);
+    INSERT INTO audit.AiCostDay (Scope, [Day], CostType, Service, ResourceType, SubscriptionId, ResourceGroup, ResourceName, Meter, Cost, Currency)
+    SELECT @scope, d.[Day], t.CostType, x.Service, x.ResourceType, '6b2c9d1e-0000-4000-8000-00000000c0de', x.Rg, x.Name, x.Meter,
+           ROUND(x.PerDay * @scale * CASE WHEN d.Dow >= 6 THEN 0.35 ELSE 1 END * (0.7 + 0.6 * d.Progress), 2), N'USD'
+    FROM #day AS d CROSS JOIN (VALUES ('Actual'), ('Amortized')) AS t (CostType)
+    CROSS APPLY (VALUES (N'Microsoft 365 Copilot pay-as-you-go', N'microsoft.syntex/accounts', N'rg-m365-payg', N'contoso-copilot-payg', N'Microsoft 365 Copilot Chat agent messages', 48.0),
+                        (N'Azure AI Search', N'microsoft.search/searchservices', N'rg-ai-prod', N'contoso-search-eus', N'Standard S1 Unit', 26.0)) AS x (Service, ResourceType, Rg, Name, Meter, PerDay)
+    WHERE d.Ago < 90;
+
+    DECLARE @m0 DATE = DATEFROMPARTS(YEAR(@today), MONTH(@today), 1);
+    DECLARE @perDay DECIMAL(19, 4) = (SELECT SUM(Cost) / 7 FROM audit.AiCostDay WHERE Scope = @scope AND CostType = 'Amortized' AND [Day] > DATEADD(DAY, -7, @today));
+    DECLARE @mtd DECIMAL(19, 4) = (SELECT ISNULL(SUM(Cost), 0) FROM audit.AiCostDay WHERE Scope = @scope AND CostType = 'Actual' AND [Day] >= @m0);
+    DELETE FROM audit.AiCostForecastDay WHERE Scope = @scope;
+    INSERT INTO audit.AiCostForecastDay (Scope, [Day], Cost, Currency)
+    SELECT @scope, DATEADD(DAY, n.n, @today), ROUND(@perDay * CASE WHEN DATEPART(WEEKDAY, DATEADD(DAY, n.n, @today)) IN (1, 7) THEN 0.5 ELSE 1.15 END, 2), N'USD'
+    FROM (SELECT TOP (31) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS n FROM sys.all_objects) AS n
+    WHERE DATEADD(DAY, n.n, @today) < DATEADD(MONTH, 1, @m0);
+    DELETE FROM audit.AiBudget WHERE Scope = @scope;
+    INSERT INTO audit.AiBudget (Scope, Budget, Category, Amount, TimeGrain, StartDate, EndDate, CurrentSpend, ForecastSpend, Currency, Filter)
+    VALUES (@scope, N'ai-services-monthly', 'Cost', ROUND(@perDay * 30 * 1.05, -2), 'Monthly', DATEADD(MONTH, -6, @m0), NULL, @mtd,
+            @mtd + (SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE Scope = @scope), N'USD',
+            N'{"dimensions":{"name":"ResourceType","operator":"In","values":["microsoft.cognitiveservices/accounts","microsoft.powerplatform/accounts","microsoft.syntex/accounts","microsoft.search/searchservices"]}}'),
+           (@scope, N'copilot-studio-monthly', 'Cost', ISNULL(ROUND((SELECT SUM(Cost) FROM audit.AiCostDay WHERE Scope = @scope AND CostType = 'Actual' AND Service = N'Copilot Studio' AND [Day] > DATEADD(DAY, -30, @today)) * 1.3, -1), 2500),
+            'Monthly', DATEADD(MONTH, -3, @m0), NULL, (SELECT ISNULL(SUM(Cost), 0) FROM audit.AiCostDay WHERE Scope = @scope AND CostType = 'Actual' AND Service = N'Copilot Studio' AND [Day] >= @m0), NULL, N'USD', NULL);
+END;
+
 /* ---- AI apps beyond Copilot: what the activity database's rollup leaves in audit.AIAppUserDay ----
    Six Azure AI resources. Most calls come from production apps with their own key (no user identity); a few hundred
    people call two apps with their own sign-in, and the Technology division's developers a dev resource. The busiest is

@@ -57,13 +57,21 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         return all.ToString();
     }
 
+    /// <summary>
+    /// The parameters a statement runs with, its own: Dapper writes into a DynamicParameters as it runs, so one shared by
+    /// reads run side by side (a page's Queries(...) given one Ctx.Args) broke now and then with "a concurrent update
+    /// was performed on this collection" (Agent detail, since 3.1.4). Each statement gets a copy; plain objects are
+    /// read only and pass as they are.
+    /// </summary>
+    static object? Own(object? args) => args is DynamicParameters d ? new DynamicParameters(d) : args;
+
     public async Task<List<T>> QueryAsync<T>(string sql, object? args = null, int timeout = 120)
     {
         var cs = _cs;
         return Copy(await cache.GetAsync(Tenant, "q", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            return (await c.QueryAsync<T>(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout))).AsList();
+            return (await c.QueryAsync<T>(new CommandDefinition(PlanHints.Apply(sql, args), Own(args), commandTimeout: timeout))).AsList();
         }, await LiveAsync(sql)));
     }
 
@@ -74,7 +82,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         var (first, second) = await cache.GetAsync(Tenant, "q2", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout));
+            await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), Own(args), commandTimeout: timeout));
             var a = (await r.ReadAsync<T1>()).AsList();
             return (a, (await r.ReadAsync<T2>()).AsList());
         }, await LiveAsync(sql));
@@ -92,7 +100,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         return await cache.GetAsync(Tenant, "r", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout));
+            await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), Own(args), commandTimeout: timeout));
             return await read(r);
         }, await LiveAsync(sql));
     }
@@ -108,13 +116,13 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         if (Writes.IsMatch(sql))
         {
             await using var w = new SqlConnection(cs);
-            try { return await w.ExecuteScalarAsync<T>(sql, args); }
+            try { return await w.ExecuteScalarAsync<T>(sql, Own(args)); }
             finally { await AfterWriteAsync(w, sql); }
         }
         return await cache.GetAsync(Tenant, "s", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            return await c.ExecuteScalarAsync<T>(PlanHints.Apply(sql, args), args);
+            return await c.ExecuteScalarAsync<T>(PlanHints.Apply(sql, args), Own(args));
         }, await LiveAsync(sql));
     }
 
@@ -133,7 +141,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     public async Task<int> ExecuteAsync(string sql, object? args = null, int timeout = 120)
     {
         await using var c = new SqlConnection(_cs);
-        try { return await c.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: timeout)); }
+        try { return await c.ExecuteAsync(new CommandDefinition(sql, Own(args), commandTimeout: timeout)); }
         finally { await AfterWriteAsync(c, sql); }
     }
 

@@ -3300,7 +3300,7 @@ Assert-That ($once -notlike '*flattening*') 'and only once: the next run finds n
 Assert-That ($up -like '*bi, in full*' -and $up -like '*Refresh the Power BI model in full once*') 'and bi rebuilt in full, with the model refresh left to do'
 $moved = try { & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -ReportingTimeZone 'Pacific Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
 $still = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
-Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') 'the time zone cannot be changed once records are loaded'
+Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') "the time zone cannot be changed once records are loaded ($still; the installer said: $moved)"
 
 # Upgrading from 2.4.10: the records of agents were flattened without their id and friendly name. The installer reads
 # them once, from those records' JSON, and names the agents in bi; the next run has nothing to read.
@@ -3953,8 +3953,8 @@ Write-Host "`n19. AI usage outside Microsoft 365 Copilot (Create-CopilotExternal
 $extSql = Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotExternalUsageSchema.sql') -Raw
 Invoke-SqlText -Sql $extSql
 Invoke-SqlText -Sql $extSql   # re-runnable
-$extTables = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(name, ',') WITHIN GROUP (ORDER BY name) FROM sys.tables WHERE schema_id = SCHEMA_ID('audit') AND (name LIKE 'GitHubCopilot%' OR name LIKE 'Foundry%' OR name = 'ExternalUsageRun');")"
-Assert-That ($extTables -eq 'ExternalUsageRun,FoundryAccount,FoundryAccountSeen,FoundryContentFilter,FoundryCostDay,FoundryDeployment,FoundryModelCatalog,FoundryUsageDay,GitHubCopilotCost,GitHubCopilotDay,GitHubCopilotPolicy,GitHubCopilotSeat,GitHubCopilotUserDay') "the script makes its tables (3.3.0: account posture, content filters, model retirement, accounts seen, Copilot settings), and runs again unchanged ($extTables)"
+$extTables = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(name, ',') WITHIN GROUP (ORDER BY name) FROM sys.tables WHERE schema_id = SCHEMA_ID('audit') AND (name LIKE 'GitHubCopilot%' OR name LIKE 'Foundry%' OR name LIKE 'Ai[BC]%' OR name = 'ExternalUsageRun');")"
+Assert-That ($extTables -eq 'AiBudget,AiCostDay,AiCostForecastDay,ExternalUsageRun,FoundryAccount,FoundryAccountSeen,FoundryContentFilter,FoundryCostDay,FoundryDeployment,FoundryModelCatalog,FoundryUsageDay,GitHubCopilotCost,GitHubCopilotDay,GitHubCopilotPolicy,GitHubCopilotSeat,GitHubCopilotUserDay') "the script makes its tables (3.3.0: account posture, content filters, model retirement, accounts seen, Copilot settings), and runs again unchanged ($extTables)"
 Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.GitHubIdentity', N'U') IS NOT NULL AND COL_LENGTH(N'audit.FoundryDeployment', N'RaiPolicy') IS NOT NULL AND COL_LENGTH(N'audit.FoundryUsageDay', N'PtuUtilizationMax') IS NOT NULL THEN 1 ELSE 0 END;") -eq 1) `
     'and the identities, each deployment''s content filter and a provisioned deployment''s use (3.3.0)'
 
@@ -4061,11 +4061,25 @@ $mockScript = {
                     $costAsked++
                     if ($costAsked -eq 1) { Send $ctx 429 '{"error":{"code":"429","message":"Too many requests"}}' @{ 'x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after' = 1 }; continue }
                     $n0 = [int] $Days[0].Replace('-', ''); $n1 = [int] $Days[1].Replace('-', ''); $lower = $acct.ToLowerInvariant()
+                    $asked = [System.IO.StreamReader]::new($rq.InputStream).ReadToEnd()
+                    if ($asked -like '*AmortizedCost*') {
+                        Send $ctx 200 (@{ properties = @{ nextLink = $null
+                                    columns = @(@{ name = 'Cost'; type = 'Number' }, @{ name = 'UsageDate'; type = 'Number' }, @{ name = 'ResourceId'; type = 'String' }, @{ name = 'Meter'; type = 'String' }, @{ name = 'Currency'; type = 'String' })
+                                    rows = @(, @(4, $n0, "$lower/foundry-east", 'gpt-4o Input Tokens', 'USD')) +
+                                           @(, @(30, $n0, "/subscriptions/$Sub/resourcegroups/rg-pp/providers/microsoft.powerplatform/accounts/billing-hr", 'Copilot Studio Messages', 'USD')) } } | ConvertTo-Json -Depth 12)
+                        continue
+                    }
                     Send $ctx 200 (@{ properties = @{ nextLink = $null
                                 columns = @(@{ name = 'Cost'; type = 'Number' }, @{ name = 'UsageDate'; type = 'Number' }, @{ name = 'ResourceId'; type = 'String' }, @{ name = 'Meter'; type = 'String' }, @{ name = 'Currency'; type = 'String' })
                                 rows = @(, @(1.25, $n0, "$lower/foundry-east", 'gpt-4o Input Tokens', 'USD')) + @(, @(0.75, $n0, "$lower/foundry-east", 'gpt-4o Input Tokens', 'USD')) +
                                        @(, @(0.5, $n1, "$lower/foundry-east", 'gpt-4o Output Tokens', 'USD')) + @(, @(9.99, $n0, "$lower/speech-1", 'Speech Standard', 'USD')) } } | ConvertTo-Json -Depth 12)
                     continue
+                }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.Consumption/budgets") {
+                    Send $ctx 200 '{"value":[{"name":"ai-monthly","properties":{"category":"Cost","amount":100,"timeGrain":"Monthly","timePeriod":{"startDate":"2026-10-01T00:00:00Z"},"currentSpend":{"amount":61.5,"unit":"USD"},"forecastSpend":{"amount":112,"unit":"USD"}}}]}'; continue
+                }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CostManagement/forecast" -and $rq.HttpMethod -eq 'POST') {
+                    Send $ctx 200 '{"properties":{"columns":[{"name":"Cost"},{"name":"UsageDate"},{"name":"CostStatus"},{"name":"Currency"}],"rows":[[3.5,20991230,"Forecast","USD"],[4,20991231,"Forecast","USD"]]}}'; continue
                 }
                 Send $ctx 404 '{"error":{"code":"NotFound","message":"no such thing"}}'; continue
             }
@@ -4162,10 +4176,19 @@ try {
     $seen = Invoke-SqlText -As Table -Sql 'SELECT SubscriptionId, Account, Loaded FROM audit.FoundryAccountSeen ORDER BY Account;'
     Assert-That ($seen.Rows.Count -eq 2 -and "$($seen.Rows[1].Account)" -eq 'shadow-ai' -and -not [bool] $seen.Rows[1].Loaded -and [bool] $seen.Rows[0].Loaded -and "$($foRun.Detail)" -like '*2 AI account(s) seen, 1 in subscriptions not loaded*') `
         'every AI account the app can see, and the one in a subscription the load does not read'
+    $ai = Invoke-SqlText -As Table -Sql "SELECT CostType, Service, ResourceName, SUM(Cost) AS Cost FROM audit.AiCostDay WHERE Scope = N'/subscriptions/$extSub' GROUP BY CostType, Service, ResourceName ORDER BY CostType, Service, ResourceName;"
+    $aiText = @($ai.Rows | ForEach-Object { "$($_.CostType)|$($_.Service)|$($_.ResourceName)|$(([decimal] $_.Cost).ToString('0.##', [cultureinfo]::InvariantCulture))" }) -join '; '
+    Assert-That ($aiText -eq 'Actual|Foundry and Azure OpenAI|foundry-east|2.5; Actual|Foundry and Azure OpenAI|speech-1|9.99; Amortized|Copilot Studio|billing-hr|30; Amortized|Foundry and Azure OpenAI|foundry-east|4') `
+        "3.4.0: the wider AI bill, actual and amortized, each line under its service, Copilot Studio by its meter ($aiText)"
+    $bud = (Invoke-SqlText -As Table -Sql 'SELECT Budget, Amount, CurrentSpend, ForecastSpend, Currency FROM audit.AiBudget;').Rows
+    $fcDays = "$(Invoke-SqlText -As Scalar -Sql "SELECT CONCAT(COUNT(*), '/', SUM(Cost)) FROM audit.AiCostForecastDay WHERE Scope = N'/subscriptions/$extSub';")"
+    Assert-That (@($bud).Count -eq 1 -and "$($bud[0].Budget)" -eq 'ai-monthly' -and [decimal] $bud[0].Amount -eq 100 -and [decimal] $bud[0].CurrentSpend -eq 61.5 -and [decimal] $bud[0].ForecastSpend -eq 112 -and
+                 $fcDays -eq '2/7.500000' -and "$($foRun.Detail)" -like '*the wider AI bill: 6 cost row(s), 1 budget(s), 2 forecast day(s) at 1 scope(s)*') `
+        "and the scope's budget, spent and forecast, and the forecast of the days ahead ($fcDays)"
     $global:LASTEXITCODE = 0
     $foCheck = & $fo -SubscriptionId $extSub -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
     $foCheckCode = $LASTEXITCODE
-    Assert-That ($foCheckCode -eq 0 -and $foCheck -like '*OK*Accounts in*2 Azure OpenAI or Foundry account(s)*' -and $foCheck -like '*Cost of*readable*' -and $foCheck -like '*1 in subscriptions not in the list (cccc3333*' -and $foCheck -like '*Every part the load needs can be read*') `
+    Assert-That ($foCheckCode -eq 0 -and $foCheck -like '*OK*Accounts in*2 Azure OpenAI or Foundry account(s)*' -and $foCheck -like '*Cost of*readable*' -and $foCheck -like '*The wider AI bill at /subscriptions/*readable*' -and $foCheck -like '*Budgets at*readable*' -and $foCheck -like '*1 in subscriptions not in the list (cccc3333*' -and $foCheck -like '*Every part the load needs can be read*') `
         "-CheckOnly tries each read, writes nothing, and names the subscription with AI accounts not in the list ($foCheckCode)"
     $foBadCheck = & $fo -SubscriptionId 'bbbb2222-0000-0000-0000-000000000000' -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings -CheckOnly 6>&1 3>&1 | Out-String
     Assert-That ($LASTEXITCODE -eq 1 -and $foBadCheck -like '*MISSING*Monitoring Reader*') '-CheckOnly on a subscription the app may not read: MISSING with the role to give, exit code 1'

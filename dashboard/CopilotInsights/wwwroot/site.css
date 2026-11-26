@@ -731,3 +731,77 @@ form.admin:has(label.quote) > .row { flex: 0 0 100%; display: flex; flex-wrap: w
   border: 1px dashed var(--rule); border-radius: 6px; cursor: help; }
 @media (max-width: 600px) { .page-head a.subscribe, .page-head span.subscribe.off { float: none; display: inline-block; margin: 0 0 8px; } }
 form.admin label[hidden] { display: none; }
+
+/* Color by section. Each section has a hue of its own: the page's eyebrow, its headline figures' top edge and wash,
+   panel titles and the section's dot in the list of reports carry it, so a page says where it is at a glance. A
+   figure's tone (good, warn, crit) takes over its edge. Each hue is dark enough for text on the surface, per theme. */
+:root { --sec: var(--accent); --good-soft: #e2f3e2; --crit-soft: #fbe6e6; --info: #2a68c8; --info-soft: #e4edfb; --good-ink: #0a7a0a; }
+:root[data-theme="dark"] { --good-soft: #12281a; --crit-soft: #331b1b; --info: #6da7ec; --info-soft: #14243a; --good-ink: #4cc24c; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --good-soft: #12281a; --crit-soft: #331b1b; --info: #6da7ec; --info-soft: #14243a; --good-ink: #4cc24c; } }
+body[data-section="leadership"], [data-grp="Leadership"] { --sec: #5a45c2; }
+body[data-section="adoption"], [data-grp="Adoption"] { --sec: #1a7f5a; }
+body[data-section="licensing"], [data-grp="Licensing"] { --sec: #2a68c8; }
+body[data-section="security"], [data-grp="Security"] { --sec: #c4363a; }
+body[data-section="compliance"], [data-grp="Compliance"] { --sec: #a3478b; }
+body[data-section="agents"], [data-grp="Agents"] { --sec: #c2560f; }
+body[data-section="enablement"], [data-grp="Enablement"] { --sec: #0e7c8c; }
+body[data-section="forecasting"], [data-grp="Forecasting"] { --sec: #8a6d00; }
+body[data-section="regions"], [data-grp="Regions"] { --sec: #4a7a22; }
+body[data-section="people"], [data-grp="People"] { --sec: #b03a6c; }
+body[data-section="app-owners"], [data-grp="App owners"] { --sec: #335c99; }
+body[data-section="governance"], [data-grp="Governance"] { --sec: #6a55a0; }
+body[data-section="ai-platforms"], [data-grp="AI platforms"] { --sec: #0a6b6b; }
+body[data-section="admin"], [data-grp="Admin"] { --sec: #55626d; }
+:root[data-theme="dark"] body[data-section="leadership"], :root[data-theme="dark"] [data-grp="Leadership"] { --sec: #9d8cf0; }
+:root[data-theme="dark"] body[data-section="adoption"], :root[data-theme="dark"] [data-grp="Adoption"] { --sec: #3cc28e; }
+:root[data-theme="dark"] body[data-section="licensing"], :root[data-theme="dark"] [data-grp="Licensing"] { --sec: #6da7ec; }
+:root[data-theme="dark"] body[data-section="security"], :root[data-theme="dark"] [data-grp="Security"] { --sec: #ee7a7a; }
+:root[data-theme="dark"] body[data-section="compliance"], :root[data-theme="dark"] [data-grp="Compliance"] { --sec: #d987c4; }
+:root[data-theme="dark"] body[data-section="agents"], :root[data-theme="dark"] [data-grp="Agents"] { --sec: #f0904f; }
+:root[data-theme="dark"] body[data-section="enablement"], :root[data-theme="dark"] [data-grp="Enablement"] { --sec: #4cc3d3; }
+:root[data-theme="dark"] body[data-section="forecasting"], :root[data-theme="dark"] [data-grp="Forecasting"] { --sec: #d9be45; }
+:root[data-theme="dark"] body[data-section="regions"], :root[data-theme="dark"] [data-grp="Regions"] { --sec: #93c862; }
+:root[data-theme="dark"] body[data-section="people"], :root[data-theme="dark"] [data-grp="People"] { --sec: #ea82ad; }
+:root[data-theme="dark"] body[data-section="app-owners"], :root[data-theme="dark"] [data-grp="App owners"] { --sec: #86a9e0; }
+:root[data-theme="dark"] body[data-section="governance"], :root[data-theme="dark"] [data-grp="Governance"] { --sec: #ad9de0; }
+:root[data-theme="dark"] body[data-section="ai-platforms"], :root[data-theme="dark"] [data-grp="AI platforms"] { --sec: #5cc2bb; }
+:root[data-theme="dark"] body[data-section="admin"], :root[data-theme="dark"] [data-grp="Admin"] { --sec: #9ba8af; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) body[data-section="leadership"], :root:not([data-theme="light"]) [data-grp="Leadership"] { --sec: #9d8cf0; }
+  :root:not([data-theme="light"]) body[data-section="adoption"], :root:not([data-theme="light"]) [data-grp="Adoption"] { --sec: #3cc28e; }
+  :root:not([data-theme="light"]) body[data-section="licensing"], :root:not([data-theme="light"]) [data-grp="Licensing"] { --sec: #6da7ec; }
+  :root:not([data-theme="light"]) body[data-section="security"], :root:not([data-theme="light"]) [data-grp="Security"] { --sec: #ee7a7a; }
+  :root:not([data-theme="light"]) body[data-section="compliance"], :root:not([data-theme="light"]) [data-grp="Compliance"] { --sec: #d987c4; }
+  :root:not([data-theme="light"]) body[data-section="agents"], :root:not([data-theme="light"]) [data-grp="Agents"] { --sec: #f0904f; }
+  :root:not([data-theme="light"]) body[data-section="enablement"], :root:not([data-theme="light"]) [data-grp="Enablement"] { --sec: #4cc3d3; }
+  :root:not([data-theme="light"]) body[data-section="forecasting"], :root:not([data-theme="light"]) [data-grp="Forecasting"] { --sec: #d9be45; }
+  :root:not([data-theme="light"]) body[data-section="regions"], :root:not([data-theme="light"]) [data-grp="Regions"] { --sec: #93c862; }
+  :root:not([data-theme="light"]) body[data-section="people"], :root:not([data-theme="light"]) [data-grp="People"] { --sec: #ea82ad; }
+  :root:not([data-theme="light"]) body[data-section="app-owners"], :root:not([data-theme="light"]) [data-grp="App owners"] { --sec: #86a9e0; }
+  :root:not([data-theme="light"]) body[data-section="governance"], :root:not([data-theme="light"]) [data-grp="Governance"] { --sec: #ad9de0; }
+  :root:not([data-theme="light"]) body[data-section="ai-platforms"], :root:not([data-theme="light"]) [data-grp="AI platforms"] { --sec: #5cc2bb; }
+  :root:not([data-theme="light"]) body[data-section="admin"], :root:not([data-theme="light"]) [data-grp="Admin"] { --sec: #9ba8af; }
+}
+.page-head .eyebrow { color: var(--sec); }
+.gname::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--sec); }
+.kpi { border-top: 3px solid var(--sec); background: linear-gradient(180deg, color-mix(in srgb, var(--sec) 9%, var(--surface)) 0, var(--surface) 56px); }
+.kpi.good { border-top-color: var(--good); background: linear-gradient(180deg, var(--good-soft) 0, var(--surface) 56px); }
+.kpi.good .kvalue { color: var(--good-ink); }
+.kpi.warn { border-top-color: var(--warn); background: linear-gradient(180deg, var(--warn-soft) 0, var(--surface) 56px); }
+.kpi.crit { border-top-color: var(--crit); background: linear-gradient(180deg, var(--crit-soft) 0, var(--surface) 56px); }
+.kpi.accent .kvalue { color: var(--sec); }
+.panel .phead h2 { border-left: 3px solid var(--sec); padding-left: 8px; }
+/* A status in a cell or a line: a soft colored badge, its word always shown beside the color. */
+/* The start page's section cards: each with its section's hue along the top and on its name. */
+.hcard[data-grp] { border-top: 4px solid var(--sec); margin-top: 0; }
+.hcard[data-grp] .hname { color: var(--sec); }
+.hcard[data-grp]:hover, .hcard[data-grp]:focus-within { border-color: var(--sec); border-top-color: var(--sec); }
+.jump.today .chip.day { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.jump.today .chip.day b { color: var(--accent); }
+.chip.on { border-color: var(--sec); background: color-mix(in srgb, var(--sec) 10%, var(--surface)); color: var(--sec); font-weight: 600; }
+.tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--grid); color: var(--ink); }
+.tag.good { background: var(--good-soft); color: var(--good-ink); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.crit { background: var(--crit-soft); color: var(--crit); }
+.tag.info { background: var(--info-soft); color: var(--info); }
+@media print { .kpi { background: none; } }

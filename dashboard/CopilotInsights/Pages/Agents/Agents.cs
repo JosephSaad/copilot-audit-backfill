@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Agents;
 
-public sealed class IndexModel(PageServices s) : InsightsPage(s)
+public sealed class IndexModel(PageServices s, CopilotInsights.Data.CreditData creditData) : InsightsPage(s)
 {
     public override string Title => "Agents in use";
     public override string Persona => "Agents";
@@ -31,6 +31,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         /* Each person's use of each agent and each trend point's people come from the totals the refresh keeps per
            person and agent; the agents the page lists are still those dash.Agent does not mark "(no agent)". The three
            reads are independent: run side by side. */
+        var creditsTask = creditData.TotalsAsync(Ctx);   // read beside the three below
         var (rows, trend, agentPeople) = await Queries(Db.QueryAsync<Row>($@"
 /* People are accounts enabled today; interactions are everyone's. Summed per agent before the join to dash.Agent, a
    view of four tables: joined first, its two million rows were sorted and looked up one by one (5 s of processor at
@@ -91,31 +92,38 @@ WHERE p.AgentInteractions > 0;", Ctx.Args()));
         var t = new Table
         {
             Headers = book
-                ? ["Agent", "Built in", "Owner", "Shared", "In the agent list", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"]
-                : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
-            Numeric = book ? new HashSet<int> { 6, 7, 8, 9 } : new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
+                ? ["Agent", "Built in", "Owner", "Shared", "In the agent list", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"]
+                : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Credits a month (estimate)", "Trend (people)"],
+            Numeric = book ? new HashSet<int> { 6, 7, 8, 9, 10 } : new HashSet<int> { 4, 5, 6, 7, 8 }, EmptyText = "No agents were used in the period.",
         };
         var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Owners by name
+        /* 3.4.0: each agent's Copilot Credits a month, as Agents costing credits estimates it (kept), and each owner
+           opening their My agents, for those who may open another owner's. */
+        var credits = (await creditsTask).Agents.GroupBy(a => a.AgentKey).ToDictionary(g => g.Key, g => g.First().Month.Credits);
+        var mineUrl = Viewer.OrgWide || Viewer.AnyAdmin ? Open("/agents/mine") : null;
+        object? OwnerCell(string? owner) => PrivacyMode || owner is null ? null
+            : mineUrl is null ? ownerName(owner) : new Link(ownerName(owner) ?? owner, Ctx.Url("/agents/mine", extra: "owner=" + Uri.EscapeDataString(owner)));
         foreach (var r in rows.OrderByDescending(r => r.People))
         {
-            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, PrivacyMode ? null : ownerName(r.Owner) };
+            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, OwnerCell(r.Owner) };
             /* The workbook lists Copilot Studio agents: one of those it does not list was deleted, or is not in it yet. */
             if (book) cells.AddRange([r.IsShared ? "Yes" : "No",
                                       r.InventoryAgentId is not null ? "Yes" : r.AgentSource == "Copilot Studio" ? "No: deleted, or not listed" : "No"]);
             cells.AddRange([r.FirstSeenUtc.Date,
                 AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
+                credits.TryGetValue(r.AgentKey, out var cr) && cr > 0 ? Math.Round(cr) : null,
                 AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName)]);
             t.Rows.Add([.. cells]);
         }
         Panels.Add(new("All agents", WithTrendNote(t.Render()),
-            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail." +
+            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail, an owner for their agents. Credits a month: its billed use, as Agents costing credits estimates it." +
             (PrivacyMode ? " Privacy mode is on, so owners are not shown." : ""), "full", CsvUrl()));
         CsvTable = t;
     }
 }
 
-public sealed class DetailModel(PageServices s) : InsightsPage(s)
+public sealed class DetailModel(PageServices s, CopilotInsights.Data.CreditData creditData) : InsightsPage(s)
 {
     public override string Title => AgentName ?? "Agent detail";
     public override string Persona => "Agents";
@@ -211,6 +219,7 @@ WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.N
         Kpis.Add(new("New people", few ? "—" : Num(tot.NewPeople), "first used it in the period"));
         Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "of its people used it on more than one day in the period"));
         Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person; includes use by accounts since disabled" : null));
+        await BuilderFiguresAsync(key.Value);
 
         var buckets = Buckets();
         /* Each point at the minimum group size or more, as the KPI above is. */
@@ -270,5 +279,35 @@ WHERE du.AccountEnabled = 1   -- a ranking of people: enabled accounts only (3.1
             t.Rows.Add([field, PrivacyMode && named.Contains(field) ? null : value?.ToString()]);
         Panels.Add(new("From the agent workbook", t.Render(),
             "Every column of this agent's row on the workbook's first sheet, as loaded last." + (PrivacyMode ? " Privacy mode is on, so the people behind it are not shown." : ""), "full"));
+    }
+
+    /// <summary>
+    /// What an agent's builder looks at every day (3.4.0): its owner (opening their My agents where the viewer may),
+    /// its interactions in the last 7 days against the 7 before, and what its billed use costs in Copilot Credits a
+    /// month, as Agents costing credits estimates it.
+    /// </summary>
+    async Task BuilderFiguresAsync(int key)
+    {
+        var creditsTask = creditData.TotalsAsync(Ctx);
+        var weekTask = Db.QueryAsync<(long Now, long Before)>(@"
+SELECT ISNULL(SUM(CASE WHEN f.DateKey >= @w0 THEN 1 END), 0), ISNULL(SUM(CASE WHEN f.DateKey < @w0 THEN 1 END), 0)
+FROM bi.FactInteraction AS f WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @b0 AND @k1;",
+            Ctx.Args(new { agent = key, w0 = ReportContext.Key(Ctx.End.AddDays(-6)), b0 = ReportContext.Key(Ctx.End.AddDays(-13)) }));
+        var ownerTask = Db.ScalarAsync<string?>("SELECT Owner FROM dash.Agent WHERE AgentKey = @key;", new { key });
+        await Task.WhenAll(creditsTask, weekTask, ownerTask);
+        var (now, before) = (await weekTask).Single();
+        Kpis.Add(new("Last 7 days", Num(now), before == 0 ? "no interaction the 7 days before" : $"{now / (double)before - 1:+0%;-0%;0%} on the 7 days before",
+            before > 0 && now >= before * 1.02 ? "good" : before > 0 && now <= before * 0.95 ? "warn" : null));
+        var month = (await creditsTask).Agents.FirstOrDefault(a => a.AgentKey == key)?.Month;
+        if (month is { Credits: > 0 } m)
+            Kpis.Add(new("Copilot Credits a month (estimate)", Num((long)Math.Round(m.Credits)), $"{CopilotInsights.Data.CostRules.Money(Math.Round(m.Cost), (await creditsTask).Currency)} a month from its billed use",
+                "warn", Href: Open("/agents/credits")));
+        if (await ownerTask is { Length: > 0 } owner && !PrivacyMode)
+        {
+            var name = (await NamesAsync([owner]))(owner) ?? owner;
+            var mine = string.Equals(owner, Viewer.Upn, StringComparison.OrdinalIgnoreCase) ? Open("/agents/mine")
+                     : Viewer.OrgWide || Viewer.AnyAdmin ? Open("/agents/mine", "owner=" + Uri.EscapeDataString(owner)) : null;
+            Kpis.Add(new("Owner", name, mine is null ? "who built or owns it" : "opens the owner's agents", Href: mine));
+        }
     }
 }

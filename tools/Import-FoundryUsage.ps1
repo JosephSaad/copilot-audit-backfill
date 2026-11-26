@@ -27,6 +27,14 @@
     (audit.FoundryAccountSeen). Each of these is read on its own; one Azure refuses is named in the run's
     detail without changing how the run ends, so an install with only the 2.6.2 roles still ends Succeeded.
 
+    And, from 3.4.0, the wider AI bill (audit.AiCostDay, audit.AiBudget, audit.AiCostForecastDay): what every
+    AI service costs in Azure, not only these accounts (Copilot Studio and the Power Platform billed to Azure,
+    Microsoft 365 Copilot pay-as-you-go, AI Search, Machine Learning, Bot Service; the resource types are the
+    AiCostResourceTypes setting), as actual cost and as amortized cost (a reservation spread over the days it
+    covers); each scope's budgets; and Cost Management's forecast of the month's days still ahead. Read at each
+    scope of AiCostScopes (a subscription, a billing account, an EA enrollment or department), by default each
+    subscription above. Each is optional: one Azure refuses is named in the run's detail.
+
     What these cannot give: who made a request. Azure Monitor has no user, key or application on these
     metrics; usage is by account, deployment and model. Cost is by account and meter, not by deployment.
 
@@ -106,6 +114,7 @@ $script:MetricsVersion = '2023-10-01'
 $script:CostVersion = '2023-11-01'
 $script:DiagnosticsVersion = '2021-05-01-preview'
 $script:GraphVersion = '2022-10-01'
+$script:BudgetVersion = '2023-05-01'
 $script:PtuMetric = 'AzureOpenAIProvisionedManagedUtilizationV2'
 $script:CurrentMetrics = 'ModelRequests', 'InputTokens', 'OutputTokens', 'TotalTokens'
 $script:OlderMetrics = 'AzureOpenAIRequests', 'ProcessedPromptTokens', 'GeneratedTokens', 'TokenTransaction'
@@ -298,6 +307,135 @@ function Get-CostQueryBody {
             filter = [ordered]@{ dimensions = [ordered]@{ name = 'ResourceType'; operator = 'In'; values = @('microsoft.cognitiveservices/accounts') } }
         }
     }
+}
+
+# The AI services' resource types the wider bill reads (3.4.0), and the name each is shown by.
+$script:AiCostTypes = [ordered]@{
+    'microsoft.cognitiveservices/accounts'         = 'Foundry and Azure OpenAI'
+    'microsoft.machinelearningservices/workspaces' = 'Foundry hubs and Machine Learning'
+    'microsoft.powerplatform/accounts'             = 'Power Platform'
+    'microsoft.syntex/accounts'                    = 'Microsoft 365 Copilot pay-as-you-go'
+    'microsoft.search/searchservices'              = 'Azure AI Search'
+    'microsoft.botservice/botservices'             = 'Azure Bot Service'
+}
+
+function Get-AiService {
+    <#
+        The service a cost line is shown under: by its resource type, and, for the Power Platform's billing
+        policies, by its meter (Copilot Studio's messages and credits are metered apart from Dataverse and the
+        rest). Pure, for the tests.
+    #>
+    param([string] $ResourceType, [string] $Meter)
+    $type = "$ResourceType".ToLowerInvariant()
+    if ($type -eq 'microsoft.powerplatform/accounts' -and "$Meter" -match 'Copilot Studio|Copilot Credit|Copilot message|Virtual Agent') { return 'Copilot Studio' }
+    if ($type -eq 'microsoft.syntex/accounts' -and "$Meter" -notmatch 'Copilot') { return 'SharePoint and Syntex pay-as-you-go' }
+    if ($script:AiCostTypes.Contains($type)) { return $script:AiCostTypes[$type] }
+    'Other AI services'
+}
+
+function Get-AiCostQueryBody {
+    <#
+        The question asked of Cost Management for the wider bill (3.4.0): cost a day, by resource and meter, of
+        the AI services' resource types; ActualCost as billed, or AmortizedCost with reservations spread over
+        their days. Pure, for the tests.
+    #>
+    param([datetime] $From, [datetime] $To, [ValidateSet('ActualCost', 'AmortizedCost')][string] $Type = 'ActualCost', [string[]] $ResourceTypes)
+    [ordered]@{
+        type = $Type; timeframe = 'Custom'
+        timePeriod = [ordered]@{ from = $From.ToString('yyyy-MM-ddT00:00:00Z'); to = $To.ToString('yyyy-MM-ddT23:59:59Z') }
+        dataset = [ordered]@{
+            granularity = 'Daily'
+            aggregation = [ordered]@{ totalCost = [ordered]@{ name = 'Cost'; function = 'Sum' } }
+            grouping = @([ordered]@{ type = 'Dimension'; name = 'ResourceId' }, [ordered]@{ type = 'Dimension'; name = 'Meter' })
+            filter = [ordered]@{ dimensions = [ordered]@{ name = 'ResourceType'; operator = 'In'; values = @($ResourceTypes) } }
+        }
+    }
+}
+
+function Get-AiForecastBody {
+    <# The forecast asked for (3.4.0): the AI services' actual cost a day, from -From to -To, forecast only. Pure, for the tests. #>
+    param([datetime] $From, [datetime] $To, [string[]] $ResourceTypes)
+    [ordered]@{
+        type = 'ActualCost'; timeframe = 'Custom'
+        timePeriod = [ordered]@{ from = $From.ToString('yyyy-MM-ddT00:00:00Z'); to = $To.ToString('yyyy-MM-ddT23:59:59Z') }
+        dataset = [ordered]@{
+            granularity = 'Daily'
+            aggregation = [ordered]@{ totalCost = [ordered]@{ name = 'Cost'; function = 'Sum' } }
+            filter = [ordered]@{ dimensions = [ordered]@{ name = 'ResourceType'; operator = 'In'; values = @($ResourceTypes) } }
+        }
+        includeActualCost = $false; includeFreshPartialCost = $false
+    }
+}
+
+function ConvertTo-AiCostRow {
+    <#
+        A cost line of the wider bill (ConvertFrom-CostQuery's) as a row of audit.AiCostDay: its scope, cost type,
+        service, and the resource's subscription, group and name where its id gives them. Pure, for the tests.
+    #>
+    param($Line, [string] $Scope, [string] $CostType)
+    $id = "$($Line.ResourceId)"
+    $type = if ($id -match '/providers/([^/]+/[^/]+)/[^/]+$') { $Matches[1].ToLowerInvariant() } else { $null }
+    $sub = if ($id -match '^/subscriptions/([^/]+)') { $Matches[1].ToLowerInvariant() } else { $null }
+    $rg = if ($id -match '/resourcegroups/([^/]+)') { $Matches[1] } else { $null }
+    $name = if ($id -match '/([^/]+)$') { $Matches[1] } else { $null }
+    [pscustomobject]@{ Scope = $Scope; Day = $Line.Day; CostType = $CostType; Service = (Get-AiService $type $Line.Meter); ResourceType = $type
+                       SubscriptionId = $sub; ResourceGroup = $rg; ResourceName = $name; Meter = $Line.Meter; Cost = [decimal] $Line.Cost; Currency = $Line.Currency }
+}
+
+function ConvertFrom-AiBudget {
+    <# A scope's budgets (Microsoft.Consumption) as rows of audit.AiBudget. Pure, for the tests. #>
+    param($Response, [string] $Scope)
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($b in @(Get-Prop $Response 'value')) {
+        if ($null -eq $b) { continue }
+        $pr = Get-Prop $b 'properties'
+        $tp = Get-Prop $pr 'timePeriod'; $cur = Get-Prop $pr 'currentSpend'; $fc = Get-Prop $pr 'forecastSpend'
+        $start = Get-Prop $tp 'startDate'; $end = Get-Prop $tp 'endDate'
+        $filter = Get-Prop $pr 'filter'
+        $rows.Add([pscustomobject]@{ Scope = $Scope; Budget = "$(Get-Prop $b 'name')"; Category = "$(Get-Prop $pr 'category')"
+                                     Amount = $(if ($null -ne (Get-Prop $pr 'amount')) { [decimal] (Get-Prop $pr 'amount') }); TimeGrain = "$(Get-Prop $pr 'timeGrain')"
+                                     StartDate = $(if ($start) { ([datetime] $start).Date }); EndDate = $(if ($end) { ([datetime] $end).Date })
+                                     CurrentSpend = $(if ($null -ne (Get-Prop $cur 'amount')) { [decimal] (Get-Prop $cur 'amount') })
+                                     ForecastSpend = $(if ($null -ne (Get-Prop $fc 'amount')) { [decimal] (Get-Prop $fc 'amount') })
+                                     Currency = $(if (Get-Prop $cur 'unit') { "$(Get-Prop $cur 'unit')" })
+                                     Filter = $(if ($filter) { $j = $filter | ConvertTo-Json -Depth 8 -Compress; if ($j.Length -gt 4000) { $j.Substring(0, 3990) + ' (cut)' } else { $j } }) })
+    }
+    , $rows.ToArray()
+}
+
+function ConvertFrom-AiForecast {
+    <# Cost Management's forecast as rows of audit.AiCostForecastDay: a day and its cost, the days' lines added up. Pure, for the tests. #>
+    param($Response, [string] $Scope)
+    if ($null -eq (Get-Prop $Response 'properties')) { return , @() }
+    $names = @($Response.properties.columns | ForEach-Object { "$($_.name)" })
+    $cost = [array]::FindIndex([string[]] $names, [Predicate[string]] { param($x) $x -in 'Cost', 'PreTaxCost', 'CostUSD' })
+    $date = [array]::FindIndex([string[]] $names, [Predicate[string]] { param($x) $x -in 'UsageDate', 'Date' })
+    $currency = [array]::FindIndex([string[]] $names, [Predicate[string]] { param($x) $x -eq 'Currency' })
+    $status = [array]::FindIndex([string[]] $names, [Predicate[string]] { param($x) $x -eq 'CostStatus' })
+    if ($cost -lt 0 -or $date -lt 0) { throw "Cost Management's forecast has no cost or date column (it has: $($names -join ', '))." }
+    $byDay = [ordered]@{}
+    foreach ($r in @($Response.properties.rows)) {
+        if ($null -eq $r) { continue }
+        if ($status -ge 0 -and "$($r[$status])" -ine 'Forecast') { continue }
+        $d = "$($r[$date])"
+        $day = if ($d -match '^\d{8}$') { [datetime]::ParseExact($d, 'yyyyMMdd', [cultureinfo]::InvariantCulture) } else { ([datetime] $r[$date]).Date }
+        $k = $day.ToString('yyyyMMdd')
+        if (-not $byDay.Contains($k)) { $byDay[$k] = [pscustomobject]@{ Scope = $Scope; Day = $day; Cost = [decimal] 0; Currency = $(if ($currency -ge 0) { "$($r[$currency])" }) } }
+        $byDay[$k].Cost += [decimal] $r[$cost]
+    }
+    , @($byDay.Values)
+}
+
+function Get-AiCostScope {
+    <#
+        The scopes the wider bill is read at: the AiCostScopes setting (each an ARM scope: /subscriptions/<id>,
+        /providers/Microsoft.Billing/billingAccounts/<id>, .../enrollmentAccounts/<id>, .../departments/<id>), else
+        each subscription the load reads. A scope given without its leading / gets one. Pure, for the tests.
+    #>
+    param([string[]] $Configured, [string[]] $Subs)
+    $list = if (@($Configured | Where-Object { $_ }).Count) { @($Configured | Where-Object { $_ } | ForEach-Object { '/' + "$_".Trim().Trim('/') }) }
+            else { @($Subs | ForEach-Object { "/subscriptions/$_" }) }
+    @($list | Select-Object -Unique)
 }
 
 function Get-FoundryMetric {
@@ -501,7 +639,7 @@ function Invoke-FoundryCheck {
         -CheckOnly: each read the load makes, tried once for each subscription, nothing written. One line a part:
         OK, or what is missing and where. Returns the lines; each has Ok, Needed (whether the load needs it) and Text.
     #>
-    param([string[]] $Subs, [string] $Arm, [string] $BearerToken)
+    param([string[]] $Subs, [string] $Arm, [string] $BearerToken, [string[]] $AiScopes = @(), [string[]] $AiTypes = @())
     $lines = [System.Collections.Generic.List[object]]::new()
     function Line([bool] $ok, [bool] $needed, [string] $text) { $lines.Add([pscustomobject]@{ Ok = $ok; Needed = $needed; Text = $text }) }
     $yesterday = [datetime]::UtcNow.Date.AddDays(-1)
@@ -525,6 +663,12 @@ function Invoke-FoundryCheck {
         }
         try { [void] (Invoke-Arm -Uri "$Arm/subscriptions/$sub/providers/Microsoft.CostManagement/query?api-version=$script:CostVersion" -BearerToken $BearerToken -Method Post -Body (Get-CostQueryBody -From $yesterday -To $yesterday)); Line $true $true "Cost of ${sub}: readable." }
         catch { Line $false $true "Cost of ${sub}: not readable. Give the app Cost Management Reader on the subscription. Azure said: $($_.Exception.Message)" }
+    }
+    foreach ($scope in $AiScopes) {
+        try { [void] (Invoke-Arm -Uri "$Arm$scope/providers/Microsoft.CostManagement/query?api-version=$script:CostVersion" -BearerToken $BearerToken -Method Post -Body (Get-AiCostQueryBody -From $yesterday -To $yesterday -Type AmortizedCost -ResourceTypes $AiTypes)); Line $true $false "The wider AI bill at ${scope}: readable." }
+        catch { Line $false $false "The wider AI bill at ${scope}: not readable (optional: Cost Management Reader there, or Billing account reader for a billing scope). Azure said: $($_.Exception.Message)" }
+        try { [void] (Invoke-Arm -Uri "$Arm$scope/providers/Microsoft.Consumption/budgets?api-version=$script:BudgetVersion" -BearerToken $BearerToken); Line $true $false "Budgets at ${scope}: readable." }
+        catch { Line $false $false "Budgets at ${scope}: not readable (optional)." }
     }
     try {
         $seen = ConvertFrom-ResourceGraph (Invoke-Arm -Uri "$Arm/providers/Microsoft.ResourceGraph/resources?api-version=$script:GraphVersion" -BearerToken $BearerToken -Method Post -Body (Get-ResourceGraphBody)) $Subs
@@ -552,6 +696,8 @@ function Invoke-Main {
         if (Setting 'TrustServerCertificate') { $script:TrustServerCertificate = $true }
     }
 
+    $aiScopes = @(Get-AiCostScope -Configured @(Setting 'AiCostScopes') -Subs $subs)   # @(): one scope is still a list
+    $aiTypes = if (@(Setting 'AiCostResourceTypes').Count) { @(Setting 'AiCostResourceTypes' | ForEach-Object { "$_".ToLowerInvariant() }) } else { @($script:AiCostTypes.Keys) }
     if ($CheckOnly) {
         $bearer = if ($AccessToken) { [System.Net.NetworkCredential]::new('', $AccessToken).Password }
                   else {
@@ -559,7 +705,7 @@ function Invoke-Main {
                       Get-ArmToken -Tenant $TenantId -Client $ClientId -Thumbprint $CertificateThumbprint -Login $LoginEndpoint -Arm $ArmEndpoint
                   }
         Write-Line "Signed in to Azure$(if ($ClientId) { " as $ClientId" }). Checking $($subs.Count) subscription(s); nothing is written."
-        $lines = Invoke-FoundryCheck -Subs $subs -Arm $ArmEndpoint.TrimEnd('/') -BearerToken $bearer
+        $lines = Invoke-FoundryCheck -Subs $subs -Arm $ArmEndpoint.TrimEnd('/') -BearerToken $bearer -AiScopes $aiScopes -AiTypes $aiTypes
         foreach ($l in $lines) { Write-Line ("{0,-7} {1}" -f $(if ($l.Ok) { 'OK' } elseif ($l.Needed) { 'MISSING' } else { 'NOTE' }), $l.Text) }
         $missing = @($lines | Where-Object { -not $_.Ok -and $_.Needed }).Count
         Write-Line $(if ($missing) { "$missing part(s) the load needs cannot be read: grant what is named above." } else { 'Every part the load needs can be read.' })
@@ -725,6 +871,41 @@ function Invoke-Main {
                 }
                 catch { $notes.Add("model retirement in $loc"); Write-Verbose "The model list of $loc not read: $($_.Exception.Message)" }
             }
+            # 4b. The wider AI bill (3.4.0): every AI service's actual and amortized cost, budgets and the forecast, at each scope.
+            $aiCost = 0; $budgets = 0; $forecast = 0
+            foreach ($scope in $aiScopes) {
+                foreach ($type in 'ActualCost', 'AmortizedCost') {
+                    $kind = $type.Replace('Cost', '')
+                    try {
+                        $rows = [System.Collections.Generic.List[object]]::new()
+                        $body = Get-AiCostQueryBody -From $from -To $to -Type $type -ResourceTypes $aiTypes
+                        for ($next = "$arm$scope/providers/Microsoft.CostManagement/query?api-version=$script:CostVersion"; $next; ) {
+                            $page = Invoke-Arm -Uri $next -BearerToken $bearer -Method Post -Body $body
+                            foreach ($c in (ConvertFrom-CostQuery $page)) { $rows.Add((ConvertTo-AiCostRow $c $scope $kind)) }
+                            $next = if ($page -and $page.PSObject.Properties['properties'] -and $page.properties.PSObject.Properties['nextLink']) { $page.properties.nextLink } else { $null }
+                        }
+                        $aiCost += Write-UsageTable $conn 'audit.AiCostDay' (ConvertTo-UsageTable $rows.ToArray() ([ordered]@{
+                                Scope = [string]; Day = [datetime]; CostType = [string]; Service = [string]; ResourceType = [string]; SubscriptionId = [string]; ResourceGroup = [string]
+                                ResourceName = [string]; Meter = [string]; Cost = [decimal]; Currency = [string] })) `
+                            -ReplaceWhere 'Scope = @s AND CostType = @c AND [Day] BETWEEN @f AND @t' -ReplaceParameters @{ '@s' = $scope; '@c' = $kind; '@f' = $from; '@t' = $to }
+                    }
+                    catch { $notes.Add("$($kind.ToLowerInvariant()) cost of the AI services at $scope"); Write-Verbose "The wider bill ($type) at $scope not read: $($_.Exception.Message)" }
+                }
+                try {
+                    $budgets += Write-UsageTable $conn 'audit.AiBudget' (ConvertTo-UsageTable (ConvertFrom-AiBudget (Invoke-Arm -Uri "$arm$scope/providers/Microsoft.Consumption/budgets?api-version=$script:BudgetVersion" -BearerToken $bearer) $scope) ([ordered]@{
+                            Scope = [string]; Budget = [string]; Category = [string]; Amount = [decimal]; TimeGrain = [string]; StartDate = [datetime]; EndDate = [datetime]
+                            CurrentSpend = [decimal]; ForecastSpend = [decimal]; Currency = [string]; Filter = [string] })) -ReplaceWhere 'Scope = @s' -ReplaceParameters @{ '@s' = $scope }
+                }
+                catch { $notes.Add("budgets at $scope"); Write-Verbose "Budgets at $scope not read: $($_.Exception.Message)" }
+                try {
+                    $today = [datetime]::UtcNow.Date; $monthEnd = [datetime]::new($today.Year, $today.Month, 1).AddMonths(1).AddDays(-1)
+                    $fc = ConvertFrom-AiForecast (Invoke-Arm -Uri "$arm$scope/providers/Microsoft.CostManagement/forecast?api-version=$script:CostVersion" -BearerToken $bearer -Method Post -Body (Get-AiForecastBody -From $today -To $monthEnd -ResourceTypes $aiTypes)) $scope
+                    $forecast += Write-UsageTable $conn 'audit.AiCostForecastDay' (ConvertTo-UsageTable $fc ([ordered]@{ Scope = [string]; Day = [datetime]; Cost = [decimal]; Currency = [string] })) `
+                        -ReplaceWhere 'Scope = @s' -ReplaceParameters @{ '@s' = $scope }
+                }
+                catch { $notes.Add("the forecast at $scope"); Write-Verbose "The forecast at $scope not read: $($_.Exception.Message)" }
+            }
+
             # 5. Every AI account the app can see, in any subscription (3.3.0).
             $seenCount = $null; $outside = 0
             try {
@@ -744,6 +925,7 @@ function Invoke-Main {
             $done.Add("$accountsRead account(s), $deployments deployment(s), $usage usage row(s), $cost cost row(s)")
             $done.Add("the posture of $postured account(s), $filters content filter(s), $cataloged model lifecycle row(s)" +
                       $(if ($null -ne $seenCount) { "; $seenCount AI account(s) seen, $outside in subscriptions not loaded" }))
+            $done.Add("the wider AI bill: $aiCost cost row(s), $budgets budget(s), $forecast forecast day(s) at $($aiScopes.Count) scope(s)")
             $status = if ($skipped.Count -eq 0) { 'Succeeded' } elseif ($written -gt 0) { 'Partial' } else { 'Failed' }
             $detail = (@("Loaded $($done -join ', ') for $($days.Count) day(s).", $(if ($skipped.Count) { 'Not loaded: ' + ($skipped -join '; ') + '.' }),
                          $(if ($notes.Count) { 'Not read (optional): ' + ($notes -join '; ') + '.' })) | Where-Object { $_ }) -join ' '
