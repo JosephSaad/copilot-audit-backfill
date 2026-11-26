@@ -30,8 +30,7 @@ public sealed class AiSpendModel(PageServices s) : InsightsPage(s)
         public string? Currency { get; set; }
     }
 
-    async Task<bool> HasRowsAsync(string table) =>
-        await Db.ScalarAsync<int>($"SELECT CASE WHEN OBJECT_ID(N'{table}', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM {table}) THEN 1 ELSE 0 END;") == 1;
+    Task<bool> HasRowsAsync(string table) => TableHasRowsAsync(table);
 
     static string Money(decimal v, string cur) => CostRules.Money(Math.Round(v, 0), cur);
 

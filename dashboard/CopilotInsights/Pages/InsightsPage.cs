@@ -772,6 +772,16 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected string Here => Ctx.Root is null && Viewer.OrgWide ? "the organization" : "this part of the organization";
 
     protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
+    /// <summary>
+    /// Whether a table is there and holds a row. The table is named in code, never by a visitor. Asked in two steps: a
+    /// statement naming a table that does not exist fails as it runs, whatever its CASE says first.
+    /// </summary>
+    protected async Task<bool> TableHasRowsAsync(string table)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(table, @"^[a-z]+\.[A-Za-z]+$")) throw new ArgumentException("Not a table name.", nameof(table));
+        return await Db.ScalarAsync<int>($"IF OBJECT_ID(N'{table}', N'U') IS NULL SELECT 0; ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM {table}) THEN 1 ELSE 0 END;');") == 1;
+    }
+
     /// <summary>A section's name as the page's body carries it, for its color: lower case letters and hyphens only ("AI platforms" is "ai-platforms").</summary>
     public static string SectionSlug(string? persona) =>
         string.Join('-', new string((persona ?? "").ToLowerInvariant().Select(c => c is >= 'a' and <= 'z' ? c : ' ').ToArray()).Split(' ', StringSplitOptions.RemoveEmptyEntries));

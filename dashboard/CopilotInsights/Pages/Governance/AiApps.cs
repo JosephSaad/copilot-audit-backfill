@@ -50,7 +50,7 @@ public sealed class AiAppsModel(PageServices s) : InsightsPage(s)
             return;
         }
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        var hasCost = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.FoundryCostDay) THEN 1 ELSE 0 END;") == 1;
+        var hasCost = await TableHasRowsAsync("audit.FoundryCostDay");
         /* The five reads below are independent: started together, awaited where used. */
         var rowsTask = Db.QueryAsync<ResRow>($@"
 SELECT a.[Resource], r.LineOfBusiness, r.Environment, r.Owner, r.SetBy, SUM(CAST(a.Calls AS BIGINT)) AS Calls, SUM(CAST(a.Prompts AS BIGINT)) AS Prompts,

@@ -81,7 +81,9 @@ public class Release340Tests
         var spend = Repo("dashboard", "CopilotInsights", "Pages", "Leadership", "AiSpend.cs");
         Assert.Contains("HasRowsAsync(\"audit.AiCostDay\")", spend);
         var brief = Repo("dashboard", "CopilotInsights", "Pages", "Leadership", "Brief.cs");
-        Assert.Contains("OBJECT_ID(N'audit.AiCostDay', N'U') IS NOT NULL", brief);
+        Assert.Contains("TableHasRowsAsync(\"audit.AiCostDay\")", brief);
+        /* Asked in two steps: a statement naming a table not there fails as it runs. */
+        Assert.DoesNotContain("IS NOT NULL AND EXISTS (SELECT 1 FROM {table})", Repo("dashboard", "CopilotInsights", "Pages", "Platforms", "Foundry.cs"));
         /* Money shows to whole-organization viewers and the Licensing role only, as on the start page. */
         Assert.Contains("Viewer.OrgWide || Viewer.Has(Roles.Licensing) ? costs.BuildAsync(Ctx) : null", brief);
     }

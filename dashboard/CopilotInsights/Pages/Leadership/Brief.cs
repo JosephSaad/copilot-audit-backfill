@@ -106,14 +106,17 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
     async Task<Kpi?> AiBillAsync()
     {
         if (!(Viewer.OrgWide || Viewer.Has(Roles.Licensing)) || Open("/leadership/ai-spend") is not { } href) return null;
-        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.AiCostDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.AiCostDay) THEN 1 ELSE 0 END;") == 0) return null;
+        if (!await TableHasRowsAsync("audit.AiCostDay")) return null;
         var today = DateTime.UtcNow.Date;
         var m0 = new DateTime(today.Year, today.Month, 1);
         var r = (await Db.QueryAsync<(decimal? Billed, decimal? Ahead, decimal? Budget, string? Currency)>(@"
 SELECT (SELECT SUM(Cost) FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] >= @m0),
-       (SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE [Day] >= @t AND [Day] < @m1),
-       (SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain = 'Monthly'),
+       CAST(NULL AS DECIMAL(19, 6)), CAST(NULL AS DECIMAL(19, 4)),
        (SELECT TOP (1) Currency FROM audit.AiCostDay WHERE Currency IS NOT NULL GROUP BY Currency ORDER BY COUNT(*) DESC);", new { m0, t = today, m1 = m0.AddMonths(1) })).Single();
+        if (await TableHasRowsAsync("audit.AiCostForecastDay"))
+            r.Ahead = await Db.ScalarAsync<decimal?>("SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE [Day] >= @t AND [Day] < @m1;", new { t = today, m1 = m0.AddMonths(1) });
+        if (await TableHasRowsAsync("audit.AiBudget"))
+            r.Budget = await Db.ScalarAsync<decimal?>("SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain = 'Monthly';");
         var cur = r.Currency ?? "USD";
         var month = (r.Billed ?? 0) + (r.Ahead ?? 0);
         var over = r.Budget > 0 && month > r.Budget;

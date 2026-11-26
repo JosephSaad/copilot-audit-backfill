@@ -57,6 +57,8 @@ az role assignment create --assignee <client id> --role "Cost Management Reader"
 
 If listing the accounts is later refused, add **Reader** the same way; Monitoring Reader should be enough. From 3.3.0, Reader also lets the load read each account's content filters, and Reader on the organization's other subscriptions lets it list the AI accounts outside `FoundrySubscriptions` (optional: without it, those are simply not listed).
 
+**The whole AI bill (3.4.0, optional).** The same load can read what every AI service costs, not only the Foundry accounts: Copilot Studio and the Power Platform billed to Azure, Microsoft 365 Copilot pay-as-you-go, AI Search, Machine Learning and Bot Service, as actual and amortized cost (a reservation spread over the days it covers), the budgets set in Azure, and Cost Management's forecast of the month. With nothing more it reads them in the subscriptions above, with the **Cost Management Reader** already given. To read them where they are billed instead (a billing account, an EA enrollment or department), give the app **Billing account reader** (or *Enrollment reader* / *Department reader* on an EA) there, and send us that scope's id. Where the pay-as-you-go billing policies (Power Platform, Microsoft 365 Copilot) sit in other subscriptions, give **Cost Management Reader** on those too.
+
 **2. Send us** the subscription ids, and confirm which tenant they are in.
 
 **What the roles allow.** Reading resource names and settings, metrics and cost. They do not allow reading an account's keys, calling a model, reading prompts or responses, or changing anything.
@@ -109,6 +111,14 @@ Succeeded. Loaded 6 account(s), 14 deployment(s), 733 usage row(s), 1208 cost ro
     # FoundryCertificateThumbprint = 'A1B2C3...'
 ```
 
+**The whole AI bill (3.4.0, optional).** Without more settings it is read in each subscription of `FoundrySubscriptions`. To read it where the AI services are billed, name the scopes, each as Azure writes it:
+
+```powershell
+    AiCostScopes = @('/providers/Microsoft.Billing/billingAccounts/12345678', '/subscriptions/3c4d5e6f-0000-0000-0000-000000000000')
+```
+
+`AiCostResourceTypes` replaces the resource types it reads (by default `microsoft.cognitiveservices/accounts`, `microsoft.machinelearningservices/workspaces`, `microsoft.powerplatform/accounts`, `microsoft.syntex/accounts`, `microsoft.search/searchservices` and `microsoft.botservice/botservices`). Each part is optional: one Azure refuses is named in the run's detail as *Not read (optional)*, and the run's status is unchanged. Leadership › *AI spend across Azure* and the *Daily brief* show it.
+
 From the next night, the run has a last step, *Foundry usage and cost*, which loads the last 10 days again (cost for recent days is still settling, and an open month's cost is an estimate until five days after it ends). Without `FoundrySubscriptions` in the settings, the run skips the step and says so in its log; nothing fails.
 
 **The step is optional to the run.** If it fails (an expired certificate, a role removed), the failure is on its own step row and in `audit.ExternalUsageRun`, and the rest of the night, already done by then, stands as succeeded.
@@ -128,6 +138,9 @@ From the next night, the run has a last step, *Foundry usage and cost*, which lo
 | `audit.FoundryContentFilter` (3.3.0) | Account and content filter: its base, its mode, whether any filter is looser than Microsoft's default; each deployment's filter is on `audit.FoundryDeployment` (`RaiPolicy`) | The same |
 | `audit.FoundryModelCatalog` (3.3.0) | Region, deployed model and version: its lifecycle and the day it retires, and a SKU that retires sooner | Replaced for each region each run |
 | `audit.FoundryAccountSeen` (3.3.0) | Every Azure OpenAI and Foundry account the app can see, in any subscription, and whether its subscription is loaded | Replaced whole each run |
+| `audit.AiCostDay` (3.4.0) | Scope, UTC day, cost type (Actual or Amortized), service, resource and meter: the cost and its currency; the service is named from the resource type, Copilot Studio apart from the rest of the Power Platform by its meter | The days loaded are written again for each scope and cost type |
+| `audit.AiBudget` (3.4.0) | Scope and budget: amount, period, spent so far, Azure's forecast for the period's end, its filter | Replaced whole for each scope each run |
+| `audit.AiCostForecastDay` (3.4.0) | Scope and day still ahead this month: Cost Management's forecast of the AI services' actual cost | The same |
 | `audit.ExternalUsageRun` | Run: when, the days covered, status, rows, what was loaded or why not | Every run kept |
 
 [SCHEMA.md](SCHEMA.md#ai-usage-outside-microsoft-365-copilot-262) has every column.
@@ -137,7 +150,7 @@ From the next night, the run has a last step, *Foundry usage and cost*, which lo
 - **Who made a request.** Azure Monitor's metrics have no user, key or calling application. Use is by account, deployment and model. Use per person needs the calls to go through Azure API Management, or the accounts' diagnostic logs; neither is read here.
 - **Cost per deployment.** Cost Management reports by resource and meter (*gpt-4o Input Tokens*, say). Two deployments of one model in one account share a meter. A provisioned (PTU) deployment's daily use of its capacity is on `audit.FoundryUsageDay` from 3.3.0 (`PtuUtilizationAvg`, `PtuUtilizationMax`).
 - **Cost per app.** Cost is by account. Give each app an account of its own, or tag the accounts (`app`, `owner`, `cost-center`), and the pages can group cost by tag; apps sharing one account share its cost.
-- **Other Azure AI services.** Only accounts of kind *OpenAI* and *AIServices* are read; Speech, Vision and the rest are left out, of use and of cost.
+- **Other Azure AI services.** Only accounts of kind *OpenAI* and *AIServices* are read for use and posture; Speech, Vision and the rest are left out. From 3.4.0 their cost is in the whole AI bill (`audit.AiCostDay`), with the other AI services'.
 - **Accounts that report neither set of metrics.** The loader reads the current model metrics (`ModelRequests`, `InputTokens`, `OutputTokens`, `TotalTokens`) and, for an account with none, the older Azure OpenAI ones. A deployment type that reports under other names loads its cost and no usage.
 
 Days are UTC days, not the reporting time zone's.
