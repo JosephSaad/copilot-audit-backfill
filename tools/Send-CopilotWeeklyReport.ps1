@@ -671,8 +671,52 @@ function Format-SavingLine {
     $line
 }
 
+function Get-ReportAiBill {
+    # The AI bill line (3.4.0): this month's AI services in Azure as Cost Management bills them (audit.AiCostDay, read
+    # by the Foundry load), billed so far and forecast, against the monthly budgets set in Azure. Nothing before that
+    # load has read the bill, or when the dashboard setting WeeklyReportSavings is 0 (it holds the money lines).
+    param($Connection, [datetime] $Today = [datetime]::UtcNow.Date)
+    $sql = @"
+-- Asked in two steps: a statement naming a table that is not there fails as it runs, whatever comes before it.
+IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NULL OR (SELECT Value FROM dash.Setting WHERE Name = N'WeeklyReportSavings') = N'0'
+BEGIN SELECT TOP (0) CAST(0 AS DECIMAL(19, 2)) AS Billed, 0 AS HasForecast, N'' AS Currency; RETURN; END;
+IF NOT EXISTS (SELECT 1 FROM audit.AiCostDay)
+BEGIN SELECT TOP (0) CAST(0 AS DECIMAL(19, 2)) AS Billed, 0 AS HasForecast, N'' AS Currency; RETURN; END;
+DECLARE @m0 DATE = DATEFROMPARTS(YEAR(@today), MONTH(@today), 1);
+SELECT ISNULL((SELECT SUM(Cost) FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] >= @m0), 0) AS Billed,
+       CASE WHEN OBJECT_ID(N'audit.AiCostForecastDay', N'U') IS NULL THEN 0 ELSE 1 END AS HasForecast,
+       ISNULL((SELECT TOP (1) Currency FROM audit.AiCostDay WHERE Currency IS NOT NULL GROUP BY Currency ORDER BY COUNT(*) DESC), N'USD') AS Currency;
+"@
+    $t = (Invoke-ReportQuery $Connection $sql @{ '@today' = $Today }).Tables[0]
+    if ($t.Rows.Count -eq 0) { return $null }
+    $r = $t.Rows[0]
+    $ahead = [decimal] 0; $budget = [decimal] 0
+    if ([int] $r.HasForecast -eq 1) {
+        $more = (Invoke-ReportQuery $Connection @"
+SELECT ISNULL((SELECT SUM(Cost) FROM audit.AiCostForecastDay WHERE [Day] >= @today AND [Day] < DATEADD(MONTH, 1, DATEFROMPARTS(YEAR(@today), MONTH(@today), 1))), 0) AS Ahead,
+       ISNULL((SELECT SUM(Amount) FROM audit.AiBudget WHERE Amount > 0 AND TimeGrain = 'Monthly'), 0) AS Budget;
+"@ @{ '@today' = $Today }).Tables[0].Rows[0]
+        $ahead = [decimal] $more.Ahead; $budget = [decimal] $more.Budget
+    }
+    Format-AiBillLine -Billed ([decimal] $r.Billed) -Ahead $ahead -Budget $budget -Currency ([string] $r.Currency)
+}
+
+function Format-AiBillLine {
+    param([decimal] $Billed, [decimal] $Ahead, [decimal] $Budget, [string] $Currency)
+    if ($Billed -le 0 -and $Ahead -le 0) { return $null }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $money = { param([decimal] $v) [Math]::Round($v, 0).ToString('#,0', $inv) + ' ' + $Currency }
+    $month = $Billed + $Ahead
+    $line = if ($Ahead -gt 0) { "$(& $money $month) forecast for this month's AI services in Azure ($(& $money $Billed) billed so far)" }
+            else { "$(& $money $Billed) billed so far this month for AI services in Azure" }
+    if ($Budget -gt 0) {
+        $line += if ($month -gt $Budget) { ", over the monthly budgets of $(& $money $Budget) by $(& $money ($month - $Budget))" } else { ", within the monthly budgets of $(& $money $Budget)" }
+    }
+    $line + ' (Leadership > AI spend across Azure).'
+}
+
 function New-ReportHtml {
-    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
+    param($Meta, [System.Data.DataTable] $Table, [hashtable] $Images, [string[]] $Warnings, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving, [string] $AiBill)
     $p = $script:Palette
     $f = "font-family:'Segoe UI',Arial,sans-serif;"
     $weekLabel = ConvertTo-Html5Text ([string] $Meta.WeekLabel)
@@ -685,6 +729,7 @@ function New-ReportHtml {
     [void] $sb.Append("<div style=`"$f font-size:20px;font-weight:700;color:$($p.Navy);`">Copilot Chat and M365 Copilot: Adoption and Security</div>")
     [void] $sb.Append("<div style=`"$f font-size:13px;color:$($p.Muted);padding:4px 0 14px 0;`">Week of $weekLabel (Saturday to Friday, $zone). Data through $through.</div>")
     if ($Saving) { [void] $sb.Append("<div style=`"$f font-size:14px;color:$($p.Text);padding:0 0 14px 0;`"><b>Money found.</b> $(ConvertTo-Html5Text $Saving)</div>") }
+    if ($AiBill) { [void] $sb.Append("<div style=`"$f font-size:14px;color:$($p.Text);padding:0 0 14px 0;`"><b>AI bill.</b> $(ConvertTo-Html5Text $AiBill)</div>") }
 
     foreach ($w in $Warnings) {
         [void] $sb.Append("<div style=`"$f font-size:13px;background:#FFF4CE;border-left:4px solid #E3A400;padding:8px 12px;margin:0 0 12px 0;`">$(ConvertTo-Html5Text $w)</div>")
@@ -751,10 +796,11 @@ function New-ReportHtml {
 }
 
 function New-ReportText {
-    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving)
+    param($Meta, [System.Data.DataTable] $Table, [System.Data.DataTable] $Weeks, [object[]] $Stories = @(), [string] $Saving, [string] $AiBill)
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("Copilot weekly report, week of $($Meta.WeekLabel)")
     if ($Saving) { $lines.Add(''); $lines.Add("Money found. $Saving") }
+    if ($AiBill) { $lines.Add(''); $lines.Add("AI bill. $AiBill") }
     $lines.Add('')
     $lines.Add(('{0,-26}{1,14}{2,14}' -f '', 'M365 Copilot', 'Copilot Chat'))
     foreach ($r in $Table.Rows) {
@@ -1370,15 +1416,18 @@ try {
     $saving = $null
     try { $saving = Get-ReportSaving -Connection $conn; if ($saving) { Write-ReportLog "Money found: $saving" } }
     catch { Write-ReportLog "Saving ledger not read, the email goes without its money line: $($_.Exception.Message)" 'WARN' }
+    $aiBill = $null
+    try { $aiBill = Get-ReportAiBill -Connection $conn; if ($aiBill) { Write-ReportLog "AI bill: $aiBill" } }
+    catch { Write-ReportLog "The AI bill not read, the email goes without it: $($_.Exception.Message)" 'WARN' }
 
     $subject = "$($setting.SubjectPrefix): week of $($meta.WeekLabel)"
-    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks -Stories $stories -Saving $saving
+    $text = New-ReportText -Meta $meta -Table $table -Weeks $weeks -Stories $stories -Saving $saving -AiBill $aiBill
 
     if ($Preview) {
         $fileRefs = @{}
         foreach ($k in $images.Keys) { $fileRefs[$k] = [IO.Path]::GetFileName($images[$k]) }
         $htmlPath = Join-Path $outDir "Copilot weekly report $stamp.html"
-        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving
+        $html = New-ReportHtml -Meta $meta -Table $table -Images $fileRefs -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving -AiBill $aiBill
         [IO.File]::WriteAllText($htmlPath, $html, (New-Object Text.UTF8Encoding($false)))
         Write-ReportLog "Preview of the week ending ${stamp}: $htmlPath"
         if ($workbook) { Write-ReportLog "Workbook: $workbook" }
@@ -1390,7 +1439,7 @@ try {
 
     $cids = @{}; $cidFiles = @{}
     foreach ($k in $images.Keys) { $cids[$k] = "cid:chart$k"; $cidFiles["chart$k"] = $images[$k] }
-    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving
+    $html = New-ReportHtml -Meta $meta -Table $table -Images $cids -Warnings $warnings -Weeks $weeks -Stories $stories -Saving $saving -AiBill $aiBill
     if ($setting.KeepCopies) {
         [IO.File]::WriteAllText((Join-Path $outDir "Copilot weekly report $stamp.html"), $html, (New-Object Text.UTF8Encoding($false)))
     }

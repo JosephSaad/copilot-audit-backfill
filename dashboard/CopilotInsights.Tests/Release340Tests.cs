@@ -106,4 +106,15 @@ public class Release340Tests
         Assert.DoesNotContain("PlanHints.Apply(sql, args), args,", db);
         Assert.DoesNotContain("ExecuteScalarAsync<T>(sql, args)", db);
     }
+    [Fact]
+    public void The_weekly_email_says_the_AI_bill_when_it_is_loaded()
+    {
+        var weekly = Repo("tools", "Send-CopilotWeeklyReport.ps1");
+        Assert.Contains("function Get-ReportAiBill", weekly);
+        Assert.Contains("<b>AI bill.</b>", weekly);
+        Assert.Contains("-Saving $saving -AiBill $aiBill", weekly);
+        /* The table is named only once it is known to be there. */
+        Assert.Contains("IF OBJECT_ID(N'audit.AiCostDay', N'U') IS NULL OR (SELECT Value FROM dash.Setting WHERE Name = N'WeeklyReportSavings') = N'0'", weekly);
+        Assert.DoesNotContain("IS NULL OR NOT EXISTS (SELECT 1 FROM audit.AiCostDay)", weekly);
+    }
 }

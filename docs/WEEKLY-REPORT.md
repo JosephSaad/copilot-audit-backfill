@@ -63,6 +63,8 @@ Each night the AD load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) reads both 
 
 **Money found**: under the heading, one line with the money saved to date through the dashboard (Copilot licenses taken back after its exports named them, each month they stay gone) and the savings found a month with high confidence, as Leadership › Costs and savings has them (the saving ledger, `dash.SavingLedger`). Without either, the email has no such line. `WeeklyReportSavings` (dashboard setting, 1) set to 0 leaves it out.
 
+**AI bill** (3.4.0): under it, one line with this month's AI services in Azure as Cost Management bills them (the whole AI bill the Foundry load reads, `audit.AiCostDay`): billed so far and forecast for the month, and whether that is within the monthly budgets set in Azure. Before that load has read the bill, the email has no such line; `WeeklyReportSavings` set to 0 leaves it out too.
+
 **Days are in the reporting time zone** (`audit.ReportingTimeZone()`, the dashboard's), the same days `bi.Calendar` and every report use.
 
 **The figures come from the Copilot database and AD**, not the Microsoft 365 admin center, so they differ from its reports, which count activity their own way.

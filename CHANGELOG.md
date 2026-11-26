@@ -35,6 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   owner's.
 - **Agent detail** adds what its builder checks every day: interactions in the last 7 days against the 7 before, its
   Copilot Credits a month (estimate), and its owner, opening their My agents.
+- **The weekly report email** has an *AI bill* line under *Money found*: this month's AI services in Azure, billed so
+  far and forecast, within or over the monthly budgets.
 - **Start your day** on the start page: the daily brief, My agents and AI spend across Azure, for those who may open them.
 - **Data sources** lists the whole AI bill as a source of its own.
 
