@@ -28,7 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   day (Security role), and the AI bill's newest day against the 7 before. It can be subscribed to daily.
 - **AI spend across Azure** (`/leadership/ai-spend`): the whole AI bill by service, actual and amortized, the
   reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, what
-  grew fastest (the last 7 days against the 7 before), and the 25 costliest AI resources. A budget forecast to go over
+  grew fastest (the last 7 days against the 7 before), and the 25 costliest AI resources. Each service opens a view of
+  its own (`?service=`): its spend over time, its meters, what grew and its resources. A budget forecast to go over
   heads the daily brief's list to act on.
 - **My agents** (`/agents/mine`), an agent builder's own page: the agents they own, used in the period, the people using
   each across the organization, how many came back, interactions, Copilot Credits a month (estimate) and the trend, and
