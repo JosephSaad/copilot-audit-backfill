@@ -57,7 +57,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **With one cost scope, the Foundry load stopped at its last line** (found by the SQL suite before release): one scope
   is now still a list.
 - The layout audit (`tools/dev/ui/ui_audit.py`) counted a page that failed as fine: it now marks the error page, and a
-  part replaced by an incident reference, as FAILED.
+  part replaced by an incident reference, as FAILED. `AUDIT_THEME=dark` checks the pages in the dark theme.
 - A page asking whether a table holds rows failed where the table was not there yet (the statement named it): Foundry
   overview and the AI pages before their load's tables existed. It now asks in two steps.
 - The SQL integration suite's time-zone check says what the installer answered when it fails (it failed once on a

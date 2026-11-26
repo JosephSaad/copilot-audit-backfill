@@ -13,6 +13,7 @@ who sees every page (an administrator). Needs Microsoft Edge and `pip install we
     INSIGHTS_URL     the dashboard (default https://localhost:7291)
     AUDIT_PAGES      comma-separated paths to check instead of every page in Nav.cs
     AUDIT_SHOT_ALL   set to 1 to screenshot every page, not only those with issues
+    AUDIT_THEME      dark to check the pages in the dark theme (the screenshots are named dark_...)
     EDGE_PATH        msedge.exe, if not in the usual place
 """
 import base64, json, os, re, subprocess, sys, time, urllib.request
@@ -167,6 +168,9 @@ def main():
                 time.sleep(0.5)
         cdp = Cdp(page['webSocketDebuggerUrl'])
         cdp.call('Page.enable')
+        dark = os.environ.get('AUDIT_THEME', '').lower() == 'dark'
+        if dark:
+            cdp.call('Emulation.setEmulatedMedia', features=[{'name': 'prefers-color-scheme', 'value': 'dark'}])
         report = {}
         for w in widths:
             cdp.call('Emulation.setDeviceMetricsOverride', width=w, height=900, deviceScaleFactor=1, mobile=False)
@@ -183,7 +187,7 @@ def main():
                 report[key] = res
                 if res['issues'] or os.environ.get('AUDIT_SHOT_ALL'):
                     shot = cdp.call('Page.captureScreenshot', format='png', captureBeyondViewport=True)
-                    fn = re.sub(r'[^A-Za-z0-9]+', '_', key).strip('_') + '.png'
+                    fn = ('dark_' if dark else '') + re.sub(r'[^A-Za-z0-9]+', '_', key).strip('_') + '.png'
                     open(os.path.join(OUT, fn), 'wb').write(base64.b64decode(shot['data']))
                 print(f"{key:55} {res['status']:6} {len(res['issues'])} issue(s)", flush=True)
         json.dump(report, open(os.path.join(OUT, 'report.json'), 'w', encoding='utf-8'), indent=1)
