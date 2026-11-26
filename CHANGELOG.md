@@ -33,6 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   each across the organization, how many came back, interactions, Copilot Credits a month (estimate) and the trend, and
   the agents of theirs in the agent list nobody used. Whole-organization viewers and administrators may open any
   owner's.
+- **Agent detail** adds what its builder checks every day: interactions in the last 7 days against the 7 before, its
+  Copilot Credits a month (estimate), and its owner, opening their My agents.
 - **Start your day** on the start page: the daily brief, My agents and AI spend across Azure, for those who may open them.
 - **Data sources** lists the whole AI bill as a source of its own.
 
@@ -44,6 +46,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Agent detail failed now and then** (since 3.1.4) with an error page: its four reads, run side by side, shared one
+  set of parameters, which the database library writes into as it runs. Every statement now runs with parameters of
+  its own, so no page can meet it again.
+- **With one cost scope, the Foundry load stopped at its last line** (found by the SQL suite before release): one scope
+  is now still a list.
+- The layout audit (`tools/dev/ui/ui_audit.py`) counted a page that failed as fine: it now marks the error page, and a
+  part replaced by an incident reference, as FAILED.
 - A page asking whether a table holds rows failed where the table was not there yet (the statement named it): Foundry
   overview and the AI pages before their load's tables existed. It now asks in two steps.
 - The SQL integration suite's time-zone check says what the installer answered when it fails (it failed once on a
