@@ -276,9 +276,16 @@ $plain = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That (@($plain | Where-Object { $_.Name -match 'GitHub|Foundry' }).Count -eq 0 -and @($plain | Where-Object Optional).Count -eq 0) 'with neither source in the settings, the nightly run has neither step, and no optional one'
 
 $notes = Get-PipelineSkipNote $s
-Assert-That ($notes.Count -eq 3 -and $notes[2] -like 'AI apps, Power BI and Power Apps activity: skipped, not configured*ActivityDatabase*' -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*') `
+Assert-That ($notes.Count -eq 6 -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*' `
+             -and $notes[2] -like 'AI gateway tokens and limits: skipped, not configured*GatewayWorkspaceId*' -and $notes[3] -like 'Spending limits: skipped, not configured*SpendLimitSources*' `
+             -and $notes[4] -like 'Agent actions: skipped, not configured*AgentActionsClientId*' -and $notes[5] -like 'AI apps, Power BI and Power Apps activity: skipped, not configured*ActivityDatabase*') `
     'and the log gets a note for each that it was skipped, naming the setting that turns it on'
-Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x'; ActivityDatabase = 'CopilotActivity' })).Count -eq 0) 'no note for a loader that is configured'
+Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x'; ActivityDatabase = 'CopilotActivity'; GatewayWorkspaceId = 'w'; SpendLimitSources = @('Graph')
+                                           AgentActionsClientId = 'a'; AgentActionsCertificateThumbprint = 'b' })).Count -eq 0) 'no note for a loader that is configured'
+$all = Get-PipelineStep -Setting ($s + @{ GatewayWorkspaceId = 'w'; GatewayServices = @('/subscriptions/s/resourceGroups/g/providers/Microsoft.ApiManagement/service/gw'); SpendLimitSources = @('Graph', 'GitHub')
+                                          AgentActionsClientId = 'a'; AgentActionsCertificateThumbprint = 'b' }) -Today $today
+Assert-That ((@($all | Where-Object { $_.Optional } | ForEach-Object Name) -join ',') -like '*AI gateway tokens and limits,Spending limits,Agent actions,Agent actions check*') `
+    'the gateway, the spending limits and the agent actions are optional steps, the agent actions check last'
 $noCert = @{ TenantId = 't'; ClientId = 'c'; CertificateThumbprint = ''; SqlServer = 'SQL1'; Database = 'CopilotAudit'; FoundrySubscriptions = 'x'; GitHubEnterprise = 'contoso' }
 Assert-That (@(Get-PipelineStep -Setting $noCert -Today $today | Where-Object { $_.Name -match 'Foundry' }).Count -eq 0 -and (Get-PipelineSkipNote $noCert)[0] -like '*no certificate to sign in with*') `
     'subscriptions with no certificate to sign in with: skipped with a note as well, not a failing step'
