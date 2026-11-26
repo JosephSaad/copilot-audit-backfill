@@ -140,6 +140,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             (Viewer.Has(Roles.Security) ? "" : " The security signals are shown to people with the Security role.") +
             (Viewer.Has(Roles.Compliance) ? "" : " Labeled content is shown to people with the Compliance role.") +
             (full ? "" : $" The period before is left blank: {OpsReports.NotCovered(first)}."), "half"));
+        await AiBillByMonthAsync();
 
         var u1All = await u1Task;
         var units = SmallGroups.Shown(u1All, u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
@@ -186,6 +187,42 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
             + $"Adoption is shown only for a unit of at least {Ctx.MinGroupSize} license holders. Active people: people who used Copilot in the period. Interactions count all use, including by people since disabled. Change in adoption is in percentage points; the others are relative."
             + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
+    }
+
+    /// <summary>
+    /// The AI bill in Azure a month, by service (3.4.0): the last six whole months and this one so far, amortized, from
+    /// the whole AI bill the Foundry load reads. For those who see the money (the whole organization, or Licensing),
+    /// once it is loaded; a table, so it prints.
+    /// </summary>
+    async Task AiBillByMonthAsync()
+    {
+        if (!(Viewer.OrgWide || Viewer.Has(Roles.Licensing)) || !await TableHasRowsAsync("audit.AiCostDay")) return;
+        var m0 = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-6);
+        var rows = await Db.QueryAsync<(DateTime Month, string Service, decimal Cost, string? Currency)>(@"
+SELECT DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1), Service, SUM(Cost), MAX(Currency)
+FROM audit.AiCostDay WHERE CostType = 'Amortized' AND [Day] >= @m0
+GROUP BY DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1), Service;", new { m0 });
+        if (rows.Count == 0) return;
+        var cur = rows.Select(r => r.Currency).FirstOrDefault(c => c is not null) ?? "USD";
+        var services = rows.GroupBy(r => r.Service).OrderByDescending(g => g.Sum(r => r.Cost)).Select(g => g.Key).ToList();
+        var shown = services.Take(4).ToList();
+        var other = services.Count > shown.Count;
+        var t = new Table
+        {
+            Headers = ["Month", .. shown, .. (other ? new[] { "Other AI services" } : []), $"Total ({cur})"],
+            Numeric = Enumerable.Range(1, shown.Count + (other ? 1 : 0) + 1).ToHashSet(), Sortable = false,
+        };
+        foreach (var month in rows.Select(r => r.Month).Distinct().OrderBy(m => m))
+        {
+            var inMonth = rows.Where(r => r.Month == month).ToList();
+            var cells = new List<object?> { month.ToString("MMM yyyy") + (month.Month == DateTime.UtcNow.Month && month.Year == DateTime.UtcNow.Year ? " (so far)" : "") };
+            cells.AddRange(shown.Select(sv => (object?)Math.Round(inMonth.Where(r => r.Service == sv).Sum(r => r.Cost))));
+            if (other) cells.Add(Math.Round(inMonth.Where(r => !shown.Contains(r.Service)).Sum(r => r.Cost)));
+            cells.Add(Math.Round(inMonth.Sum(r => r.Cost)));
+            t.Rows.Add([.. cells]);
+        }
+        Panels.Add(new("AI spend in Azure, by month", t.Render(),
+            "Every AI service's amortized cost as Azure bills it: Foundry and Azure OpenAI, Copilot Studio, Microsoft 365 Copilot pay-as-you-go, AI Search and the rest. Licenses are not in it: they are under Licenses. AI spend across Azure has the detail.", "full"));
     }
 }
 
