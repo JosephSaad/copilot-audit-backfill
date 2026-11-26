@@ -121,6 +121,12 @@ public static class NavText
 
         ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
         ["/governance/ai-apps"] = ("Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps.", null),
+        ["/platforms/foundry"] = ("What Foundry and Azure OpenAI cost, what is idle, and what retires soon.", null),
+        ["/platforms/foundry/deployments"] = ("Every model deployment: use, last used, reserved capacity, retirement and filter.", null),
+        ["/platforms/foundry/posture"] = ("Each Foundry account's network, sign-in, logging, filters and owner.", null),
+        ["/platforms/github"] = ("GitHub Copilot's seats, their use, what they cost, and who holds both Copilots.", null),
+        ["/platforms/github/seats"] = ("Every GitHub Copilot seat and its person: idle, never used, or held by a leaver.", null),
+        ["/platforms/github/posture"] = ("Each organization's GitHub Copilot settings beside the recommended ones.", null),
         ["/governance/ai-apps/resource"] = ("One AI resource: the apps that call it, its failures, models, tokens and cost.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),

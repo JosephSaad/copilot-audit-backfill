@@ -113,6 +113,12 @@ public static class Guidance
 
         // Governance
         ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Check the share of web search against your policy."),
+        ["/platforms/foundry"] = new("See what Foundry costs, and what is paid for but idle, under-used or retiring.", "Remove idle deployments, resize reserved capacity, and move off models before they retire."),
+        ["/platforms/foundry/deployments"] = new("See every deployment with its use, its last day used, and when its model retires.", "Ask each owner about idle deployments and plan the move off retiring models."),
+        ["/platforms/foundry/posture"] = new("See which accounts are open to any network, allow keys, do not log, or have no owner.", "Close the network, turn keys off once apps use Entra, add logging, and tag an owner."),
+        ["/platforms/github"] = new("See how many GitHub Copilot seats are used, idle or never used, and what they cost.", "Take back idle seats, and look at who uses both Copilots before renewing either."),
+        ["/platforms/github/seats"] = new("See every seat and its person, and the seats held by leavers or nobody matched.", "Remove seats from leavers first, then idle ones; match the logins nobody claims."),
+        ["/platforms/github/posture"] = new("See each organization's Copilot settings beside GitHub's recommendation.", "Block suggestions matching public code, and settle settings that differ between organizations."),
         ["/governance/ai-apps/resource"] = new("See which apps call one AI resource, how often they fail, and what it costs.", "Ask the owner of an app that fails often, or calls with no person's identity, what changed."),
         ["/governance/ai-apps"] = new("See which of the organization's own AI apps are used, by whom, and in which environment.", "Ask the owners of production resources with no user identity how their callers are governed."),
     };

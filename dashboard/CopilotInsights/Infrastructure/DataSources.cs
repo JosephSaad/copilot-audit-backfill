@@ -106,10 +106,10 @@ public static class DataSources
             ["/agents/inventory", "/agents/owners", "/agents/checks"],
             "The agent workbook exported from the Power Platform admin center and loaded with tools\\Import-AgentWorkbook.ps1.", true, AgentWorkbookFreshHours),
         new("github", "GitHub Copilot", "GitHub Copilot seats, use and cost, by organization", "rows loaded by the last run",
-            ["/leadership/costs", "/governance/ai-apps"],
+            ["/platforms/github", "/platforms/github/seats", "/leadership/costs"],
             "A GitHub enterprise owner's read-only token for Copilot metrics and billing (docs/GITHUB-COPILOT-USAGE.md).", true),
         new("foundry", "Microsoft Foundry", "Foundry and Azure OpenAI model deployments, the tokens they used and their cost, by subscription", "rows loaded by the last run",
-            ["/leadership/costs", "/governance/ai-apps"],
+            ["/platforms/foundry", "/platforms/foundry/deployments", "/platforms/foundry/posture", "/leadership/costs"],
             "Monitoring Reader and Cost Management Reader on the subscriptions, for the audit app registration (docs/FOUNDRY-USAGE.md).", true),
     ];
 

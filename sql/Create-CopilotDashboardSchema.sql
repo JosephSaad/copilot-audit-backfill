@@ -1176,6 +1176,12 @@ IF OBJECT_ID(N'dash.SuccessStorySend', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'StoriesPerReport')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'StoriesPerReport', N'3', N'The most success stories the weekly report quotes, oldest approved first (0 leaves them out).', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'PtuLowUtilizationPercent')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'PtuLowUtilizationPercent', N'50', N'AI platforms: a provisioned (PTU) Foundry deployment using less than this percentage of its reserved capacity on average is flagged as under-used.', N'install');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'ModelRetirementWarnDays')
+    INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
+    VALUES (N'ModelRetirementWarnDays', N'90', N'AI platforms: a Foundry deployment whose model retires within this many days is flagged as retiring soon.', N'install');
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = N'WeeklyReportSavings')
     INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
     VALUES (N'WeeklyReportSavings', N'1', N'1: the weekly report''s first line says the money saved to date through the dashboard and the high-confidence savings found a month (from dash.SavingLedger). 0 leaves it out.', N'install');

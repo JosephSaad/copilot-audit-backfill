@@ -99,7 +99,9 @@ public static class Nav
             new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource")], Key: Sections.Governance),
         /* AI platforms: the Foundry and GitHub Copilot platform teams' section. Its own grant gives them exactly these pages;
            AI apps beyond Copilot and a resource's detail are listed here too, as in Governance. */
-        new("AI platforms", "Foundry and GitHub Copilot platform teams", [
+        new("AI platforms", "Teams running Foundry and GitHub Copilot", [
+            new("Foundry overview", "/platforms/foundry"), new("Foundry deployments", "/platforms/foundry/deployments"), new("Foundry posture", "/platforms/foundry/posture"),
+            new("GitHub Copilot overview", "/platforms/github"), new("GitHub Copilot seats", "/platforms/github/seats", Roles.Platforms), new("GitHub Copilot posture", "/platforms/github/posture"),
             new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource")], Roles.Platforms, Sections.Platforms),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Access profiles", "/admin/profiles", Admin: true), new("Directory quality", "/admin/directory", Admin: true),

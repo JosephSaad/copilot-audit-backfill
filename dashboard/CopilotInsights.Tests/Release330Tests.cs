@@ -50,7 +50,10 @@ public class Release330Tests
         Assert.Contains("GitHub Copilot", Roles.Describe[Roles.Platforms]);
         Assert.Equal([Sections.Platforms], Sections.OfRole(Roles.Platforms));
         var g = Assert.Single(Pages.Nav.Groups, x => x.Key == Sections.Platforms);
-        Assert.Equal(["/governance/ai-apps", "/governance/ai-apps/resource"], g.Pages.Select(p => p.Path));
+        Assert.Equal(["/platforms/foundry", "/platforms/foundry/deployments", "/platforms/foundry/posture", "/platforms/github", "/platforms/github/seats", "/platforms/github/posture",
+                      "/governance/ai-apps", "/governance/ai-apps/resource"], g.Pages.Select(p => p.Path));
+        /* Only the list that names people needs the role. */
+        Assert.Equal(["/platforms/github/seats"], g.Pages.Where(p => p.Role == Roles.Platforms).Select(p => p.Path));
         /* The database accepts the role, widened beside the earlier ones; the maintenance script offers it and the section. */
         var sql = Repo("sql", "Create-CopilotDashboardSchema.sql");
         Assert.Contains("definition NOT LIKE N'%''Platforms''%'", sql);
@@ -80,5 +83,65 @@ public class Release330LoaderTests
         Assert.Null(DataSources.OutsideText(0, 0));
         Assert.Equal("1 more AI account in 1 subscription not loaded: their usage and cost are not counted (add them to FoundrySubscriptions).", DataSources.OutsideText(1, 1));
         Assert.StartsWith("3 more AI accounts in 2 subscriptions", DataSources.OutsideText(3, 2));
+    }
+}
+
+/// <summary>3.3.0, the AI platforms pages' rules: idle, retiring, under-used, a meter's model, the posture checks, idle seats, GitHub's recommendations.</summary>
+public class PlatformRulesTests
+{
+    [Fact]
+    public void A_deployment_is_idle_retiring_or_under_used_by_the_settings()
+    {
+        var newest = new DateTime(2026, 11, 20);
+        Assert.True(PlatformRules.IsIdle(null, newest, 30));
+        Assert.True(PlatformRules.IsIdle(new DateTime(2026, 10, 21), newest, 30));
+        Assert.False(PlatformRules.IsIdle(new DateTime(2026, 10, 22), newest, 30));
+        Assert.True(PlatformRules.IsRetiring(new DateTime(2027, 1, 1), newest, 90));
+        Assert.False(PlatformRules.IsRetiring(new DateTime(2027, 6, 1), newest, 90));
+        Assert.False(PlatformRules.IsRetiring(null, newest, 90));
+        Assert.True(PlatformRules.IsPtuLow("ProvisionedManaged", 20, 50));
+        Assert.False(PlatformRules.IsPtuLow("ProvisionedManaged", 70, 50));
+        Assert.False(PlatformRules.IsPtuLow("GlobalStandard", 0, 50));
+    }
+
+    [Fact]
+    public void A_meter_belongs_to_the_longest_model_it_names()
+    {
+        string[] models = ["gpt-4o", "gpt-4o-mini", "o3"];
+        Assert.Equal("gpt-4o-mini", PlatformRules.ModelOfMeter("gpt-4o-mini Input Tokens", models));
+        Assert.Equal("gpt-4o", PlatformRules.ModelOfMeter("gpt-4o tokens", models));
+        Assert.Equal("o3", PlatformRules.ModelOfMeter("o3", models));
+        Assert.Null(PlatformRules.ModelOfMeter("o3-pro Output Tokens", models));
+        Assert.Null(PlatformRules.ModelOfMeter("Storage and networking", models));
+    }
+
+    [Fact]
+    public void The_posture_checks_say_what_to_fix_and_unknown_stays_unknown()
+    {
+        var open = PlatformRules.Posture("Enabled", "Allow", 0, false, 0, 1, null);
+        Assert.All(open, c => Assert.False(c.Passes));
+        Assert.Contains("Reachable from any network", open[0].Text);
+        var closed = PlatformRules.Posture("Enabled", "Deny", 2, true, 1, 0, "ann@contoso.com");
+        Assert.All(closed, c => Assert.True(c.Passes));
+        Assert.Contains("2 private endpoints", closed[0].Text);
+        var unknown = PlatformRules.Posture(null, null, null, null, null, 0, "x");
+        Assert.Null(unknown[0].Passes); Assert.Null(unknown[1].Passes); Assert.Null(unknown[2].Passes);
+    }
+
+    [Fact]
+    public void A_seat_is_idle_as_Costs_and_savings_counts_it_and_GitHub_recommends_two_settings()
+    {
+        var now = new DateTime(2026, 11, 25);
+        Assert.True(PlatformRules.IsIdleSeat(null, now.AddDays(-40), now, 30));
+        Assert.False(PlatformRules.IsIdleSeat(null, now.AddDays(-5), now, 30));
+        Assert.True(PlatformRules.IsIdleSeat(now.AddDays(-31), now.AddDays(-300), now, 30));
+        Assert.False(PlatformRules.IsIdleSeat(now.AddDays(-2), null, now, 30));
+        Assert.Equal("block", PlatformRules.Recommended("public_code_suggestions"));
+        Assert.Equal("assign_selected", PlatformRules.Recommended("seat_management_setting"));
+        Assert.Null(PlatformRules.Recommended("ide_chat"));
+        Assert.Equal("Suggestions matching public code", PlatformRules.PolicyName("public_code_suggestions"));
+        /* The seat list's idle filter is the same SQL as the overview's figure. */
+        Assert.Equal(CopilotInsights.Pages.Platforms.GitHubSeatsModel.Shows["idle"].Sql, typeof(CopilotInsights.Pages.Platforms.GitHubPage)
+            .GetField("IdleSql", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null));
     }
 }

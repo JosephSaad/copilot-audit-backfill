@@ -38,6 +38,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The new parts never fail a load.** One Azure or GitHub refuses is named in the run's detail (*Not read
   (optional)*) and the run ends as it would have; an install with only the 2.6.2 roles or scopes still ends Succeeded.
 
+- **The AI platforms pages.** Six pages in the AI platforms section, over what the two loaders keep:
+  - *Foundry overview* (`/platforms/foundry`): spend in the period, spend on accounts that answered nothing, idle
+    deployments, deployments retiring soon, reserved capacity under-used, AI accounts not loaded; spend over time and by
+    account; tokens, cost and the price of a million tokens by model.
+  - *Foundry deployments* (`/platforms/foundry/deployments`): every deployment with its use, last day used, reserved
+    capacity used, retirement day, content filter and owner, filtered as the overview's figures open it.
+  - *Foundry posture* (`/platforms/foundry/posture`): each account against five checks, with what to fix.
+  - *GitHub Copilot overview* (`/platforms/github`): seats, active and idle (priced as Costs and savings prices them),
+    code accepted, billed, daily active users, seats by organization, premium requests by model, and the people
+    holding both Copilots.
+  - *GitHub Copilot seats* (`/platforms/github/seats`, the Platforms role): every seat and its person, filtered to idle,
+    never used, held by leavers, or no person matched; paged, searched, sorted and exported in SQL.
+  - *GitHub Copilot posture* (`/platforms/github/posture`): each organization's settings beside GitHub's
+    recommendation, and the ones that differ.
+  Idle is `CostIdleDays`, as on Costs and savings; two new settings, `ModelRetirementWarnDays` (90) and
+  `PtuLowUtilizationPercent` (50). Data sources' GitHub and Foundry cards open them. The demo has data for each.
+
 ### Fixed
 
 - **License inventory's *Licensed today* opened a page with another number.** It linked to Licenses on disabled

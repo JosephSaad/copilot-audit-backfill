@@ -325,6 +325,27 @@ SELECT N'enterprise:contoso', REPLACE(LEFT(Upn, CHARINDEX(N'@', Upn) - 1), N'.',
        CASE WHEN k > @seats * 19 / 20 THEN NULL WHEN k % 3 = 0 THEN N'vscode/1.105' WHEN k % 3 = 1 THEN N'JetBrains-IU/252' ELSE N'VisualStudio/17.14' END,
        DATEADD(HOUR, -(1 + CAST(R1 * 200 AS INT)), CAST(@today AS DATETIME2(0)))
 FROM devs;
+
+/* 3.3.0: a second organization, five seats held by people who have left, who each login is (about one seat in
+   seventeen has no identity), and each organization's Copilot settings, one set differently. */
+UPDATE audit.GitHubCopilotSeat SET Organization = N'contoso-data', AssigningTeam = N'data' WHERE Scope = N'enterprise:contoso' AND UserId % 5 = 0;
+INSERT INTO audit.GitHubCopilotSeat (Scope, Login, UserId, Organization, AssigningTeam, PlanType, CreatedUtc, LastActivityUtc, LastActivityEditor, LastAuthenticatedUtc)
+SELECT TOP (5) N'enterprise:contoso', REPLACE(LEFT(d.UserPrincipalName, CHARINDEX(N'@', d.UserPrincipalName) - 1), N'.', N'-') + N'-contoso',
+       9200000 + ROW_NUMBER() OVER (ORDER BY d.UserPrincipalName), N'contoso-eng', N'apps', 'business',
+       DATEADD(DAY, -260, CAST(@today AS DATETIME2(0))), DATEADD(DAY, -70, CAST(@today AS DATETIME2(0))), N'vscode/1.98', DATEADD(DAY, -70, CAST(@today AS DATETIME2(0)))
+FROM audit.UserDirectory AS d WHERE d.AccountEnabled = 0 AND CHARINDEX(N'@', d.UserPrincipalName) > 1 ORDER BY d.UserPrincipalName;
+DELETE FROM audit.GitHubIdentity WHERE Scope = N'enterprise:contoso';
+INSERT INTO audit.GitHubIdentity (Scope, Upn, Login, ExternalId, DisplayName, Active, Source)
+SELECT N'enterprise:contoso', d.UserPrincipalName, s.Login, CONCAT(N'ext-', s.UserId), d.FullName, d.AccountEnabled, 'SCIM'
+FROM audit.GitHubCopilotSeat AS s
+JOIN audit.UserDirectory AS d ON REPLACE(LEFT(d.UserPrincipalName, CHARINDEX(N'@', d.UserPrincipalName + N'@') - 1), N'.', N'-') + N'-contoso' = s.Login
+WHERE s.Scope = N'enterprise:contoso' AND s.UserId % 17 <> 3;
+DELETE FROM audit.GitHubCopilotPolicy WHERE Scope = N'enterprise:contoso';
+INSERT INTO audit.GitHubCopilotPolicy (Scope, Organization, Policy, [State])
+SELECT N'enterprise:contoso', o.Org, p.Policy, CASE WHEN o.Org = N'contoso-data' THEN p.DataState ELSE p.EngState END
+FROM (VALUES (N'contoso-eng'), (N'contoso-data')) AS o (Org)
+CROSS JOIN (VALUES (N'public_code_suggestions', N'block', N'allow'), (N'ide_chat', N'enabled', N'enabled'), (N'platform_chat', N'enabled', N'disabled'),
+                   (N'cli', N'enabled', N'enabled'), (N'seat_management_setting', N'assign_selected', N'assign_all'), (N'plan_type', N'business', N'business')) AS p (Policy, EngState, DataState);
 INSERT INTO audit.GitHubCopilotDay (Scope, [Day], DailyActiveUsers, WeeklyActiveUsers, MonthlyActiveUsers, Interactions, CodeGenerations, CodeAcceptances, LocAdded, LocDeleted)
 SELECT N'enterprise:contoso', d.[Day],
        CAST(@scale * CASE WHEN d.Dow >= 6 THEN 14 ELSE 96 + 30 * d.Progress END AS INT), CAST(@scale * (128 + 16 * d.Progress) AS INT), CAST(@scale * (140 + 5 * d.Progress) AS INT),
@@ -370,6 +391,41 @@ INSERT INTO audit.FoundryCostDay (SubscriptionId, ResourceGroup, Account, Meter,
 SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus', N'Provisioned Managed Throughput Unit', d.[Day], 15 * 1.0 * 24, N'USD' FROM #day AS d WHERE d.Ago < 90;
 INSERT INTO audit.FoundryCostDay (SubscriptionId, ResourceGroup, Account, Meter, [Day], Cost, Currency)
 SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-lab', N'contoso-ai-sandbox', N'Storage and networking', d.[Day], 3.85, N'USD' FROM #day AS d WHERE d.Ago < 90;
+
+/* 3.3.0: each account's posture and tags, its content filters (the lab's relaxed), when its models retire (gpt-4o
+   2024-11-20 within 60 days), the provisioned deployment's use of its capacity (about a fifth while the pilot ran,
+   none since), and an account in a subscription the load does not read. */
+DELETE FROM audit.FoundryAccount WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de';
+INSERT INTO audit.FoundryAccount (SubscriptionId, ResourceGroup, Account, Kind, Location, SkuName, PublicNetworkAccess, NetworkDefaultAction, PrivateEndpoints,
+                                  DisableLocalAuth, IdentityType, Owner, CostCenter, App, Tags, DiagnosticSettings, LogCategories)
+VALUES ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-prod', N'contoso-openai-eus', N'OpenAI', N'eastus', N'S0', 'Disabled', 'Deny', 2, 1, 'SystemAssigned',
+        N'claims-platform@contoso.com', N'CC-4100', N'claims-assistant', N'{"owner":"claims-platform@contoso.com","cost-center":"CC-4100","app":"claims-assistant"}', 1, N'audit, RequestResponse'),
+       ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus', N'OpenAI', N'eastus', N'S0', 'Enabled', 'Allow', 0, 0, NULL,
+        N'data-science@contoso.com', N'CC-5200', NULL, N'{"owner":"data-science@contoso.com","cost-center":"CC-5200"}', 0, NULL),
+       ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-lab', N'contoso-ai-sandbox', N'AIServices', N'canadacentral', N'S0', 'Enabled', 'Allow', 0, 0, NULL,
+        NULL, NULL, NULL, NULL, 0, NULL);
+UPDATE audit.FoundryDeployment SET RaiPolicy = CASE Account WHEN N'contoso-ai-sandbox' THEN N'Lab-relaxed' ELSE N'Microsoft.DefaultV2' END
+WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de';
+DELETE FROM audit.FoundryContentFilter WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de';
+INSERT INTO audit.FoundryContentFilter (SubscriptionId, ResourceGroup, Account, Policy, BasePolicy, Mode, Relaxed, Detail)
+VALUES ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-prod', N'contoso-openai-eus', N'Microsoft.DefaultV2', NULL, N'Default', 0, NULL),
+       ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus', N'Microsoft.DefaultV2', NULL, N'Default', 0, NULL),
+       ('6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-lab', N'contoso-ai-sandbox', N'Lab-relaxed', N'Microsoft.DefaultV2', N'Default', 1,
+        N'[{"name":"violence","severityThreshold":"High","blocking":true,"enabled":true,"source":"Completion"},{"name":"jailbreak","blocking":false,"enabled":true,"source":"Prompt"}]');
+DELETE FROM audit.FoundryModelCatalog;
+INSERT INTO audit.FoundryModelCatalog (Location, ModelName, ModelVersion, SkuName, LifecycleStatus, RetiresDate)
+VALUES (N'eastus', N'gpt-4o', N'2024-11-20', N'', N'GenerallyAvailable', DATEADD(DAY, 60, @today)),
+       (N'eastus', N'gpt-4o-mini', N'2024-07-18', N'', N'GenerallyAvailable', DATEADD(DAY, 240, @today)),
+       (N'eastus', N'text-embedding-3-large', N'1', N'', N'GenerallyAvailable', NULL),
+       (N'canadacentral', N'Phi-4', N'7', N'', N'GenerallyAvailable', NULL);
+UPDATE audit.FoundryUsageDay
+SET PtuUtilizationAvg = CASE WHEN Requests > 0 THEN 14 + (DATEPART(DAYOFYEAR, [Day]) % 9) ELSE 0 END,
+    PtuUtilizationMax = CASE WHEN Requests > 0 THEN 38 + (DATEPART(DAYOFYEAR, [Day]) % 20) ELSE 0 END
+WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de' AND Account = N'contoso-ptu-eus';
+DELETE FROM audit.FoundryAccountSeen;
+INSERT INTO audit.FoundryAccountSeen (SubscriptionId, ResourceGroup, Account, Kind, Location, Loaded)
+SELECT SubscriptionId, ResourceGroup, Account, Kind, Location, 1 FROM audit.FoundryAccount WHERE SubscriptionId = '6b2c9d1e-0000-4000-8000-00000000c0de'
+UNION ALL SELECT 'f00d0001-0000-4000-8000-0000000000f1', N'rg-marketing', N'contoso-openai-weu', N'OpenAI', N'westeurope', 0;
 
 /* ---- AI apps beyond Copilot: what the activity database's rollup leaves in audit.AIAppUserDay ----
    Six Azure AI resources. Most calls come from production apps with their own key (no user identity); a few hundred
