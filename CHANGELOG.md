@@ -4,7 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.0] - 2026-11-26
+
+Control of AI spend, and of the agents. Leadership sees the model tokens each business unit (its L2 and L3
+executives) uses through the AI gateway; Forecasting puts every spending limit on AI beside its spend, says which
+will be reached before their period ends, and suggests next quarter's; Governance checks rules over the agents each
+night and proposes what to do (tell the owner, quarantine, a new owner), for an administrator to decide. Licensing
+sizes an Agent 365 purchase from who owns, delegates to and uses the agents, and a disabled account's license now
+counts as reclaimable only after a grace period from its last use (90 days by default).
+
+**Install over 3.4.0** (the change bundle runs from v3.4.0):
+
+1. Replace the scripts on the job server with this release's (keep `copilot-audit.settings.psd1`,
+   `CopilotWeeklyReport.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (with `-TrustServerCertificate` where the
+   server's certificate does not match its name). It adds seven tables (`audit.GatewayTokenDay`,
+   `audit.SpendLimitSource`, `dash.TokenRoute`, `dash.SpendLimit`, `dash.SpendLimitSnapshot`, `dash.AgentPolicyRule`,
+   `dash.AgentAction`), one procedure (`dash.usp_SyncSpendLimits`), their grants and nine settings; nothing is
+   removed.
+3. Build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). No package is added; `Program.cs` registers three
+   more services.
+4. Check Admin › Access › *Disabled accounts: reclaim after* (90 days): from this release the reclaim counts, lists
+   and files leave out disabled accounts used within it.
+5. Optional, each when you are ready (docs\GATEWAY-LIMITS-AGENTS.md): the AI gateway (`GatewayServices`,
+   `GatewayWorkspaceId`), the spending limits (`SpendLimitSources`), and agent actions (an app of their own, then
+   `AgentActionsEnabled` 1). Until then each is a skipped step with a note, and the pages say what they need.
 
 ### Added
 
@@ -20,7 +44,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   have passed since its last Copilot use, so someone on leave or disabled by mistake keeps it meanwhile. A license
   never used, or on an account gone from the directory, is reclaimable at once. Licenses on disabled accounts shows
   both (In the grace period, and a Reclaimable from column); its headline, its removal files and every other count of
-  licenses to take back (Licensing, Unused licenses, Suite fit, Costs and savings, the daily brief, the start page,
+  licenses to take back (Licensing, Unused licenses, the Forecast, Suite fit, Costs and savings, the daily brief, the start page,
   the leavers alert, the data API) count only those past it.
 - **Model tokens by business unit** (Leadership, `/leadership/model-tokens`): the model tokens each business unit
   used through the organization's AI gateway, counts only. A business unit is an L2 and L3 executive pair

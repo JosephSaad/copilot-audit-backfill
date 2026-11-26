@@ -29,10 +29,11 @@ WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SK
         var idleTask = Db.QueryAsync<(int Idle, int Unused)>($@"
 SELECT COUNT(*),
        COUNT(CASE WHEN (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
-                   AND pl.Upn IS NULL THEN 1 END)
+                   AND pl.Upn IS NULL AND NOT {OpsData.InGraceSql("du", "gl")} THEN 1 END)
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
+{OpsData.LastUseJoin("gl", "ld.UserKey", Ctx.Rollups)}
 WHERE ld.DateKey = @k1
   AND NOT {CopilotInsights.Pages.Forecasting.Renewal.UsedSince(Ctx, "ld.UserKey")};", Ctx.Args(new { idle = Ctx.InactiveDays }));
         var changesTask = Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"

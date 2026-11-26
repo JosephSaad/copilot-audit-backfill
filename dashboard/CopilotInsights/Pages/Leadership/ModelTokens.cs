@@ -55,7 +55,6 @@ public sealed class ModelTokensModel(PageServices s, GatewayTokens data) : Insig
         {
             var bypass = Math.Max(0, foundry - total);
             Kpis.Add(new("Foundry tokens not through the gateway", Pct(Ratio(bypass, foundry)), $"{C(bypass)} of the {C(foundry)} Foundry counted", bypass > 0 ? "warn" : "good",
-                Href: Open("/platforms/foundry"),
                 Why: await WhyAsync("Azure Monitor's tokens for the Foundry and Azure OpenAI accounts loaded, less the gateway's: calls made to the models directly, which no business unit is counted for.")));
         }
 

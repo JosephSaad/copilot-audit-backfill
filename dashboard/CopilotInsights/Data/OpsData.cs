@@ -146,6 +146,24 @@ FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 EL
     /// <summary>The days a disabled account's license is kept after its last use before it counts as reclaimable, when none is set.</summary>
     public const int DefaultGraceDays = 90;
 
+    /// <summary>
+    /// Each person's last day of Copilot use, as <paramref name="alias"/>.LastActiveKey: the refresh's per-person row with
+    /// rollups, else the person's days. For <see cref="InGraceSql"/>.
+    /// </summary>
+    public static string LastUseJoin(string alias, string userKey, bool rollups) => (rollups
+        ? $"LEFT JOIN dash.UserActivity AS {alias} ON {alias}.UserKey = {userKey}"
+        : $"OUTER APPLY (SELECT MAX(x.DateKey) AS LastActiveKey FROM dash.UserDay AS x WHERE x.UserKey = {userKey} AND x.Interactions > 0) AS {alias}")
+        /* The first day still in the grace period, worked out once, as a column: a subquery cannot sit inside COUNT. */
+        + $" CROSS JOIN (SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -ISNULL(TRY_CAST((SELECT s.Value FROM dash.Setting AS s WHERE s.Name = 'DisabledGraceDays') AS INT), {DefaultGraceDays}), CAST(@d1 AS DATE)), 112)) AS GraceKey) AS {alias}k";
+
+    /// <summary>
+    /// A disabled account (in the directory) whose last use is within DisabledGraceDays of @d1: its license is kept for
+    /// now, so every count of licenses to take back leaves it out, as Licenses on disabled accounts does. Needs
+    /// <see cref="LastUseJoin"/> with the same alias.
+    /// </summary>
+    public static string InGraceSql(string du, string alias) =>
+        $"({du}.AccountEnabled = 0 AND {du}.DirectoryStatus <> N'NotFound' AND {alias}.LastActiveKey > {alias}k.GraceKey)";
+
     /// <summary>The grace period in force: DisabledGraceDays, 0 to 365.</summary>
     public async Task<int> GraceDaysAsync() => Math.Clamp(await settings.IntAsync("DisabledGraceDays", DefaultGraceDays), 0, 365);
 

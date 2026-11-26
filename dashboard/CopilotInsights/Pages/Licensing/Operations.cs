@@ -158,7 +158,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month: the licenses' cost over the holders who used Copilot in the period",
             Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
         if (unallocated > 0)
-            Kpis.Add(new("Charged to no group", Num(unallocated), $"{unallocated * price:#,0} {cur} a month, on disabled or missing accounts", "warn", Href: Open("/licensing/leavers"),
+            Kpis.Add(new("Charged to no group", Num(unallocated), $"{unallocated * price:#,0} {cur} a month, on disabled or missing accounts", "warn",
                 Why: await WhyAsync($"Copilot licenses held today ({unallocated + licensed:#,0}) less those held by enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}). Reclaim them: Licensing › Licenses on disabled accounts lists them.", "LicenseMonthlyCost")));
 
         var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{Said(x)}</a>"));

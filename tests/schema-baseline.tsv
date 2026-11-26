@@ -1,4 +1,4 @@
-# release 3.4.0
+# release 3.5.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -429,6 +429,18 @@ C	copilot	audit.FoundryUsageDay	U	6	ModelVersion	nvarchar(32)	0
 C	copilot	audit.FoundryUsageDay	U	7	Day	date	0	
 C	copilot	audit.FoundryUsageDay	U	8	Requests	bigint	1	
 C	copilot	audit.FoundryUsageDay	U	9	InputTokens	bigint	1	
+C	copilot	audit.GatewayTokenDay	U	1	RowId	bigint	0	I
+C	copilot	audit.GatewayTokenDay	U	10	TotalTokens	bigint	1	
+C	copilot	audit.GatewayTokenDay	U	11	Calls	bigint	1	
+C	copilot	audit.GatewayTokenDay	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.GatewayTokenDay	U	2	Gateway	nvarchar(260)	0	
+C	copilot	audit.GatewayTokenDay	U	3	Day	date	0	
+C	copilot	audit.GatewayTokenDay	U	4	BusinessUnit	nvarchar(256)	0	
+C	copilot	audit.GatewayTokenDay	U	5	Model	nvarchar(200)	0	
+C	copilot	audit.GatewayTokenDay	U	6	Agent	nvarchar(200)	0	
+C	copilot	audit.GatewayTokenDay	U	7	Api	nvarchar(200)	0	
+C	copilot	audit.GatewayTokenDay	U	8	PromptTokens	bigint	1	
+C	copilot	audit.GatewayTokenDay	U	9	CompletionTokens	bigint	1	
 C	copilot	audit.GitHubCopilotCost	U	1	CostId	bigint	0	I
 C	copilot	audit.GitHubCopilotCost	U	10	Quantity	decimal(19,4)	1	
 C	copilot	audit.GitHubCopilotCost	U	11	GrossAmount	decimal(19,4)	1	
@@ -689,6 +701,18 @@ C	copilot	audit.ReportGroupMember	U	3	UserPrincipalName	nvarchar(256)	0
 C	copilot	audit.ReportGroupMember	U	4	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.SessionAppCategory	U	1	App	nvarchar(200)	0	
 C	copilot	audit.SessionAppCategory	U	2	AppCategory	nvarchar(50)	0	
+C	copilot	audit.SpendLimitSource	U	1	Source	varchar(16)	0	
+C	copilot	audit.SpendLimitSource	U	10	PerUser	bit	0	D
+C	copilot	audit.SpendLimitSource	U	11	Raw	nvarchar(max)	1	
+C	copilot	audit.SpendLimitSource	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.SpendLimitSource	U	2	ExternalId	nvarchar(400)	0	
+C	copilot	audit.SpendLimitSource	U	3	Kind	varchar(24)	0	
+C	copilot	audit.SpendLimitSource	U	4	Name	nvarchar(400)	1	
+C	copilot	audit.SpendLimitSource	U	5	ScopeType	varchar(24)	1	
+C	copilot	audit.SpendLimitSource	U	6	Scope	nvarchar(1000)	1	
+C	copilot	audit.SpendLimitSource	U	7	Unit	varchar(8)	0	
+C	copilot	audit.SpendLimitSource	U	8	Amount	decimal(19,4)	1	
+C	copilot	audit.SpendLimitSource	U	9	Period	varchar(16)	1	
 C	copilot	audit.UserDirectory	U	1	UserPrincipalName	nvarchar(256)	0	
 C	copilot	audit.UserDirectory	U	10	Office	nvarchar(128)	1	
 C	copilot	audit.UserDirectory	U	11	City	nvarchar(128)	1	
@@ -1220,6 +1244,22 @@ C	copilot	dash.Agent	V	6	Owner	nvarchar(256)	1
 C	copilot	dash.Agent	V	7	FirstSeenUtc	datetime2(0)	1	
 C	copilot	dash.Agent	V	8	InventoryAgentId	nvarchar(100)	1	
 C	copilot	dash.Agent	V	9	IsShared	bit	1	
+C	copilot	dash.AgentAction	U	1	ActionId	int	0	I
+C	copilot	dash.AgentAction	U	10	ProposedUtc	datetime2(0)	0	D
+C	copilot	dash.AgentAction	U	11	ProposedBy	nvarchar(256)	1	
+C	copilot	dash.AgentAction	U	12	DecidedBy	nvarchar(256)	1	
+C	copilot	dash.AgentAction	U	13	DecidedUtc	datetime2(0)	1	
+C	copilot	dash.AgentAction	U	14	DoneUtc	datetime2(0)	1	
+C	copilot	dash.AgentAction	U	15	Result	nvarchar(2000)	1	
+C	copilot	dash.AgentAction	U	16	CheckedUtc	datetime2(0)	1	
+C	copilot	dash.AgentAction	U	2	InventoryAgentId	nvarchar(100)	0	
+C	copilot	dash.AgentAction	U	3	AgentName	nvarchar(400)	1	
+C	copilot	dash.AgentAction	U	4	Environment	nvarchar(400)	1	
+C	copilot	dash.AgentAction	U	5	RuleId	int	1	
+C	copilot	dash.AgentAction	U	6	ActionKind	varchar(16)	0	
+C	copilot	dash.AgentAction	U	7	Reason	nvarchar(1000)	1	
+C	copilot	dash.AgentAction	U	8	NewOwnerUpn	nvarchar(256)	1	
+C	copilot	dash.AgentAction	U	9	Status	varchar(16)	0	D
 C	copilot	dash.AgentAlias	U	1	AgentKey	int	0	
 C	copilot	dash.AgentAlias	U	2	FriendlyName	nvarchar(200)	0	
 C	copilot	dash.AgentAlias	U	3	Owner	nvarchar(256)	1	
@@ -1269,6 +1309,16 @@ C	copilot	dash.AgentInventoryRun	U	6	InventoryRows	int	1
 C	copilot	dash.AgentInventoryRun	U	7	ProductionRows	int	1	
 C	copilot	dash.AgentInventoryRun	U	8	ChildLinkRows	int	1	
 C	copilot	dash.AgentInventoryRun	U	9	Matched	int	1	
+C	copilot	dash.AgentPolicyRule	U	1	RuleId	int	0	I
+C	copilot	dash.AgentPolicyRule	U	10	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.AgentPolicyRule	U	2	RuleKind	varchar(24)	0	
+C	copilot	dash.AgentPolicyRule	U	3	Days	int	1	
+C	copilot	dash.AgentPolicyRule	U	4	Credits	int	1	
+C	copilot	dash.AgentPolicyRule	U	5	People	int	1	
+C	copilot	dash.AgentPolicyRule	U	6	ProposedAction	varchar(16)	0	
+C	copilot	dash.AgentPolicyRule	U	7	Enabled	bit	0	D
+C	copilot	dash.AgentPolicyRule	U	8	AutoApprove	bit	0	D
+C	copilot	dash.AgentPolicyRule	U	9	UpdatedBy	nvarchar(256)	1	
 C	copilot	dash.AgentUse	U	1	AgentKey	int	0	
 C	copilot	dash.AgentUse	U	2	FirstDateKey	int	0	
 C	copilot	dash.AgentUse	U	3	LastDateKey	int	0	
@@ -1698,6 +1748,31 @@ C	copilot	dash.SkuName	U	1	SkuPartNumber	nvarchar(100)	0
 C	copilot	dash.SkuName	U	2	ProductName	nvarchar(200)	0	
 C	copilot	dash.SkuName	U	3	UpdatedBy	nvarchar(256)	1	
 C	copilot	dash.SkuName	U	4	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SpendLimit	U	1	LimitId	int	0	I
+C	copilot	dash.SpendLimit	U	10	Period	varchar(16)	0	D
+C	copilot	dash.SpendLimit	U	11	PerUser	bit	0	D
+C	copilot	dash.SpendLimit	U	12	L2Upn	nvarchar(256)	1	
+C	copilot	dash.SpendLimit	U	13	L3Upn	nvarchar(256)	1	
+C	copilot	dash.SpendLimit	U	14	WarnAtPercent	int	1	
+C	copilot	dash.SpendLimit	U	15	Hidden	bit	0	D
+C	copilot	dash.SpendLimit	U	16	GoneUtc	datetime2(0)	1	
+C	copilot	dash.SpendLimit	U	17	Note	nvarchar(400)	1	
+C	copilot	dash.SpendLimit	U	18	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.SpendLimit	U	19	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SpendLimit	U	2	Source	varchar(16)	0	
+C	copilot	dash.SpendLimit	U	3	ExternalId	nvarchar(400)	1	
+C	copilot	dash.SpendLimit	U	4	Kind	varchar(24)	0	
+C	copilot	dash.SpendLimit	U	5	Name	nvarchar(400)	0	
+C	copilot	dash.SpendLimit	U	6	ScopeType	varchar(24)	1	
+C	copilot	dash.SpendLimit	U	7	Scope	nvarchar(1000)	1	
+C	copilot	dash.SpendLimit	U	8	Unit	varchar(8)	0	
+C	copilot	dash.SpendLimit	U	9	Amount	decimal(19,4)	1	
+C	copilot	dash.SpendLimitSnapshot	U	1	LimitId	int	0	
+C	copilot	dash.SpendLimitSnapshot	U	2	PeriodStart	date	0	
+C	copilot	dash.SpendLimitSnapshot	U	3	PeriodEnd	date	0	
+C	copilot	dash.SpendLimitSnapshot	U	4	Amount	decimal(19,4)	1	
+C	copilot	dash.SpendLimitSnapshot	U	5	Spent	decimal(19,4)	1	
+C	copilot	dash.SpendLimitSnapshot	U	6	TakenUtc	datetime2(0)	0	D
 C	copilot	dash.Subscription	U	1	SubscriptionId	int	0	I
 C	copilot	dash.Subscription	U	10	Days	int	0	D
 C	copilot	dash.Subscription	U	11	Enabled	bit	0	D
@@ -1761,6 +1836,15 @@ C	copilot	dash.TimeSaving	U	1	App	nvarchar(200)	0
 C	copilot	dash.TimeSaving	U	2	Minutes	decimal(6,2)	0	
 C	copilot	dash.TimeSaving	U	3	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.TimeSaving	U	4	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.TokenRoute	U	1	RouteId	int	0	I
+C	copilot	dash.TokenRoute	U	2	GatewayValue	nvarchar(256)	0	
+C	copilot	dash.TokenRoute	U	3	L2Upn	nvarchar(256)	0	
+C	copilot	dash.TokenRoute	U	4	L3Upn	nvarchar(256)	1	
+C	copilot	dash.TokenRoute	U	5	EffectiveFrom	date	0	
+C	copilot	dash.TokenRoute	U	6	EffectiveTo	date	1	
+C	copilot	dash.TokenRoute	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.TokenRoute	U	8	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.TokenRoute	U	9	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.TrainingAttendance	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.TrainingAttendance	U	2	Session	nvarchar(190)	0	
 C	copilot	dash.TrainingAttendance	U	3	AttendedOn	date	0	
@@ -2109,6 +2193,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.Subscription
 G	copilot	CopilotInsightsApp	DELETE	dash.Target
 G	copilot	CopilotInsightsApp	DELETE	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	DELETE	dash.TimeSaving
+G	copilot	CopilotInsightsApp	DELETE	dash.TokenRoute
 G	copilot	CopilotInsightsApp	DELETE	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	DELETE	dash.UseCaseRule
 G	copilot	CopilotInsightsApp	DELETE	dash.ValueName
@@ -2119,11 +2204,13 @@ G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_GetSecret
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_RefreshDashboard
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetPrivacyMode
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetSecret
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SyncSpendLimits
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_TakeCreditChargeSnapshot
 G	copilot	CopilotInsightsApp	INSERT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	INSERT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	INSERT	dash.AccessProfile
 G	copilot	CopilotInsightsApp	INSERT	dash.AccessProfileRole
+G	copilot	CopilotInsightsApp	INSERT	dash.AgentAction
 G	copilot	CopilotInsightsApp	INSERT	dash.AgentAlias
 G	copilot	CopilotInsightsApp	INSERT	dash.AlertState
 G	copilot	CopilotInsightsApp	INSERT	dash.AuditLog
@@ -2151,10 +2238,13 @@ G	copilot	CopilotInsightsApp	INSERT	dash.SavingLedger
 G	copilot	CopilotInsightsApp	INSERT	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	INSERT	dash.Setting
 G	copilot	CopilotInsightsApp	INSERT	dash.SkuName
+G	copilot	CopilotInsightsApp	INSERT	dash.SpendLimit
+G	copilot	CopilotInsightsApp	INSERT	dash.SpendLimitSnapshot
 G	copilot	CopilotInsightsApp	INSERT	dash.Subscription
 G	copilot	CopilotInsightsApp	INSERT	dash.Target
 G	copilot	CopilotInsightsApp	INSERT	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	INSERT	dash.TimeSaving
+G	copilot	CopilotInsightsApp	INSERT	dash.TokenRoute
 G	copilot	CopilotInsightsApp	INSERT	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	INSERT	dash.UseCaseRule
 G	copilot	CopilotInsightsApp	INSERT	dash.ValueName
@@ -2183,6 +2273,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.FoundryCostDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryDeployment
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryModelCatalog
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryUsageDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GatewayTokenDay
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotCost
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotDay
 G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotPolicy
@@ -2202,6 +2293,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCreditDay
 G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformUserActivity
 G	copilot	CopilotInsightsApp	SELECT	audit.ReportGroupDay
 G	copilot	CopilotInsightsApp	SELECT	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	SELECT	audit.SpendLimitSource
 G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
 G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalog
@@ -2210,7 +2302,9 @@ G	copilot	CopilotInsightsApp	UPDATE	audit.AIAppResource
 G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	UPDATE	dash.AccessProfile
 G	copilot	CopilotInsightsApp	UPDATE	dash.AccessProfileRole
+G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
+G	copilot	CopilotInsightsApp	UPDATE	dash.AgentPolicyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
 G	copilot	CopilotInsightsApp	UPDATE	dash.CacheGeneration
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostPrice
@@ -2238,10 +2332,12 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.SavingLedger
 G	copilot	CopilotInsightsApp	UPDATE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	UPDATE	dash.Setting
 G	copilot	CopilotInsightsApp	UPDATE	dash.SkuName
+G	copilot	CopilotInsightsApp	UPDATE	dash.SpendLimit
 G	copilot	CopilotInsightsApp	UPDATE	dash.Subscription
 G	copilot	CopilotInsightsApp	UPDATE	dash.Target
 G	copilot	CopilotInsightsApp	UPDATE	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	UPDATE	dash.TimeSaving
+G	copilot	CopilotInsightsApp	UPDATE	dash.TokenRoute
 G	copilot	CopilotInsightsApp	UPDATE	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	UPDATE	dash.UseCaseRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.ValueName
@@ -2307,6 +2403,7 @@ O	copilot	audit.FoundryCostDay	U
 O	copilot	audit.FoundryDeployment	U
 O	copilot	audit.FoundryModelCatalog	U
 O	copilot	audit.FoundryUsageDay	U
+O	copilot	audit.GatewayTokenDay	U
 O	copilot	audit.GitHubCopilotCost	U
 O	copilot	audit.GitHubCopilotDay	U
 O	copilot	audit.GitHubCopilotPolicy	U
@@ -2332,6 +2429,7 @@ O	copilot	audit.ReportGroupDay	U
 O	copilot	audit.ReportGroupMember	U
 O	copilot	audit.ReportingTimeZone	FN
 O	copilot	audit.SessionAppCategory	U
+O	copilot	audit.SpendLimitSource	U
 O	copilot	audit.UserDirectory	U
 O	copilot	audit.UserLicenseSku	U
 O	copilot	audit.ValueCatalog	U
@@ -2410,10 +2508,12 @@ O	copilot	dash.AccessProfile	U
 O	copilot	dash.AccessProfileRole	U
 O	copilot	dash.AdoptionDay	U
 O	copilot	dash.Agent	V
+O	copilot	dash.AgentAction	U
 O	copilot	dash.AgentAlias	U
 O	copilot	dash.AgentChildLink	U
 O	copilot	dash.AgentInventory	U
 O	copilot	dash.AgentInventoryRun	U
+O	copilot	dash.AgentPolicyRule	U
 O	copilot	dash.AgentUse	U
 O	copilot	dash.AlertState	U
 O	copilot	dash.AuditLog	U
@@ -2467,12 +2567,15 @@ O	copilot	dash.Setting	U
 O	copilot	dash.SitePerson	U
 O	copilot	dash.SiteReader	U
 O	copilot	dash.SkuName	U
+O	copilot	dash.SpendLimit	U
+O	copilot	dash.SpendLimitSnapshot	U
 O	copilot	dash.Subscription	U
 O	copilot	dash.SuccessStory	U
 O	copilot	dash.SuccessStorySend	U
 O	copilot	dash.Target	U
 O	copilot	dash.TechnologyAllocation	U
 O	copilot	dash.TimeSaving	U
+O	copilot	dash.TokenRoute	U
 O	copilot	dash.TrainingAttendance	U
 O	copilot	dash.UseCaseRule	U
 O	copilot	dash.UserActivity	U
@@ -2493,6 +2596,7 @@ O	copilot	dash.usp_RefreshResourceTotals	P
 O	copilot	dash.usp_RefreshSavingLedger	P
 O	copilot	dash.usp_SetPrivacyMode	P
 O	copilot	dash.usp_SetSecret	P
+O	copilot	dash.usp_SyncSpendLimits	P
 O	copilot	dash.usp_TakeCreditChargeSnapshot	P
 O	copilot	dash.usp_TakeReservationSnapshot	P
 O	license	audit.AgentEvent	U

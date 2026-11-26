@@ -162,7 +162,8 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 AND du.AccountEnabled = 1 THEN 1 END) AS Active,
        /* 2.6.7: unused as Licensing › Unused licenses lists them: a license newer than the inactive days is not yet idle. */
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL
-                   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1)) THEN 1 END) AS Idle,
+                   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
+                   AND NOT {CopilotInsights.Data.OpsData.InGraceSql("du", "gl")} THEN 1 END) AS Idle,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL AND du.AccountEnabled = 1 THEN 1 END) AS Light,
        COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy AND du.AccountEnabled = 1 THEN 1 END) AS Demand
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
@@ -170,6 +171,7 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
+{CopilotInsights.Data.OpsData.LastUseJoin("gl", "du.UserKey", c.Rollups)}
 WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)')
 /* In name order: when the smallest departments are folded together and several are the same size, the one added
