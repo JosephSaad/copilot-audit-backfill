@@ -65,6 +65,12 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
             }
         }
         if (await AiBillAsync() is { } bill) Kpis.Add(bill);
+        /* A budget set in Azure that its forecast takes over: first among the things to act on. */
+        if ((Viewer.OrgWide || Viewer.Has(Roles.Licensing)) && Open("/leadership/ai-spend") is { } spendUrl && await TableHasRowsAsync("audit.AiBudget"))
+            foreach (var b in await Db.QueryAsync<(string Budget, decimal Amount, decimal Forecast, string? Currency)>(
+                "SELECT TOP (3) Budget, Amount, ForecastSpend, Currency FROM audit.AiBudget WHERE Amount > 0 AND ForecastSpend > Amount ORDER BY ForecastSpend - Amount DESC;"))
+                lines.Insert(0, $"<li><b>Budget {WebUtility.HtmlEncode(b.Budget)}</b> is forecast to reach {WebUtility.HtmlEncode(StartFigures.Money(b.Forecast, b.Currency ?? "USD"))} against "
+                              + $"{WebUtility.HtmlEncode(StartFigures.Money(b.Amount, b.Currency ?? "USD"))}: find what is growing before the period ends. <a href=\"{WebUtility.HtmlEncode(spendUrl)}\">AI spend across Azure</a></li>");
         if (ledgerTask is not null && await ledgerTask is { } ledger && ledger.SavedToDate > 0)
             Kpis.Add(new($"Saved to date ({ledger.Currency})", StartFigures.Money(ledger.SavedToDate, ledger.Currency), ledger.SavedSince is { } since ? $"since {since:MMM yyyy}, from savings acted on" : "from savings acted on", "good", Href: Open("/leadership/costs")));
         if (leaversTask is not null)

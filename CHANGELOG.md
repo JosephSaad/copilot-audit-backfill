@@ -26,8 +26,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   biggest savings, then What to act on's largest lists), each figure opening the page behind it. It can be subscribed
   to daily.
 - **AI spend across Azure** (`/leadership/ai-spend`): the whole AI bill by service, actual and amortized, the
-  reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, and
-  the 25 costliest AI resources.
+  reservations' effect, this month billed and forecast, each budget used and forecast, spend over time by service, what
+  grew fastest (the last 7 days against the 7 before), and the 25 costliest AI resources. A budget forecast to go over
+  heads the daily brief's list to act on.
 - **My agents** (`/agents/mine`), an agent builder's own page: the agents they own, used in the period, the people using
   each across the organization, how many came back, interactions, Copilot Credits a month (estimate) and the trend, and
   the agents of theirs in the agent list nobody used. Whole-organization viewers and administrators may open any

@@ -110,6 +110,26 @@ FROM audit.AiCostDay WHERE [Day] BETWEEN @d0 AND @d1 GROUP BY Service, ResourceN
             Panels.Add(new("Budgets", bt.Render(), "Each budget set in Azure at a scope read, its spend so far in its period and Azure's forecast for the period's end. A budget counts what its own filter says, which may be more than AI.", "full"));
         }
 
+        /* What grew most: each resource's amortized cost in the last 7 days loaded against the 7 before, largest rise first. */
+        var last = await Db.ScalarAsync<DateTime?>("SELECT CAST(MAX([Day]) AS DATETIME2(0)) FROM audit.AiCostDay WHERE CostType = 'Amortized';");
+        if (last is { } l)
+        {
+            var moves = await Db.QueryAsync<(string Service, string? Resource, decimal Now, decimal Before)>(@"
+SELECT TOP (10) Service, ResourceName, SUM(CASE WHEN [Day] > @w0 THEN Cost ELSE 0 END), SUM(CASE WHEN [Day] <= @w0 THEN Cost ELSE 0 END)
+FROM audit.AiCostDay WHERE CostType = 'Amortized' AND [Day] > @b0 AND [Day] <= @l
+GROUP BY Service, ResourceName
+HAVING SUM(CASE WHEN [Day] > @w0 THEN Cost ELSE 0 END) - SUM(CASE WHEN [Day] <= @w0 THEN Cost ELSE 0 END) >= 1
+ORDER BY SUM(CASE WHEN [Day] > @w0 THEN Cost ELSE 0 END) - SUM(CASE WHEN [Day] <= @w0 THEN Cost ELSE 0 END) DESC;", new { l, w0 = l.AddDays(-7), b0 = l.AddDays(-14) });
+            if (moves.Count > 0)
+            {
+                var gt = new Table { Headers = ["Service", "Resource", $"Last 7 days ({cur})", $"7 days before ({cur})", "Change"], Numeric = new HashSet<int> { 2, 3 } };
+                foreach (var m in moves)
+                    gt.Rows.Add([m.Service, m.Resource ?? "(no resource)", Math.Round(m.Now), Math.Round(m.Before),
+                                 new HtmlString(m.Before > 0 ? $"<span class=\"tag {(m.Now / m.Before >= 1.5m ? "crit" : "warn")}\">{(double)(m.Now / m.Before - 1):+0%}</span>" : "<span class=\"tag info\">New</span>")]);
+                Panels.Add(new("Growing fastest", gt.Render(), $"Amortized cost in the 7 days to {l:d MMM} against the 7 before, largest rise first: the ones to ask their owners about. Up half again or more is marked critical.", "full"));
+            }
+        }
+
         var t = new Table { Headers = ["Service", "Resource", "Resource group", $"Actual ({cur})", $"Amortized ({cur})"], Numeric = new HashSet<int> { 3, 4 } };
         foreach (var r in top)
             t.Rows.Add([r.Service, r.Resource is null ? "(no resource)" : (object)(r.Service == "Foundry and Azure OpenAI" ? new Link(r.Resource, Ctx.Url("/governance/ai-apps/resource", extra: $"r={Uri.EscapeDataString(r.Resource)}")) : r.Resource),
