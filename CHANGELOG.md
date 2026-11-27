@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.2] - 2026-11-27
+
+*Read seats now* finishes with tens of thousands of license holders. It stopped with *Execution Timeout Expired*
+when most holders were in no line of business yet (one line of business set up, 16,000 holders outside it): the
+seat read raised and then checked one finding per such person, and one statement ran past the Workbench's 60-second
+limit per SQL statement.
+
+**Install over 3.6.1** (the change bundle runs from v3.6.1): build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md).
+Nothing changes in either database or on the job server. A `Database:CommandTimeoutSeconds` raised with
+Fix-SeatReadTimeout-3.6.1.txt can stay as it is.
+
+### Added
+- **Set each line of business's reservation on its page.** With Copilot seats only, *Set the reservation* on a
+  line of business's seats page (Copilot seats › the line of business) takes the seats reserved, the date from
+  which they apply and the source, for the Platform Owner or FinOps. A new figure ends the one before on the day
+  before, so the history and the monthly chargeback keep every figure; the same date corrects it. Before, only
+  FinOps could record a first figure, and later changes needed the request journey, which is closed with seats only.
+
+### Fixed
+- **A seat group's line of business was dropped without a word** when its purpose was not *LOB tracking group*
+  (the form started on *License group*). The save now says so, and a new group starts on *LOB tracking group*.
+- **Findings recorded in bulk.** Findings that send no notice (a holder in no line of business, in two, with a
+  license error, and the like) are raised and refreshed in three statements, whatever their number, and findings
+  that went away are closed against an indexed list instead of a `NOT IN` over the whole list, which SQL Server
+  compared row by row. 30,000 findings raised, refreshed and closed in about 5 seconds on a test server.
+- **Copilot activity written in one statement** instead of one per person.
+- **A failed run says where its error is**: the worker's log, or, for a run started on the page, the Windows
+  Application log of the web server that ran it. It said "the worker log" even where there is no worker.
+
+### Known limits
+- Tested on this PC's SQL Server; not yet against the client's 18,000 holders.
+
 ## [3.6.1] - 2026-11-27
 
 Two fixes for tracking Copilot seats per line of business without a worker or a platform operator. The Platform

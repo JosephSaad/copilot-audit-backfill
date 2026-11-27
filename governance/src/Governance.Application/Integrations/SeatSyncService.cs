@@ -36,13 +36,20 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
     private Task<int> WriteActivityAsync(IEnumerable<(string UserPrincipalName, DateTime? LastActivityDate)> users, DateTime? refresh, long runId, CancellationToken ct)
         => db.InTransactionAsync(async uow =>
         {
-            foreach (var u in users)
-                await uow.ExecuteAsync(
-                    """
-                    MERGE intg.CopilotActivity AS t USING (SELECT @UserPrincipalName AS UserPrincipalName) AS s ON t.UserPrincipalName = s.UserPrincipalName
-                    WHEN MATCHED THEN UPDATE SET LastActivityDate = @LastActivityDate, ReportRefreshDate = @refresh, LastSeenRunId = @runId
-                    WHEN NOT MATCHED THEN INSERT (UserPrincipalName, LastActivityDate, ReportRefreshDate, LastSeenRunId) VALUES (@UserPrincipalName, @LastActivityDate, @refresh, @runId);
-                    """, new { u.UserPrincipalName, u.LastActivityDate, refresh, runId });
+            /* Everyone in one statement (one per person took minutes for tens of thousands of people). A sign-in seen twice
+               keeps its latest day. */
+            var rows = System.Text.Json.JsonSerializer.Serialize(users
+                .Where(u => !string.IsNullOrWhiteSpace(u.UserPrincipalName))
+                .Select(u => new { U = u.UserPrincipalName.Length <= 256 ? u.UserPrincipalName : u.UserPrincipalName[..256], D = u.LastActivityDate?.ToString("yyyy-MM-dd") }));
+            await uow.ExecuteAsync(
+                """
+                MERGE intg.CopilotActivity AS t
+                USING (SELECT j.U AS UserPrincipalName, MAX(j.D) AS LastActivityDate
+                       FROM OPENJSON(@rows) WITH (U nvarchar(256), D date) AS j WHERE j.U IS NOT NULL GROUP BY j.U) AS s
+                   ON t.UserPrincipalName = s.UserPrincipalName
+                WHEN MATCHED THEN UPDATE SET LastActivityDate = s.LastActivityDate, ReportRefreshDate = @refresh, LastSeenRunId = @runId
+                WHEN NOT MATCHED THEN INSERT (UserPrincipalName, LastActivityDate, ReportRefreshDate, LastSeenRunId) VALUES (s.UserPrincipalName, s.LastActivityDate, @refresh, @runId);
+                """, new { rows, refresh, runId });
             await uow.ExecuteAsync("DELETE FROM intg.CopilotActivity WHERE LastSeenRunId <> @runId", new { runId });
             return 0;
         }, ct);
@@ -687,6 +694,17 @@ public sealed class SeatFindingRules(FindingWriter findings, DateTime today, lon
     {
         var keys = new List<string>();
         var raised = 0;
+        if (!notify)
+        {
+            /* No notices to send: every hit at once (thousands of license holders in no line of business took minutes,
+               two statements each, and the command timeout). */
+            var all = hits.ToList();
+            keys.AddRange(all.Select(h => h.Key));
+            raised = await findings.RaiseManyAsync(uow, all.Select(h => (h.Key, new FindingWriter.NewFinding(type, h.Severity, h.Title, h.Details,
+                FundingOwnerId: h.FundingOwnerId, ExternalId: h.ExternalId, Expected: h.Expected, Actual: h.Actual, SyncRunId: runId))).ToList());
+            await findings.ResolveMissingAsync(uow, type, keys, "The latest seat read no longer shows this.");
+            return raised;
+        }
         foreach (var h in hits)
         {
             keys.Add(h.Key);

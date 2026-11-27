@@ -51,7 +51,9 @@ public class SeatLobModel(SeatQueries seats, SeatCommands commands) : GovPage
     public int InactiveDays { get; private set; } = 60;
 
     private bool HasLobRole(params string[] roles) => Principal.Roles.Any(r => roles.Contains(r.RoleCode) && r.ScopeId == D.FundingOwnerId);
-    public bool CanBaseline => Principal.Can(Permissions.RegistryFinance) && D.Reservations.Count == 0;
+    public bool CanBaseline => !SeatsOnly && Principal.Can(Permissions.RegistryFinance) && D.Reservations.Count == 0;
+    /// <summary>Copilot seats only: the Platform Owner or FinOps sets the reservation here, from a date (there is no request journey).</summary>
+    public bool CanSetReservation => SeatsOnly && (Principal.Can(Permissions.RegistryFinance) || Principal.Can(Permissions.RegistryEdit));
     public bool CanAnswerReclaim => HasLobRole(Roles.LobBusinessOwner, Roles.SharedServiceOwner, Roles.DelegatedApprover);
     public bool CanManageAdmins => HasLobRole(SeatAccess.LobSeatAdmin, Roles.LobBusinessOwner, Roles.SharedServiceOwner) || Principal.HasRole(Roles.PlatformOwner);
     public bool CanAskChange => Principal.Can(Permissions.RequestCreate, D.FundingOwnerId) || HasLobRole(Roles.LobBusinessOwner, Roles.SharedServiceOwner, Roles.DelegatedApprover, Roles.LobFinancePartner, SeatAccess.LobSeatAdmin) || Principal.Can(Permissions.RegistryFinance);
@@ -72,6 +74,9 @@ public class SeatLobModel(SeatQueries seats, SeatCommands commands) : GovPage
         if (d is null) return NotFound();
         return Csv(d.Holders.Select(h => new { h.DisplayName, h.UserPrincipalName, Seat = h.HasSeat ? "yes" : "no", h.State, h.Error, Direct = h.Direct ? "yes" : "no", LastCopilotActivity = h.LastActivityDate?.ToString("yyyy-MM-dd") }), $"seats-{d.Code}");
     }
+
+    public Task<IActionResult> OnPostSetReservationAsync(int seatCount, DateTime effectiveFrom, string? notes)
+        => Act(() => commands.SetReservationAsync(Idem, Id, seatCount, effectiveFrom, notes), $"Reservation set: {seatCount:N0} seats from {effectiveFrom:d MMM yyyy}.");
 
     public Task<IActionResult> OnPostBaselineAsync(int seatCount, DateTime effectiveFrom, string? notes)
         => Act(() => commands.RecordInitialReservationAsync(Idem, Id, seatCount, effectiveFrom, notes), "First reservation recorded. Later changes go through a seat reservation request.");
