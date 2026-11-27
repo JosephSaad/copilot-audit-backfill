@@ -113,6 +113,9 @@ public abstract class GovPage : PageModel
     protected WebPrincipal Me => HttpContext.RequestServices.GetRequiredService<WebPrincipal>();
     public WebPrincipal Principal => Me;
 
+    /// <summary>The Workbench is set to Copilot seats per line of business only (Workbench.Scope): links to closed pages are left out.</summary>
+    public bool SeatsOnly => HttpContext.Items[WorkbenchScopeMiddleware.ItemKey] is true;
+
     [BindProperty(Name = "__idem")] public Guid Idem { get; set; }
     [TempData] public string? Flash { get; set; }
     [TempData] public string? FlashError { get; set; }

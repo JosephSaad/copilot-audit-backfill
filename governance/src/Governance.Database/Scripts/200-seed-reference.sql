@@ -20,7 +20,8 @@ USING (VALUES
     ('Evidence.AllowedTypes',     N'.png,.jpg,.jpeg,.pdf,.csv,.json,.xlsx,.docx,.txt', N'Evidence file types accepted.'),
     ('Evidence.RetentionYears',   N'7',     N'Evidence content is purged after this many years; hash and metadata stay.'),
     ('Workbench.BaseUrl',         N'http://localhost:5291', N'Address used in notification links.'),
-    ('Directory.StaleAfterRuns',  N'2',     N'Missed sync runs before the staleness banner shows.')
+    ('Directory.StaleAfterRuns',  N'2',     N'Missed sync runs before the staleness banner shows.'),
+    ('Workbench.Scope',           N'SEATS', N'SEATS: Copilot seats per line of business only (lines of business, AD tracking groups, seat holders and their use, chargeback). FULL: the whole governance Workbench.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey
 WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, Description) VALUES (s.SettingKey, s.SettingValue, s.Description)

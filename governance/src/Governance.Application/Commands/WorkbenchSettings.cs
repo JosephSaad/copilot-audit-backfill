@@ -14,6 +14,10 @@ public static class WorkbenchSettings
     public static bool OnSettingsPage(string key) =>
         !key.StartsWith("Seats.", StringComparison.Ordinal) && !key.StartsWith("Setup.", StringComparison.Ordinal) && key != "Intake.Open";
 
+    /// <summary>With seats only, the settings the seat pages and the worker still read; the rest belong to closed pages.</summary>
+    public static readonly IReadOnlyList<string> SeatSettings =
+        [WorkbenchScope.Key, "Calendar.TimeZone", "Workbench.BaseUrl", "Retention.WorkerRecordDays", "Directory.StaleAfterRuns"];
+
     /// <summary>The value as it is kept, or a refusal saying what it takes. Pure, for the tests.</summary>
     public static string Check(string key, string? value)
     {
@@ -46,6 +50,8 @@ public static class WorkbenchSettings
             "Directory.StaleAfterRuns" => Whole(v, 1, 30, "The missed directory reads before the banner"),
             "Workbench.BaseUrl" => Uri.TryCreate(v, UriKind.Absolute, out var u) && u.Scheme is "https" or "http" && string.IsNullOrEmpty(u.Query)
                 ? v.TrimEnd('/') : throw new DomainException("The address is the site's own, for example https://insights.contoso.com, without /workbench."),
+            WorkbenchScope.Key => v.ToUpperInvariant() is WorkbenchScope.Seats or WorkbenchScope.Full ? v.ToUpperInvariant()
+                : throw new DomainException("Choose SEATS (Copilot seats per line of business only) or FULL (the whole Workbench)."),
             _ => throw new DomainException("That setting is not changed here."),
         };
     }

@@ -5,6 +5,13 @@ the navigation's sections after the dashboard's: Ownership and approvals, Approv
 Governance operations and Workbench settings. You sign in as you do for the dashboard. [DASHBOARD.md](DASHBOARD.md#governance-workbench-pages)
 lists every page.
 
+**Copilot seats only (3.6.0).** Unless an administrator has turned the whole Workbench back on (Workbench settings ›
+Settings › *What the Workbench is used for*), the Workbench does one thing: it shows each line of business's Copilot
+license holders and how they use Copilot. Its menu has one section, *Copilot seats by line of business*; the journeys
+below (requests, approvals, workloads, envelopes, recertification and the rest) are not offered, and their addresses
+open Copilot seats. The LOB seat admin and FinOps sections below still apply; a line of business is active once it is
+added, with its AD tracking group set on Seat groups.
+
 Everyone starts on **Start** (`/workbench/Start`), which shows only the journeys your roles allow, and
 **My work** (`/workbench/MyWork`), which lists your open tasks by due time. Every decision happens in the
 Workbench, never by replying to an email or a Teams message. Each field has an (i) icon that says why it is

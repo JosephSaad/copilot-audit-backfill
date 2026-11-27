@@ -65,25 +65,26 @@ public static class WorkbenchNav
     public static async Task<IReadOnlyList<NavGroup>> ForAsync(HttpContext ctx, WebPrincipal me, bool on)
     {
         if (!on || ctx.User.Identity?.IsAuthenticated != true) return [];
-        if (me.IsAuthenticated) return For(me, on);
+        var seats = await ctx.RequestServices.GetRequiredService<WorkbenchMode>().SeatsOnlyAsync();
+        if (me.IsAuthenticated) return For(me, on, seats);
         /* Only in the Workbench's own tenant: its roles are that tenant's grants. */
         var tenants = ctx.RequestServices.GetRequiredService<CopilotInsights.Infrastructure.TenantAccessor>();
         if (!ctx.RequestServices.GetRequiredService<WorkbenchState>().OnFor(tenants)) return [];
         var cache = ctx.RequestServices.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
-        /* Per person, tenant and test persona: whatever changes the answer. */
+        /* Per person, tenant, test persona and Workbench scope: whatever changes the answer. */
         var key = string.Join("|", "workbench-nav", tenants.Current.Name, ctx.User.Identity?.Name ?? CopilotInsights.Infrastructure.EntraClaims.SignInName(ctx.User),
-            ctx.Request.Cookies[PrincipalLoader.ActAsCookie] ?? "");
+            ctx.Request.Cookies[PrincipalLoader.ActAsCookie] ?? "", seats ? "seats" : "full");
         if (cache.TryGetValue(key, out IReadOnlyList<NavGroup>? known) && known is not null) return known;
         try
         {
             /* Read only: a visit to an Insights page records no one in the Workbench. */
             await ctx.RequestServices.GetRequiredService<PrincipalLoader>().LoadAsync(ctx, me, create: false);
             /* Someone the Workbench has not met yet: the sections their Insights roles open. */
-            var groups = me.IsAuthenticated ? For(me, on) : For(new WebPrincipal
+            var groups = me.IsAuthenticated ? For(me, on, seats) : For(new WebPrincipal
             {
                 IsAuthenticated = true,
                 AppRoles = await PageRolesAsync(ctx),
-            }, on);
+            }, on, seats);
             cache.Set(key, groups, TimeSpan.FromMinutes(2));
             return groups;
         }
@@ -95,6 +96,26 @@ public static class WorkbenchNav
         }
     }
 
+    /// <summary>
+    /// With Workbench.Scope SEATS: one section, Copilot seats per line of business. Each page keeps the rule it has with
+    /// the whole Workbench, so nobody sees more than before.
+    /// </summary>
+    static IReadOnlyList<NavGroup> SeatsOnly(WebPrincipal me, bool operations, bool settings, bool auditor)
+    {
+        var pages = new List<NavPage>();
+        if (Governance.Web.Pages.Registry.SeatsModel.CanOpen(me)) pages.Add(new("Copilot seats", $"{P}/Registry/Seats"));
+        if (me.SeesRegistry) pages.Add(new("Lines of business", $"{P}/Registry/FundingOwners"));
+        if (auditor) pages.Add(new("Seat chargeback", $"{P}/Reports/SeatChargeback"));
+        if (settings)
+        {
+            pages.Add(new("Seat groups", $"{P}/Admin/SeatGroups"));
+            pages.Add(new("Workbench roles", $"{P}/Admin/Roles"));
+            pages.Add(new("Settings", $"{P}/Admin/Settings"));
+        }
+        if (operations) pages.Add(new("Sync and freshness", $"{P}/Operations/Sync"));
+        return pages.Count == 0 ? [] : [new("Copilot seats by line of business", "Each line of business's Copilot license holders and their use", pages)];
+    }
+
     /// <summary>The Workbench page roles the signed-in person's Insights grants give, roles and sections.</summary>
     static async Task<HashSet<string>> PageRolesAsync(HttpContext ctx)
     {
@@ -103,7 +124,7 @@ public static class WorkbenchNav
     }
 
     /// <summary>The Workbench sections this person may open: none when the Workbench is off or they could not be loaded.</summary>
-    public static IReadOnlyList<NavGroup> For(WebPrincipal? me, bool on)
+    public static IReadOnlyList<NavGroup> For(WebPrincipal? me, bool on, bool seatsOnly = false)
     {
         if (!on || me is not { IsAuthenticated: true }) return [];
         var central = me.AppRoles.Contains(AppRoles.Central) || me.AppRoles.Contains(AppRoles.Admin);
@@ -111,6 +132,7 @@ public static class WorkbenchNav
         var isAdmin = me.AppRoles.Contains(AppRoles.Admin);
         var settings = isAdmin || me.HasCentral(Roles.PlatformOwner, Roles.Steering);
         var auditor = me.AppRoles.Contains(AppRoles.Auditor) || me.AppRoles.Contains(AppRoles.Central);
+        if (seatsOnly) return SeatsOnly(me, central && oper, settings, auditor);
 
         /* The two everyday sections need a grant that opens them (Admin › Access), or a central role or Admin. */
         var groups = new List<NavGroup>();

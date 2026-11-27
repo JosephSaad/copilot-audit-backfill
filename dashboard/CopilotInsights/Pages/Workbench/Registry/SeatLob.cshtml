@@ -22,7 +22,7 @@
         <p class="lead">Reserved Copilot seats against the seats people in this LOB actually hold. The LOB pays for its reservation until the EA anniversary, and for any seats above it. <help>Assigned seats are people in the LOB's tracking group who hold an active Copilot add-on license, from the daily read-back.</help></p>
     </div>
     <div class="page-actions">
-        @if (Model.CanAskChange) { <a class="btn" href="/workbench/Requests/New/J9?fundingOwner=@d.PublicId">Change the reservation</a> }
+        @if (Model.CanAskChange && !Model.SeatsOnly) { <a class="btn" href="/workbench/Requests/New/J9?fundingOwner=@d.PublicId">Change the reservation</a> }
         <a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export holders</a>
     </div>
 </div>
@@ -118,7 +118,7 @@
                         <td data-label="In effect">@Ui.Date(r.EffectiveFrom) to @(r.EffectiveTo is null ? "now" : Ui.Date(r.EffectiveTo))</td>
                         <td data-label="Approved by">@r.ApprovedByName</td>
                         <td data-label="Flex-pool review">@(r.FlexPoolReview ?? r.Notes)</td>
-                        <td data-label="Request">@if (r.RequestPublicId is Guid rq) { <a href="/workbench/Requests/@rq">@r.RequestNumber</a> }</td>
+                        <td data-label="Request">@if (r.RequestPublicId is Guid rq && !Model.SeatsOnly) { <a href="/workbench/Requests/@rq">@r.RequestNumber</a> } else { @r.RequestNumber }</td>
                     </tr>
                 }
                 </tbody>

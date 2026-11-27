@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-11-27
+
+The Workbench cut down to tracking Copilot license holders per line of business. Its menu has one section, *Copilot
+seats by line of business*: Copilot seats, Lines of business, Seat chargeback, Seat groups, Workbench roles, Settings,
+Sync and freshness. Requests, approvals, workloads, envelopes, recertification and every other governance page are
+closed, and the worker runs only the jobs the seats need. Nothing is deleted: one setting brings the whole Workbench
+back with its data.
+
+**Install over 3.5.2** (the change bundle runs from v3.5.2): rerun the Workbench database scripts
+(`Deploy-Database.ps1`, or `200-seed-reference.sql` in SSMS on `CopilotGovernance`), which add the setting as *Copilot
+seats only*; build and deploy the dashboard and the worker (docs\BUILD-FROM-SOURCE.md) and restart the worker service.
+No table changes; nothing changes on the job server.
+
+### Changed
+- **Copilot seats only, by default.** Workbench settings › Settings › *What the Workbench is used for* (`Workbench.Scope`):
+  *Copilot seats per line of business only* (`SEATS`) or *The whole governance Workbench* (`FULL`). With seats only,
+  every other Workbench address opens Copilot seats (a form post to one answers 404), the pages leave out links to
+  them (*Change reservation*, request numbers, cost centers, envelopes, delegations, attribution, access packages,
+  intake), and the Settings page lists only the settings still read. Each page keeps the roles that open it.
+- **A line of business is active once added.** With seats only there is no activation checklist; one left in Draft
+  from before has an *Activate* button. Funding owners are called lines of business; the form asks for code, name,
+  part of and business owner and keeps the finance fields as they are. The roles a line of business gives are LOB
+  seat admin only.
+- **The worker runs the seat jobs only**: the outbox dispatcher, the directory sync, the seat read and record
+  keeping. The SLA timer, entitlement sync, access review import, licensing read, ITSM poller, recertification
+  campaigns and digests wait, read again before each turn, so no notice goes out for a closed journey and no job
+  needs a permission it was refused (`AccessReview.Read.All`).
+
+### Known limits
+- Tested on this PC's SQL Server and site only; not yet on the client's servers.
+- Several web servers each keep the setting 30 seconds: after a change, a server may show the old menu for up to
+  half a minute.
+- Seat reservations are still changed through a seat reservation request, which is closed with seats only: a line
+  of business is tracked by its AD group and assigned seats, and its reservation stays as it was recorded.
+
 ## [3.5.2] - 2026-11-26
 
 Anyone in the organization can be named in the Workbench. Every person picker (business owner, finance partner,

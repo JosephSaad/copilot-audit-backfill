@@ -11,12 +11,23 @@ using Microsoft.AspNetCore.Mvc;
 namespace Governance.Web.Pages.Admin;
 
 /// <summary>The Workbench's own settings, each changed on the page with its value checked (no SQL by hand).</summary>
-public class SettingsModel(AdminQueries admin, AdminCommands commands) : GovPage
+public class SettingsModel(AdminQueries admin, AdminCommands commands, Microsoft.Extensions.Caching.Memory.IMemoryCache cache) : GovPage
 {
     public IReadOnlyList<SettingRow> Settings { get; private set; } = Array.Empty<SettingRow>();
     public bool CanEdit => Principal.Can(Permissions.AdminConfigure) || Principal.HasCentral(Roles.PlatformOwner);
-    public async Task OnGetAsync() => Settings = await admin.EditableSettingsAsync();
-    public Task<IActionResult> OnPostSaveAsync(string key, string? value) => Act(() => commands.SaveSettingAsync(Idem, key, value), $"{key} saved.");
+
+    /// <summary>The table below the scope choice: with seats only, the settings the seat pages and the worker still read.</summary>
+    public async Task OnGetAsync() => Settings = (await admin.EditableSettingsAsync())
+        .Where(s => s.SettingKey != WorkbenchScope.Key && (!SeatsOnly || WorkbenchSettings.SeatSettings.Contains(s.SettingKey))).ToList();
+
+    public Task<IActionResult> OnPostSaveAsync(string key, string? value) => Act(async () =>
+    {
+        await commands.SaveSettingAsync(Idem, key, value);
+        /* This server shows the new scope at once; the others within 30 seconds. */
+        if (key == WorkbenchScope.Key) WorkbenchMode.Forget(cache);
+    }, key == WorkbenchScope.Key
+        ? (WorkbenchScope.SeatsOnly(value) ? "The Workbench now shows Copilot seats per line of business only." : "The whole governance Workbench is back.")
+        : $"{key} saved.");
 }
 
 public class RaciModel(AdminQueries admin, AdminCommands commands) : GovPage

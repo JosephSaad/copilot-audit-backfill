@@ -42,9 +42,36 @@ public abstract class JobBase(IServiceScopeFactory scopes, IOptions<DbOptions> d
         try { await Task.Delay(InitialDelay, stoppingToken); } catch (OperationCanceledException) { return; }
         while (!stoppingToken.IsCancellationRequested)
         {
-            await RunGuardedAsync(stoppingToken);
+            if (await InScopeAsync(stoppingToken)) await RunGuardedAsync(stoppingToken);
             try { await Task.Delay(Interval, stoppingToken); } catch (OperationCanceledException) { return; }
         }
+    }
+
+    private bool _outOfScopeLogged;
+
+    /// <summary>
+    /// Whether the job runs on this turn: with Workbench.Scope SEATS only the seat jobs do (<see cref="WorkbenchScope.SeatJobs"/>).
+    /// Read at every turn, so changing the setting on the Settings page takes effect without a restart. A database that
+    /// cannot be read lets the job run, and fail where it is recorded. A run asked for with --once always runs.
+    /// </summary>
+    private async Task<bool> InScopeAsync(CancellationToken ct)
+    {
+        if (WorkbenchScope.SeatJobs.Contains(Name, StringComparer.OrdinalIgnoreCase)) return true;
+        string? value;
+        try
+        {
+            await using var scope = scopes.CreateAsyncScope();
+            value = await scope.ServiceProvider.GetRequiredService<Db>().InTransactionAsync(u => u.ScalarAsync<string?>(WorkbenchScope.Sql), ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            log.LogDebug(ex, "Job {Job}: the Workbench scope could not be read; running.", Name);
+            return true;
+        }
+        var runs = WorkbenchScope.JobRuns(Name, WorkbenchScope.SeatsOnly(value));
+        if (!runs && !_outOfScopeLogged) log.LogInformation("Job {Job} is not needed with the Workbench set to Copilot seats only (Workbench.Scope); it waits.", Name);
+        _outOfScopeLogged = !runs;
+        return runs;
     }
 
     /// <summary>Runs the job once if this node gets the lock. Returns false when another node holds it.</summary>

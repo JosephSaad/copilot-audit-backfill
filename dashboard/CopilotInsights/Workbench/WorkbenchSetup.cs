@@ -112,6 +112,7 @@ public static class WorkbenchSetup
         services.AddScoped<AccessQueries>();
         services.AddScoped<SeatQueries>();
         services.AddScoped<ReservationImport>();
+        services.AddScoped<WorkbenchMode>();
         services.AddSingleton<HelpText>();
     }
 
@@ -130,6 +131,8 @@ public static class WorkbenchSetup
                 return;
             }
             b.UseMiddleware<PrincipalMiddleware>();
+            /* Copilot seats only (Workbench.Scope): the other pages are closed. */
+            b.UseMiddleware<WorkbenchScopeMiddleware>();
         });
         app.UseRateLimiter();
     }
