@@ -758,6 +758,8 @@ The worker reads the setting before every run: with seats only it runs the outbo
 
 **Reading the seats without a worker** (3.6.1). With seats only, *Read seats now* on Sync and freshness (`/workbench/Operations/Sync`) may be pressed by the Platform Owner and Copilot Insights administrators as well as the platform operator, and the menu shows them the page. Where no worker service is installed, that button is how the seats are read: it does the whole seat read from the site, the draft chargeback included. With the whole Workbench, only the platform operator runs it, as before.
 
+**Reservations with seats only** (3.6.2). Each line of business's seats page (Copilot seats › the line of business) has *Set the reservation*: the seats reserved, the date they apply from and the source, for the Platform Owner or FinOps. A new figure ends the one before on the day before, so the history and the monthly chargeback keep every figure; the same date as the latest corrects it; an earlier date is refused. Each change is in the audit trail. With the whole Workbench, reservations change through seat reservation requests, as before.
+
 **Tracking a line of business, start to end.** Lines of business › *Add a line of business* (code, name, business owner) › Seat groups: its AD tracking group › Copilot seats › *Read seats now* (or wait for the daily read) › the line of business's row: who holds a seat, when each last used Copilot, inactive holders, and the holders' CSV.
 
 ### Who opens which pages

@@ -52,6 +52,46 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             return id.ToString();
         });
 
+    /// <summary>
+    /// With the Workbench set to Copilot seats only (no request journey), the Platform Owner or FinOps sets an LOB's
+    /// reservation straight on its page: from the date given, the row in effect ends the day before and the new figure
+    /// starts, so the history and the monthly chargeback keep every earlier figure. The same date corrects that row.
+    /// </summary>
+    public Task<string?> SetReservationAsync(Guid idem, Guid fundingOwnerPublicId, int seats, DateTime effectiveFrom, string? notes)
+        => run.RunAsync(idem, "seat.reservation.set", async uow =>
+        {
+            run.RequireAny(Permissions.RegistryFinance, Permissions.RegistryEdit);
+            if (!WorkbenchScope.SeatsOnly(await uow.ScalarAsync<string?>(WorkbenchScope.Sql)))
+                throw new DomainException("With the whole Workbench, a reservation changes through a seat reservation request (J9), so the change is approved and recorded.");
+            if (seats < 0) throw new DomainException("Seats cannot be negative.");
+            var fo = await FundingOwnerIdAsync(uow, fundingOwnerPublicId);
+            var from = effectiveFrom.Date;
+            if (await uow.ScalarAsync<int>("SELECT COUNT(*) FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveFrom > @from", new { fo, from }) > 0)
+                throw new DomainException("A reservation starts after that date. Choose a date on or after the latest one in the history.");
+            var cur = await uow.QuerySingleOrDefaultAsync<(int Id, int Seats, DateTime From)>(
+                "SELECT TOP (1) SeatReservationId, Seats, EffectiveFrom FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveFrom <= @from AND (EffectiveTo IS NULL OR EffectiveTo >= @from) ORDER BY EffectiveFrom DESC",
+                new { fo, from });
+            Guid id;
+            if (cur.Id != 0 && cur.From == from)
+            {
+                id = await uow.ScalarAsync<Guid>(
+                    "UPDATE core.SeatReservation SET Seats = @seats, ChangeKind = CASE WHEN ChangeKind = 'INITIAL' THEN 'INITIAL' ELSE 'CORRECTION' END, Notes = COALESCE(@notes, Notes) OUTPUT inserted.PublicId WHERE SeatReservationId = @Id",
+                    new { seats, notes = CommandRunner.TrimN(notes, 1000), cur.Id });
+            }
+            else
+            {
+                if (cur.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET EffectiveTo = @to WHERE SeatReservationId = @Id", new { to = from.AddDays(-1), cur.Id });
+                var kind = cur.Id == 0 ? "INITIAL" : seats > cur.Seats ? "INCREASE" : "CORRECTION";
+                id = await uow.ScalarAsync<Guid>(
+                    """
+                    INSERT core.SeatReservation (FundingOwnerId, Seats, PreviousSeats, ChangeKind, EffectiveFrom, ApprovedByPersonId, Notes, CreatedByPersonId)
+                    OUTPUT inserted.PublicId VALUES (@fo, @seats, @prev, @kind, @from, @me, @notes, @me)
+                    """, new { fo, seats, prev = cur.Id == 0 ? (int?)null : cur.Seats, kind, from, me = Me.PersonId, notes = CommandRunner.TrimN(notes, 1000) });
+            }
+            await run.AuditAsync(uow, "seat.reservation.set", "SeatReservation", id, $"{seats} seats from {from:yyyy-MM-dd}{(cur.Id == 0 ? "" : $" (was {cur.Seats})")}");
+            return id.ToString();
+        });
+
     // ---------------------------------------------------------------- reclaim
 
     /// <summary>
@@ -144,6 +184,9 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             if (name.Length == 0) throw new DomainException("Enter the group's name as it shows in AD or Entra.");
             if (!Purposes.Contains(i.Purpose)) throw new DomainException("Choose what the group is for.");
             if (i.Purpose == SeatGroupPurposes.LobTracking && i.FundingOwnerId is null) throw new DomainException("A tracking group needs the LOB it tracks.");
+            /* A line of business chosen with another purpose was dropped without a word: say so instead. */
+            if (i.Purpose != SeatGroupPurposes.LobTracking && i.FundingOwnerId is not null)
+                throw new DomainException("Only an LOB tracking group belongs to a line of business. Choose LOB tracking group as its purpose, or no line of business.");
             if (i.Source is not ("ON_PREM_AD" or "CLOUD")) throw new DomainException("Choose where the group comes from.");
             var fo = i.Purpose == SeatGroupPurposes.LobTracking ? i.FundingOwnerId : null;
             Guid? entraId = i.EntraGroupId;

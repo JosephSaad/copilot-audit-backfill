@@ -104,7 +104,7 @@ public static class SyncRuns
         }
         catch (Exception ex)
         {
-            var note = ex is IntegrationPermissionException or DomainException ? ex.Message : "The run failed; see the worker log for run " + runId + ".";
+            var note = ex is IntegrationPermissionException or DomainException ? ex.Message : "The run failed; the error is in the log of the server that ran it (the worker's, or a web server's Windows Application log for a run started on the page), run " + runId + ".";
             await db.InTransactionAsync(u => FinishAsync(u, runId, "FAILED", 0, 0, note), CancellationToken.None);
             throw;
         }
@@ -141,15 +141,65 @@ public sealed class FindingWriter(OutboxWriter outbox, IClock clock)
             });
     }
 
-    /// <summary>Resolves open findings of a type whose key was not seen in this run (the condition went away).</summary>
+    /// <summary>
+    /// Resolves open findings of a type whose key was not seen in this run (the condition went away). The keys go into
+    /// an indexed temporary table first: a NOT IN over OPENJSON was compared row by row, and with tens of thousands of
+    /// keys (every license holder in no line of business) ran past the command timeout. Returns the findings resolved.
+    /// </summary>
     public Task<int> ResolveMissingAsync(Uow uow, string findingType, IReadOnlyCollection<string> stillOpenKeys, string resolution)
-        => uow.ExecuteAsync(
-            $"""
-            UPDATE ops.Finding SET Status = 'RESOLVED', ResolvedUtc = @now, Resolution = @resolution
-            WHERE FindingType = @findingType AND Status IN ('OPEN','ACKNOWLEDGED')
-              {(stillOpenKeys.Count == 0 ? "" : "AND DedupeKey NOT IN (SELECT value FROM OPENJSON(@keys))")}
+        => uow.ScalarAsync<int>(
+            """
+            SET NOCOUNT ON;
+            CREATE TABLE #keep (K nvarchar(300) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
+            INSERT #keep (K) SELECT DISTINCT LEFT(value, 300) FROM OPENJSON(@keys) WHERE value IS NOT NULL;
+            UPDATE f SET Status = 'RESOLVED', ResolvedUtc = @now, Resolution = @resolution
+            FROM ops.Finding AS f
+            WHERE f.FindingType = @findingType AND f.Status IN ('OPEN','ACKNOWLEDGED')
+              AND NOT EXISTS (SELECT 1 FROM #keep AS k WHERE k.K = f.DedupeKey);
+            DECLARE @n int = @@ROWCOUNT;
+            DROP TABLE #keep;
+            SELECT @n;
             """,
             new { now = clock.UtcNow, resolution, findingType, keys = System.Text.Json.JsonSerializer.Serialize(stillOpenKeys) });
+
+    /// <summary>
+    /// Raises many findings of one type in three statements, for reads that find thousands at once (seat holders in no
+    /// line of business): refreshes the open ones with the same key, inserts the rest. No notices: a caller that
+    /// notifies raises one at a time with <see cref="RaiseAsync"/>. Returns the findings newly raised.
+    /// </summary>
+    public Task<int> RaiseManyAsync(Uow uow, IReadOnlyList<(string Key, NewFinding Finding)> hits)
+    {
+        if (hits.Count == 0) return Task.FromResult(0);
+        var rows = hits.Select(h => new
+        {
+            K = Cut(h.Key, 300), T = h.Finding.Type, S = h.Finding.Severity, Fo = h.Finding.FundingOwnerId, W = h.Finding.WorkloadId,
+            X = Cut(h.Finding.ExternalId, 200), Ti = Cut(h.Finding.Title, 300), D = Cut(h.Finding.Details, 2000),
+            E = Cut(h.Finding.Expected, 400), A = Cut(h.Finding.Actual, 400), R = h.Finding.SyncRunId, Du = h.Finding.DueUtc,
+        });
+        return uow.ScalarAsync<int>(
+            """
+            SET NOCOUNT ON;
+            CREATE TABLE #hit (K nvarchar(300) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY, T varchar(40) NOT NULL, S varchar(10) NOT NULL,
+                Fo int NULL, W int NULL, X nvarchar(200) NULL, Ti nvarchar(300) NOT NULL, D nvarchar(2000) NULL, E nvarchar(400) NULL,
+                A nvarchar(400) NULL, R bigint NULL, Du datetime2 NULL);
+            INSERT #hit SELECT K, T, S, Fo, W, X, Ti, D, E, A, R, CONVERT(datetime2, CONVERT(datetimeoffset, Du)) FROM (
+                SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.K ORDER BY (SELECT 0)) AS n
+                FROM OPENJSON(@rows) WITH (K nvarchar(300), T varchar(40), S varchar(10), Fo int, W int, X nvarchar(200), Ti nvarchar(300),
+                    D nvarchar(2000), E nvarchar(400), A nvarchar(400), R bigint, Du nvarchar(40)) AS j WHERE j.K IS NOT NULL) AS x
+            WHERE x.n = 1;
+            UPDATE f SET LastSeenUtc = @now, Actual = COALESCE(h.A, f.Actual), SyncRunId = COALESCE(h.R, f.SyncRunId)
+            FROM ops.Finding AS f JOIN #hit AS h ON h.K = f.DedupeKey
+            WHERE f.Status IN ('OPEN','ACKNOWLEDGED');
+            INSERT ops.Finding (FindingType, Severity, FundingOwnerId, WorkloadId, ExternalId, Title, Details, Expected, Actual, Status, DedupeKey, SyncRunId, RaisedUtc, LastSeenUtc, DueUtc)
+            SELECT h.T, h.S, h.Fo, h.W, h.X, h.Ti, h.D, h.E, h.A, 'OPEN', h.K, h.R, @now, @now, h.Du
+            FROM #hit AS h
+            WHERE NOT EXISTS (SELECT 1 FROM ops.Finding AS f WHERE f.DedupeKey = h.K AND f.Status IN ('OPEN','ACKNOWLEDGED'));
+            DECLARE @n int = @@ROWCOUNT;
+            DROP TABLE #hit;
+            SELECT @n;
+            """,
+            new { rows = System.Text.Json.JsonSerializer.Serialize(rows), now = clock.UtcNow });
+    }
 
     public Task NotifyAsync(Uow uow, string code, long findingId, string subject, string text, IEnumerable<int> personIds, IEnumerable<RoleTarget> roles, IEnumerable<string>? queues = null, int? fundingOwnerId = null, string linkPath = "/workbench/Operations/Findings")
         => outbox.EnqueueAsync(uow, new OutboxMessage

@@ -81,6 +81,20 @@
     </div>
 }
 
+@if (Model.CanSetReservation)
+{
+    <form method="post" asp-page-handler="SetReservation" asp-route-id="@d.PublicId" class="card mt" id="set-reservation">
+        <idem />
+        <h2>Set the reservation <help>The Copilot licenses reserved for @d.LobName, as agreed with Finance. From the date given, the figure before ends the day before and this one starts; every earlier figure stays in the history below and in the monthly chargeback. The same date as the latest figure corrects it. Recorded in the audit trail.</help></h2>
+        <div class="form-grid">
+            <div class="field"><label for="rs" class="req">Seats reserved <help>The number of Copilot licenses reserved for this line of business.</help></label><input id="rs" type="number" name="seatCount" min="0" step="1" value="@(current?.Seats)" required /></div>
+            <div class="field"><label for="rf" class="req">In effect from <help>The first day the figure applies: the start of the EA year for the original reservation, or the day a change takes effect.</help></label><input id="rf" type="date" name="effectiveFrom" value="@((current is null ? new DateTime(DateTime.UtcNow.Year, 1, 1) : DateTime.UtcNow.Date).ToString("yyyy-MM-dd"))" required /></div>
+            <div class="field full"><label for="rn">Source <help>Where the figure comes from, for example the reservation schedule or a Finance email reference.</help></label><input id="rn" name="notes" maxlength="1000" /></div>
+            <div><button class="btn" type="submit">Save the reservation</button></div>
+        </div>
+    </form>
+}
+
 <div class="card mt">
     <h2>Reservation history <help>Every change with its effective dates, the quantity before and after, who approved it and the flex-pool review (CAL-06). Increases can happen any time; decreases only at the EA anniversary.</help></h2>
     @if (d.Reservations.Count == 0)

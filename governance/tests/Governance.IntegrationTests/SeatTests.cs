@@ -187,7 +187,56 @@ public sealed class SeatTests(SeededFixture fx) : IClassFixture<SeededFixture>
         Assert.Equal(12, c.ExecuteScalar<int>("SELECT Seats FROM core.SeatReservation WHERE FundingOwnerId = @fo AND ChangeKind = 'INITIAL'", new { fo = fx.Seed.FundingOwners["WEALTH"] }));
     }
 
-    private sealed class FinOps(int personId) : ICurrentPrincipal
+    [Fact]
+    public async Task With_seats_only_the_reservation_is_set_on_the_page_and_its_history_kept()
+    {
+        var finops = fx.Seed.As("finopsLead");
+        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(finops), new FinOps(finops.PersonId), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var fo = fx.Seed.FundingOwners["HR"];
+        using var c = fx.Admin();
+        var scope = c.ExecuteScalar<string?>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = 'Workbench.Scope'");
+        try
+        {
+            c.Execute("UPDATE ref.Setting SET SettingValue = 'SEATS' WHERE SettingKey = 'Workbench.Scope'");
+            var before = c.ExecuteScalar<int>("SELECT Seats FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveTo IS NULL", new { fo });
+            var from = fx.Host.Clock.UtcNow.Date.AddDays(10);
+
+            // A new figure from a date: the one before ends the day before, and is kept.
+            await cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), before + 40, from, "Finance schedule");
+            var rows = c.Query<(int Seats, int? Prev, string Kind, DateTime From, DateTime? To)>(
+                "SELECT Seats, PreviousSeats, ChangeKind, EffectiveFrom, EffectiveTo FROM core.SeatReservation WHERE FundingOwnerId = @fo ORDER BY EffectiveFrom", new { fo }).ToList();
+            Assert.Equal((before + 40, (int?)before, "INCREASE", from, (DateTime?)null), rows[^1]);
+            Assert.Equal(from.AddDays(-1), rows[^2].To);
+
+            // The same date corrects that figure instead of adding a row.
+            await cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), before + 35, from, null);
+            Assert.Equal(rows.Count, c.ExecuteScalar<int>("SELECT COUNT(*) FROM core.SeatReservation WHERE FundingOwnerId = @fo", new { fo }));
+            Assert.Equal(before + 35, c.ExecuteScalar<int>("SELECT Seats FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveTo IS NULL", new { fo }));
+
+            // A date before the latest figure would rewrite history: refused. So is a change with the whole Workbench on.
+            await Assert.ThrowsAsync<DomainException>(() => cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), 5, from.AddDays(-3), null));
+            c.Execute("UPDATE ref.Setting SET SettingValue = 'FULL' WHERE SettingKey = 'Workbench.Scope'");
+            var full = await Assert.ThrowsAsync<DomainException>(() => cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), 5, from.AddDays(20), null));
+            Assert.Contains("seat reservation request", full.Message);
+        }
+        finally
+        {
+            c.Execute("UPDATE ref.Setting SET SettingValue = @scope WHERE SettingKey = 'Workbench.Scope'", new { scope = scope ?? "SEATS" });
+        }
+    }
+
+    [Fact]
+    public async Task A_line_of_business_on_a_group_that_is_not_a_tracking_group_is_refused_not_dropped()
+    {
+        var owner = fx.Seed.As("finopsLead");
+        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(owner), new FinOps(owner.PersonId, Governance.Domain.Permissions.RegistryEdit), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var e = await Assert.ThrowsAsync<DomainException>(() => cmd.SaveGroupAsync(Guid.NewGuid(), null,
+            new SeatGroupInput("GSGu_MCO_TestTracking", "LICENSE", fx.Seed.FundingOwners["HR"], null, "ON_PREM_AD", false, null, null)));
+        Assert.Contains("Only an LOB tracking group belongs to a line of business", e.Message);
+    }
+
+    /// <summary>FinOps (registry.finance); another permission stands in for the Platform Owner's (registry.edit).</summary>
+    private sealed class FinOps(int personId, string permission = Governance.Domain.Permissions.RegistryFinance) : ICurrentPrincipal
     {
         public bool IsAuthenticated => true;
         public int PersonId { get; } = personId;
@@ -196,7 +245,7 @@ public sealed class SeatTests(SeededFixture fx) : IClassFixture<SeededFixture>
         public bool IsCentral => true;
         public IReadOnlyList<RoleGrant> Roles { get; } = new[] { new RoleGrant(Governance.Domain.Roles.FinOpsLead, ScopeTypes.Tenant, null) };
         public IReadOnlySet<string> AppRoles { get; } = new HashSet<string>();
-        public IReadOnlySet<string> Permissions { get; } = new HashSet<string> { Governance.Domain.Permissions.RegistryFinance };
+        public IReadOnlySet<string> Permissions { get; } = new HashSet<string> { permission };
         public IReadOnlyDictionary<int, IReadOnlySet<string>> ScopedPermissions { get; } = new Dictionary<int, IReadOnlySet<string>>();
     }
 }
