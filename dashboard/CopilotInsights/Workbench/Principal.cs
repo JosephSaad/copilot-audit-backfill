@@ -21,6 +21,11 @@ public static class Policies
     public const string Ownership = "Ownership";
     /// <summary>The Ownership registry's pages: the section granted, or a central role or Admin.</summary>
     public const string Registry = "Registry";
+    /// <summary>
+    /// Sync and freshness: operators; with the Workbench set to Copilot seats only, also the Platform Owner and
+    /// administrators, who read the seats there (each other read still needs the platform operator role).
+    /// </summary>
+    public const string SeatRead = "SeatRead";
 }
 
 /// <summary>The person acting in this request, loaded once by <see cref="PrincipalMiddleware"/>.</summary>

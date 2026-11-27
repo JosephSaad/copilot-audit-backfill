@@ -35,6 +35,27 @@ public sealed class WorkbenchMode(Db db, IMemoryCache cache, ILogger<WorkbenchMo
     }
 }
 
+public sealed record SeatReadRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirement;
+
+/// <summary>
+/// <see cref="Policies.SeatRead"/>: the Operator page role as before; with seats only (decided for the request by
+/// <see cref="WorkbenchScopeMiddleware"/>), also Copilot Insights administrators and the Platform Owner.
+/// </summary>
+public sealed class SeatReadHandler(IHttpContextAccessor http) : Microsoft.AspNetCore.Authorization.AuthorizationHandler<SeatReadRequirement>
+{
+    public static bool Allows(WebPrincipal p, bool seatsOnly) => p.IsAuthenticated
+        && (p.AppRoles.Contains(Governance.Domain.AppRoles.Operator)
+            || (seatsOnly && (p.AppRoles.Contains(Governance.Domain.AppRoles.Admin) || p.HasCentral(Governance.Domain.Roles.PlatformOwner))));
+
+    protected override Task HandleRequirementAsync(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, SeatReadRequirement requirement)
+    {
+        var ctx = http.HttpContext;
+        if (ctx?.RequestServices.GetService<WebPrincipal>() is { } p && Allows(p, ctx.Items[WorkbenchScopeMiddleware.ItemKey] is true))
+            context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>
 /// After the Workbench person is loaded: with seats only, a Workbench address outside <see cref="WorkbenchScope.SeatPages"/>
 /// sends a page visit to the seats per line of business, and refuses anything else (a form post, a download) as not found.

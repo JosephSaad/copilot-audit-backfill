@@ -107,20 +107,21 @@
             Array.prototype.forEach.call(tr.children, function (td, i) { if (!td.hasAttribute('data-label') && heads[i]) td.setAttribute('data-label', heads[i]); });
         });
     });
-    // Person pickers: "Not in the list? Find someone in the directory" (_FindPerson.cshtml) searches the directory
-    // Copilot Insights loads from AD, records the person chosen, and adds and chooses them in the picker above it.
+    // Person pickers: "Or search everyone in Active Directory" (_FindPerson.cshtml) searches the directory Copilot
+    // Insights loads from AD, records the person chosen, and adds and chooses them in the picker above it.
     document.querySelectorAll('.find-person').forEach(function (box) {
         var target = document.getElementById(box.getAttribute('data-for'));
         var url = box.getAttribute('data-lookup');
         var byUpn = box.getAttribute('data-by') === 'upn';
         var open = box.querySelector('.find-open'), panel = box.querySelector('.find-box'), q = box.querySelector('.find-q'),
             list = box.querySelector('.find-results'), note = box.querySelector('.find-note');
-        if (!target || !url || !open || !panel || !q || !list || !note) return;
+        if (!target || !url || !panel || !q || !list || !note) return;
         var form = box.closest('form');
         var token = (form && form.querySelector('input[name="__RequestVerificationToken"]')) || document.querySelector('input[name="__RequestVerificationToken"]');
         var timer = null, asked = '';
         box.hidden = false;
-        open.addEventListener('click', function () {
+        // The search is always open now; a page that still has the old toggle button keeps working.
+        if (open) open.addEventListener('click', function () {
             panel.hidden = !panel.hidden;
             open.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
             if (!panel.hidden) q.focus();
@@ -163,7 +164,6 @@
                     choose(byUpn ? x.j.upn : x.j.value, x.j.text);
                     note.textContent = x.j.text + (x.j.added ? ' added to the Workbench and chosen.' : ' chosen.');
                     show([]); q.value = ''; asked = '';
-                    panel.hidden = true; open.setAttribute('aria-expanded', 'false');
                 })
                 .catch(function () { note.textContent = 'Not added. Try again.'; });
         }
