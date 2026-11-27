@@ -2,6 +2,7 @@
 @model AccessDeniedModel
 @{
     ViewData["Title"] = "Not available to you";
+    var admin = Model.Principal.AppRoles.Contains(Governance.Domain.AppRoles.Admin) || Model.Principal.HasCentral(Roles.PlatformOwner, Roles.Steering);
 }
 <div class="card">
     <h1>This page is not available to you</h1>
@@ -9,14 +10,29 @@
     {
         <p>The Workbench knows people by the user principal name or Entra object ID the directory records, and has neither for your account yet. It is recorded at the next directory load; an administrator can also map your sign-in name to your UPN (Insights:IdentityMap).</p>
     }
-    <p>Your access does not include this part of the Workbench. Ownership and approvals and the Ownership registry are sections an administrator grants in Admin › Access, as every section of the dashboard is; the central pages need the Governance, GovernanceOperator or GovernanceAuditor role, and the settings pages the Admin role. Work for a line of business (approvals, seat admin) is given by its business owner or the Platform Owner, and needs Ownership and approvals granted as well.</p>
-    @if (Model.Principal.SeesOwnership)
+    @if (Model.SeatsOnly)
     {
-        <p><a href="/workbench/Me">See the roles you hold.</a></p>
-        <p><a class="btn" href="/workbench/Start">Back to Start</a></p>
+        <p>Copilot seats shows every line of business to FinOps, the Platform Owner and auditors, and one line of business to its own business owner and seat admins. Central roles are given on Workbench settings › Workbench roles; a line of business's roles on its page under Lines of business. <help>While nobody holds the Platform Owner role, a Copilot Insights administrator may name one, themselves included, on Workbench roles. The Ownership registry section (Admin › Access) is needed as well.</help></p>
+        @if (admin)
+        {
+            <p><a class="btn" href="/workbench/Admin/Roles">Workbench roles</a> <a class="btn btn-ghost" href="/workbench/Registry/FundingOwners">Lines of business</a></p>
+        }
+        else
+        {
+            <p><a class="btn" href="~/">Back to Copilot Insights</a></p>
+        }
     }
     else
     {
-        <p><a class="btn" href="~/">Back to Copilot Insights</a></p>
+        <p>Your access does not include this part of the Workbench. Ownership and approvals and the Ownership registry are sections an administrator grants in Admin › Access, as every section of the dashboard is; the central pages need the Governance, GovernanceOperator or GovernanceAuditor role, and the settings pages the Admin role. Work for a line of business (approvals, seat admin) is given by its business owner or the Platform Owner, and needs Ownership and approvals granted as well.</p>
+        @if (Model.Principal.SeesOwnership)
+        {
+            <p><a href="/workbench/Me">See the roles you hold.</a></p>
+            <p><a class="btn" href="/workbench/Start">Back to Start</a></p>
+        }
+        else
+        {
+            <p><a class="btn" href="~/">Back to Copilot Insights</a></p>
+        }
     }
 </div>

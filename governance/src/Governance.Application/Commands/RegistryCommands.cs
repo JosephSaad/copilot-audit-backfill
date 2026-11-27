@@ -65,7 +65,10 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
                     """
                     INSERT core.FundingOwner (Code, Name, OwnerType, ParentFundingOwnerId, BusinessOwnerPersonId, FinancePartnerPersonId, FinanceNode, Status, IsCriticalShared, EffectiveFrom)
                     OUTPUT inserted.FundingOwnerId
-                    VALUES (@code, @Name, @OwnerType, @ParentFundingOwnerId, @BusinessOwnerPersonId, @FinancePartnerPersonId, @FinanceNode, 'DRAFT', @IsCriticalShared, @EffectiveFrom)
+                    VALUES (@code, @Name, @OwnerType, @ParentFundingOwnerId, @BusinessOwnerPersonId, @FinancePartnerPersonId, @FinanceNode,
+                            -- Copilot seats only (Workbench.Scope): active at once, its seats counted; the whole Workbench: Draft until its checklist passes.
+                            CASE WHEN ISNULL((SELECT UPPER(SettingValue) FROM ref.Setting WHERE SettingKey = 'Workbench.Scope'), 'SEATS') = 'FULL' THEN 'DRAFT' ELSE 'ACTIVE' END,
+                            @IsCriticalShared, @EffectiveFrom)
                     """, new { code, Name = CommandRunner.Trim(i.Name, 200), i.OwnerType, i.ParentFundingOwnerId, i.BusinessOwnerPersonId, i.FinancePartnerPersonId, FinanceNode = CommandRunner.TrimN(i.FinanceNode, 100), i.IsCriticalShared, EffectiveFrom = i.EffectiveFrom.Date });
             }
             else

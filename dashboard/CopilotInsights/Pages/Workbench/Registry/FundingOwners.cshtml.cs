@@ -43,7 +43,9 @@ public class FundingOwnerModel(RegistryQueries registry, RegistryCommands comman
         if (!CanView(Principal, d.Owner.FundingOwnerId)) return Forbid();
         D = d;
         People = await registry.PeopleOptionsAsync();
-        LobRoles = (await admin.RolesAsync()).Where(r => r.IsLob && r.RoleCode is not (Roles.LobBusinessOwner or Roles.SharedServiceOwner)).ToList();
+        LobRoles = (await admin.RolesAsync()).Where(r => r.IsLob && r.RoleCode is not (Roles.LobBusinessOwner or Roles.SharedServiceOwner)
+            /* Copilot seats only: the seat admin is the one line-of-business role that still does something. */
+            && (!d.SeatsOnly || r.RoleCode == SeatAccess.LobSeatAdmin)).ToList();
         return Page();
     }
 
@@ -116,5 +118,6 @@ public class FundingOwnerEditModel(RegistryQueries registry, RegistryCommands co
     public Task<IActionResult> OnPostAsync()
         => Act(() => commands.SaveFundingOwnerAsync(Idem, Id, new FundingOwnerInput(Input.Code, Input.Name, Input.OwnerType, Input.ParentFundingOwnerId, Input.BusinessOwnerPersonId,
                 Input.FinancePartnerPersonId, Input.FinanceNode, Input.IsCriticalShared, Input.EffectiveFrom), string.IsNullOrEmpty(Input.RowVer) ? null : Convert.FromBase64String(Input.RowVer)),
-            id => "Saved. The business owner is asked to accept the role.", id => Redirect($"/workbench/Registry/FundingOwners/{id}"));
+            id => SeatsOnly ? (Id is null ? "Added and active. Give it its AD tracking group on Seat groups next." : "Saved.")
+                : "Saved. The business owner is asked to accept the role.", id => Redirect($"/workbench/Registry/FundingOwners/{id}"));
 }

@@ -51,6 +51,8 @@ public sealed class FundingOwnerDetail
     public IReadOnlyList<AccessPackageRow> AccessPackages { get; init; } = Array.Empty<AccessPackageRow>();
     public IReadOnlyList<ChecklistItem> Checklist { get; init; } = Array.Empty<ChecklistItem>();
     public int AttributedPeople { get; init; }
+    /// <summary>The Workbench is set to Copilot seats only (Workbench.Scope): the page shows the seat parts alone.</summary>
+    public bool SeatsOnly { get; init; }
 }
 
 public sealed class CostCenterRow : ICounted
@@ -483,7 +485,9 @@ public sealed class RegistryQueries(Db db)
         var activeEnvServices = envs.Where(e => e.Status == "ACTIVE").Select(e => e.ServiceName).ToHashSet();
         var envServiceIds = (await c.QueryAsync<int>("SELECT DISTINCT ServiceId FROM core.FundingEnvelope WHERE FundingOwnerId = @id AND Status = 'ACTIVE'", new { id })).ToHashSet();
         var missingEnv = services.Count(s => !envServiceIds.Contains(s));
-        var checklist = new List<ChecklistItem>
+        /* Copilot seats only (Workbench.Scope): no checklist, a line of business is active once it is added. */
+        var seatsOnly = WorkbenchScope.SeatsOnly(await c.ExecuteScalarAsync<string?>(WorkbenchScope.Sql));
+        var checklist = seatsOnly ? new List<ChecklistItem>() : new List<ChecklistItem>
         {
             new() { No = 1, Text = "The business owner is named and has accepted the role in the Workbench.", Done = fo.BusinessOwnerPersonId is not null && ownerAccepted,
                     Detail = fo.BusinessOwnerPersonId is null ? "No business owner named." : ownerAccepted ? $"{names.Bo} accepted." : $"{names.Bo} has not accepted the role yet." },
@@ -501,6 +505,7 @@ public sealed class RegistryQueries(Db db)
         {
             Owner = fo, BusinessOwnerName = names.Bo, FinancePartnerName = names.Fp, ParentName = names.Parent, CostCenters = ccs, Roles = roles,
             Delegations = dels, Envelopes = envs, Attribution = attr, AccessPackages = packages, Checklist = checklist, AttributedPeople = attributed,
+            SeatsOnly = seatsOnly,
         };
     }
 

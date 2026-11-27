@@ -8,7 +8,7 @@
 }
 <div class="page-head">
     <div>
-        <div class="crumbs"><a href="/workbench/Registry/FundingOwners">Funding owners</a> › @o.Code</div>
+        <div class="crumbs"><a href="/workbench/Registry/FundingOwners">@(d.SeatsOnly ? "Lines of business" : "Funding owners")</a> › @o.Code</div>
         <h1>@o.Name</h1>
         <p class="lead">@(o.OwnerType == "LOB" ? "Line of business" : "Enterprise Shared unit")@(o.IsCriticalShared ? ", critical shared service" : "") · @Ui.Pill(o.Status) · business owner @(d.BusinessOwnerName ?? "not named")@(d.ParentName is null ? "" : " · part of " + d.ParentName)</p>
     </div>
@@ -20,6 +20,19 @@
     </div>
 </div>
 
+@if (d.SeatsOnly)
+{
+    <div class="card">
+        <h2>Copilot seats <help>The AD tracking group says who belongs to this line of business; its members who hold a Copilot license are its seats, with their use from Copilot Insights.</help></h2>
+        <p>See who holds a seat in @o.Name and how they use Copilot on <a href="/workbench/Registry/Seats/@o.PublicId">its seats page</a>. Its AD tracking group is set on <a href="/workbench/Admin/SeatGroups">Seat groups</a>.</p>
+        @if (o.Status == "DRAFT" && Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Activate" class="mt"><idem /><button class="btn" type="submit">Activate</button> <span class="small muted">Added before the Workbench was set to Copilot seats only: its seats are counted once it is active.</span></form>
+        }
+    </div>
+}
+else
+{
 <div class="card">
     <div class="card-head">
         <h2>Activation checklist <help k="fo.checklist">A funding owner moves from Draft to Active only when all seven hold (section 5.2), so routine approvals never depend on one person or on unvalidated cost centers.</help></h2>
@@ -76,6 +89,8 @@
     </div>
 </div>
 
+}
+
 <div class="card">
     <h2>People and roles <help>LOB roles are assigned by the business owner or the Platform Owner, with an effective period, and reviewed every year. A leaver or a role holder who changes cost center raises a vacancy finding (N20).</help></h2>
     <div class="table-wrap">
@@ -108,6 +123,23 @@
     }
 </div>
 
+@if (d.SeatsOnly)
+{
+    @if (Model.CanFinance && o.Status is "ACTIVE" or "DRAFT")
+    {
+        <div class="card">
+            <h2>Suspend or retire <help>A retired line of business is no longer counted on Copilot seats; its history stays.</help></h2>
+            <form method="post" asp-page-handler="Status" class="btn-row" data-confirm="Change this line of business's status?">
+                <idem />
+                <select name="status" aria-label="New status"><option value="SUSPENDED">Suspend</option><option value="RETIRED">Retire</option></select>
+                <input name="reason" placeholder="Reason" aria-label="Reason" required maxlength="500" />
+                <button class="btn btn-small btn-danger" type="submit">Apply</button>
+            </form>
+        </div>
+    }
+}
+else
+{
 <div class="card">
     <h2>Delegations <help>The business owner delegates routine approval (B5) to named approvers, within chosen envelopes and up to a credit limit per request. Checked and stored on every decision (SoD7).</help></h2>
     @if (d.Delegations.Count == 0) { <p class="muted">No delegation yet. At least two delegated approvers are needed for activation.</p> }
@@ -166,3 +198,4 @@
         }
     </div>
 </div>
+}

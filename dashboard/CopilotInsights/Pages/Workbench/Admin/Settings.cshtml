@@ -7,8 +7,21 @@
     <div>
         <div class="crumbs">Workbench settings</div>
         <h1>Settings</h1>
-        <p class="lead">The Workbench's own settings: the business time zone, notice days, evidence files, how long the worker keeps its records and the address in notices. The seat settings are on <a href="/workbench/Admin/SeatGroups">Seat groups</a>, intake on the <a href="/workbench/Admin/Intake">Intake switch</a>. <help>Each value is checked before it is kept, and each change is in the audit trail with the old and new value. A Workbench administrator or the Platform Owner changes them.</help></p>
+        <p class="lead">@(Model.SeatsOnly ? "What the Workbench is used for, and the settings it still reads: the business time zone, the missed directory reads before the banner, how long the worker keeps its records and the address in notices." : "The Workbench's own settings: the business time zone, notice days, evidence files, how long the worker keeps its records and the address in notices.") The seat settings are on <a href="/workbench/Admin/SeatGroups">Seat groups</a>@if (!Model.SeatsOnly) {<text>, intake on the <a href="/workbench/Admin/Intake">Intake switch</a></text>}. <help>Each value is checked before it is kept, and each change is in the audit trail with the old and new value. A Workbench administrator or the Platform Owner changes them.</help></p>
     </div>
+</div>
+<div class="card">
+    <h2>What the Workbench is used for <help>Copilot seats only: the lines of business, their AD tracking groups, who holds a Copilot license in each and how they use it, seat chargeback, roles, these settings and the sync page. Every other Workbench page is closed and the worker runs only the seat jobs. The whole Workbench brings back requests, approvals, workloads, envelopes, recertification and the rest, with their data: nothing is deleted either way. A change reaches every web server within 30 seconds.</help></h2>
+    @if (Model.CanEdit)
+    {
+        <form method="post" asp-page-handler="Save" class="btn-row"><idem /><input type="hidden" name="key" value="@Governance.Application.WorkbenchScope.Key" />
+            <select name="value" aria-label="What the Workbench is used for">
+                <option value="SEATS" selected="@Model.SeatsOnly">Copilot seats per line of business only</option>
+                <option value="FULL" selected="@(!Model.SeatsOnly)">The whole governance Workbench</option>
+            </select>
+            <button class="btn btn-small" type="submit">Save</button></form>
+    }
+    else { <p><strong>@(Model.SeatsOnly ? "Copilot seats per line of business only" : "The whole governance Workbench")</strong></p> }
 </div>
 <div class="table-wrap">
     <table class="stack">
