@@ -47,8 +47,10 @@ public static class WorkbenchSetup
            compile into one site; with the Workbench off, no request reaches them. */
         services.AddScoped<IAuthorizationHandler, AppRoleHandler>();
         services.AddScoped<IAuthorizationHandler, PlatformGovernanceHandler>();
+        services.AddScoped<IAuthorizationHandler, SeatReadHandler>();
         services.AddAuthorization(o =>
         {
+            o.AddPolicy(Policies.SeatRead, b => b.RequireAuthenticatedUser().AddRequirements(new SeatReadRequirement()));
             o.AddPolicy(Policies.Central, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Central, AppRoles.Admin)));
             o.AddPolicy(Policies.Operator, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Operator)));
             o.AddPolicy(Policies.Admin, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Admin)));

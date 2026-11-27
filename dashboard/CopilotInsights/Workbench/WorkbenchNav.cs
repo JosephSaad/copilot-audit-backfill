@@ -132,7 +132,8 @@ public static class WorkbenchNav
         var isAdmin = me.AppRoles.Contains(AppRoles.Admin);
         var settings = isAdmin || me.HasCentral(Roles.PlatformOwner, Roles.Steering);
         var auditor = me.AppRoles.Contains(AppRoles.Auditor) || me.AppRoles.Contains(AppRoles.Central);
-        if (seatsOnly) return SeatsOnly(me, central && oper, settings, auditor);
+        /* With seats only, the Platform Owner and administrators read the seats themselves (Sync and freshness). */
+        if (seatsOnly) return SeatsOnly(me, central && (oper || isAdmin || me.HasCentral(Roles.PlatformOwner)), settings, auditor);
 
         /* The two everyday sections need a grant that opens them (Admin › Access), or a central role or Admin. */
         var groups = new List<NavGroup>();

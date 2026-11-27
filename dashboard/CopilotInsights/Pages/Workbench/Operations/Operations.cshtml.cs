@@ -53,7 +53,8 @@ public class FindingsModel(RegistryQueries registry, OperationsCommands commands
         => Act(() => commands.UpdateFindingAsync(Idem, finding, action, text), action switch { "accept" => "Accepted with the reason recorded.", "resolve" => "Resolved.", _ => "Acknowledged." });
 }
 
-[Authorize(Policy = Policies.Operator)]
+/* Operators; with seats only, also the Platform Owner and administrators, who read the seats here. */
+[Authorize(Policy = Policies.SeatRead)]
 public class SyncModel(OperationsQueries ops, IServiceProvider services) : GovPage
 {
     public IReadOnlyList<(string Integration, DateTime? LastSuccessUtc, DateTime? LastRunUtc, string? LastStatus)> Freshness { get; private set; } = Array.Empty<(string, DateTime?, DateTime?, string?)>();
@@ -91,7 +92,7 @@ public class SyncModel(OperationsQueries ops, IServiceProvider services) : GovPa
 /// Operator-run reads (X4, X5, X7). The inventory API accepts only delegated tokens, so the token belongs to the
 /// operator who pressed the button; the worker never receives it. Rate limited: two runs per five minutes.
 /// </summary>
-[Authorize(Policy = Policies.Operator)]
+[Authorize(Policy = Policies.SeatRead)]
 [EnableRateLimiting("sync")]
 [AuthorizeForScopes(Scopes = new[]
 {
@@ -127,10 +128,22 @@ public class SyncRunModel(IServiceProvider services) : GovPage
         return Redirect("/workbench/Operations/Sync");
     }
 
+    /// <summary>
+    /// Who may run the seat read: the platform operator; and, with the Workbench set to Copilot seats only (where there
+    /// may be no worker and no operator), the Platform Owner and Copilot Insights administrators too. Pure, for the tests.
+    /// </summary>
+    public static bool MayReadSeats(WebPrincipal p, bool seatsOnly)
+        => p.Can(Permissions.SyncRun) || (seatsOnly && (p.AppRoles.Contains(AppRoles.Admin) || p.HasCentral(Roles.PlatformOwner)));
+
     /// <summary>X13 runs app-only with the Worker's Graph permissions; no operator token is used.</summary>
     public async Task<IActionResult> OnPostSeatsAsync()
     {
-        if (!Principal.Can(Permissions.SyncRun)) { FlashError = "Running the seat read needs the platform operator role."; return Redirect("/workbench/Operations/Sync"); }
+        if (!MayReadSeats(Principal, SeatsOnly))
+        {
+            FlashError = SeatsOnly ? "Running the seat read needs the platform operator role, the Platform Owner role or Copilot Insights administration."
+                                   : "Running the seat read needs the platform operator role.";
+            return Redirect("/workbench/Operations/Sync");
+        }
         var seats = services.GetService<SeatSyncService>();
         if (seats is null) { FlashError = "The seat integration is not installed on this server."; return Redirect("/workbench/Operations/Sync"); }
         try

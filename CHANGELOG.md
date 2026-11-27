@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.1] - 2026-11-27
+
+Two fixes for tracking Copilot seats per line of business without a worker or a platform operator. The Platform
+Owner and Copilot Insights administrators can press *Read seats now* themselves, and every person picker searches
+everyone in Active Directory in the open, under the list.
+
+**Install over 3.6.0** (the change bundle runs from v3.6.0): build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md).
+Nothing changes in either database, the worker or the job server.
+
+### Changed
+- **The Platform Owner and administrators read the seats.** With the Workbench set to Copilot seats only, *Read seats
+  now* on Sync and freshness (`/workbench/Operations/Sync`) takes the platform operator, the Platform Owner or a
+  Copilot Insights administrator, and the menu shows the page to them. Before, only the platform operator could, and
+  nobody may give themselves a role, so a site with no worker had nobody to read the seats. With the whole
+  Workbench, only the platform operator runs it, as before.
+- **Search everyone in Active Directory, without a button first.** Under every person picker, *Or search everyone in
+  Active Directory* is open: type two letters of a name or sign-in and choose the person. The list above it holds
+  only the people the Workbench has recorded, which is why it looked short.
+
+### Known limits
+- The search finds the people Copilot Insights' nightly directory load has read from AD: a directory not loaded
+  yet (Admin › Directory quality) finds nobody.
+- Tested on this PC's SQL Server and site only.
+
 ## [3.6.0] - 2026-11-27
 
 The Workbench cut down to tracking Copilot license holders per line of business. Its menu has one section, *Copilot

@@ -22,8 +22,7 @@ nothing for the pages everyone has, **Governance** for the central teams' pages,
 operators, **GovernanceAuditor** for auditors, **Admin** for the settings. What you may do on a page (decide,
 record, see one line of business) comes from your role in the Workbench: a central role given on Workbench
 settings › Workbench roles, or a role for one line of business given on its funding owner's page. Your
-Workbench roles shows yours. To name someone who is not in a picker's list yet, use *Not in the list? Find someone in
-the directory* under it: anyone in the organization's directory can be found and chosen. A page you may not open says *This page is not available to you* and who grants
+Workbench roles shows yours. To name someone who is not in a picker's list yet, use *Or search everyone in Active Directory* under it: anyone in the organization's directory can be found and chosen. A page you may not open says *This page is not available to you* and who grants
 it.
 
 ## Employee (requester, maker, developer)
