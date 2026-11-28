@@ -36,8 +36,8 @@ public static class SeatAuditRules
     public static string Definition(string status) => status switch
     {
         Pass => "The person at the group's expected level in the holder's manager chain is the expected leader.",
-        NewHire => "Hired within the new-hire days (Seats.NewHireDays): hierarchy validation deferred, no investigation now.",
-        IncorrectGroup => "Another mapped leader appears at that group's required hierarchy level in the holder's chain.",
+        NewHire => "Hired within the new-hire days (Seats.NewHireDays), or manager and hierarchy both blank with no hire date saying otherwise: hierarchy validation deferred, no investigation now.",
+        IncorrectGroup => "Another group's designated leader (not the current one) appears in the holder's chain at the level that group requires; the deepest such group is suggested.",
         DifferentLevel => "The expected leader is in the holder's chain, but not at the required level.",
         Mismatch => "The expected leader is not in the holder's chain, and no other mapped leader fits.",
         UnknownGroup => "The holder's tracking group has no expected leader on Hierarchy mapping.",
@@ -63,6 +63,9 @@ public static class SeatAuditRules
     public static Result Evaluate(Mapping group, IReadOnlyList<Person> chain, DateTime? hired, DateTime today, int newHireDays, IReadOnlyList<Mapping> all)
     {
         if (hired is DateTime h && h.Date > today.AddDays(-newHireDays) && h.Date <= today) return new(NewHire, null, null);
+        // The workbook's new-hire test: manager and hierarchy both blank (in the directory, with no manager above them and
+        // no level), unless the hire date shows the person joined long ago: then their record is missing data, not new.
+        if (chain.Count == 1 && chain[0].Level is null && hired is null) return new(NewHire, null, null);
         if (string.IsNullOrWhiteSpace(group.LeaderUpn) || group.Level is null) return new(UnknownGroup, null, null);
         if (chain.Count == 0 || chain[0].Level is null) return new(MissingData, null, null);
         if (chain[0].Level == 1) return new(Pass, chain[0], null);               // the top of the organization
@@ -70,7 +73,7 @@ public static class SeatAuditRules
         var at = chain.FirstOrDefault(p => p.Level == level);
         if (at is null) return new(chain[0].Level < level ? Mismatch : MissingData, null, null);
         if (Same(at.Upn, group.LeaderUpn)) return new(Pass, at, null);
-        var other = all.Where(m => m.Group != group.Group && m.Level is int l && !string.IsNullOrWhiteSpace(m.LeaderUpn)
+        var other = all.Where(m => m.Group != group.Group && !Same(m.LeaderUpn, group.LeaderUpn) && m.Level is int l && !string.IsNullOrWhiteSpace(m.LeaderUpn)
                                    && chain.Any(p => p.Level == l && Same(p.Upn, m.LeaderUpn)))
             .OrderByDescending(m => m.Level).ThenBy(m => m.GroupName, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
         if (other is not null) return new(IncorrectGroup, at, other);
@@ -191,4 +194,23 @@ public sealed class SeatAudit(SeatQueries seats, CopilotInsights.Infrastructure.
             WHERE l.EmployeeHireDate IS NOT NULL AND l.UserPrincipalName IN (SELECT j.value FROM OPENJSON(@upns) AS j)',
             N'@upns nvarchar(max)', @upns = @upns;
         """;
+}
+
+/// <summary>
+/// Sorting a list held in memory by a heading's key (?sort=key&amp;desc=true), before it is paged, so the order is the
+/// whole list's. Text compares without case; empty values go last either way.
+/// </summary>
+public static class ListSort
+{
+    public static IEnumerable<T> By<T>(IEnumerable<T> rows, string? sort, bool desc, IReadOnlyDictionary<string, Func<T, IComparable?>> keys)
+    {
+        if (string.IsNullOrEmpty(sort) || !keys.TryGetValue(sort, out var key)) return rows;
+        var withValue = rows.Select(r => (Row: r, Key: key(r))).ToList();
+        var known = withValue.Where(x => x.Key is not null);
+        var ordered = desc ? known.OrderByDescending(x => x.Key, Comparer) : known.OrderBy(x => x.Key, Comparer);
+        return ordered.Concat(withValue.Where(x => x.Key is null)).Select(x => x.Row);
+    }
+
+    static readonly IComparer<IComparable?> Comparer = Comparer<IComparable?>.Create((a, b) =>
+        a is string x && b is string y ? string.Compare(x, y, StringComparison.OrdinalIgnoreCase) : Comparer<IComparable?>.Default.Compare(a, b));
 }

@@ -157,7 +157,7 @@ public class AssumptionRegisterTests
     public void The_new_pages_are_offered_and_described()
     {
         Assert.Contains(Nav.Groups.First(g => g.Persona == "Leadership").Pages, p => p.Path == "/leadership/assumptions" && p.Role is null);
-        Assert.Contains(Nav.Groups.First(g => g.Persona == "Governance").Pages, p => p.Path == "/governance/ai-apps" && p.Role is null);
+        Assert.Contains(Nav.Groups.First(g => g.Persona == "AI apps and controls").Pages, p => p.Path == "/governance/ai-apps" && p.Role is null);
         Assert.NotNull(Guidance.For("/leadership/assumptions"));
         Assert.NotNull(Guidance.For("/governance/ai-apps"));
     }

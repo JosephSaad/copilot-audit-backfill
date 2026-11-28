@@ -4778,7 +4778,7 @@ Indexes and constraints:
 
 ### dash.AgentAction
 
-*Table.* Each proposed action on an agent (3.5.0), who decided, when it ran and the result. Governance › Agent policies decides; tools/Invoke-AgentActions.ps1 carries out quarantines, releases and new owners. Never a deletion.
+*Table.* Each proposed action on an agent (3.5.0), who decided, when it ran and the result. AI apps and controls › Agent policies decides; tools/Invoke-AgentActions.ps1 carries out quarantines, releases and new owners. Never a deletion.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 

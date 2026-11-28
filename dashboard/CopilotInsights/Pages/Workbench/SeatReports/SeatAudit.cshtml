@@ -13,11 +13,26 @@
         <p class="lead">Executive summary · audited @Ui.Local(o.TakenUtc) · the source population is kept as it is · recommendations never change anyone's group or license. <help>Each Copilot seat holder in a tracking group is checked against their manager chain from Copilot Insights' AD directory: the person at the group's expected level should be the group's expected leader (Hierarchy mapping). Read again every five minutes at most.</help></p>
     </div>
     <div class="page-actions">
+        @if (Model.FrozenMonths.Count > 0)
+        {
+            <form method="get" class="btn-row">
+                <label for="month" class="sr-only">Month</label>
+                <select id="month" name="month" data-autosubmit>
+                    <option value="">Now (live)</option>
+                    @foreach (var m in Model.FrozenMonths) { <option value="@m.ToString("yyyy-MM")" selected="@(Model.Frozen == m)">@m.ToString("MMMM yyyy") (certified)</option> }
+                </select>
+                <noscript><button class="btn btn-small" type="submit">Show</button></noscript>
+            </form>
+        }
         <a class="btn" href="@Detail?status=review">Exception report</a>
         <a class="btn btn-ghost" href="?handler=Csv">Export CSV</a>
     </div>
 </div>
 
+@if (Model.Frozen is DateTime fm)
+{
+    <div class="alert alert-info" role="note">As certified with @fm.ToString("MMMM yyyy"): the audit as it stood on @Ui.Local(o.TakenUtc). The people behind each figure are only kept for the live audit. <a href="?">Show the live audit</a>.</div>
+}
 @if (!o.DirectoryRead)
 {
     <div class="alert alert-bad" role="alert">Copilot Insights' directory could not be read, so every holder shows as missing data. The error is in this web server's Windows Application log.</div>
@@ -33,7 +48,7 @@
         <table class="stack audit-metrics">
             <thead><tr>
                 <partial name="_Th" model='("", "Metric", "What is counted.")' />
-                <partial name="_Th" model='("num", "Value", "The count or rate.")' />
+                <partial name="_Th" model='("", "Value", "The count or rate.")' />
                 <partial name="_Th" model='("", "Definition / reconciliation basis", "How it is counted.")' />
             </tr></thead>
             <tbody>
@@ -66,14 +81,14 @@
 <div class="card mt">
     <h2>By tracking group <help>Each tracking group's holders: passed, new hires, and under review, most REVIEW records first.</help></h2>
     <div class="table-wrap">
-        <table class="stack">
+        <table class="stack sortable">
             <thead><tr>
                 <partial name="_Th" model='("", "Tracking group", "Opens its holders in the detailed audit.")' />
-                <partial name="_Th" model='("num", "Holders", "Seat holders in the group.")' />
-                <partial name="_Th" model='("num", "PASS", "Passed the hierarchy check.")' />
-                <partial name="_Th" model='("num", "New hires", "Check deferred.")' />
-                <partial name="_Th" model='("num", "REVIEW", "To investigate.")' />
-                <partial name="_Th" model='("num", "REVIEW %", "REVIEW records over its holders.")' />
+                <partial name="_Th" model='("", "Holders", "Seat holders in the group.")' />
+                <partial name="_Th" model='("", "PASS", "Passed the hierarchy check.")' />
+                <partial name="_Th" model='("", "New hires", "Check deferred.")' />
+                <partial name="_Th" model='("", "REVIEW", "To investigate.")' />
+                <partial name="_Th" model='("", "REVIEW %", "REVIEW records over its holders.")' />
             </tr></thead>
             <tbody>
             @if (Model.Groups.Count == 0) { <tr><td colspan="6" class="muted">No seat holder in a tracking group yet. Read seats on Sync and freshness.</td></tr> }

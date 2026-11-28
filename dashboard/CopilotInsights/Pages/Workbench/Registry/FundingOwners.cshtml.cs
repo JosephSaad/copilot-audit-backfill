@@ -18,8 +18,10 @@ public class FundingOwnersModel(RegistryQueries registry) : GovPage
     public async Task<IActionResult> OnGetCsvAsync() => Csv((await registry.FundingOwnersAsync(Query.All())).Items, "funding-owners");
 }
 
-public class FundingOwnerModel(RegistryQueries registry, RegistryCommands commands, AdminQueries admin) : GovPage
+public class FundingOwnerModel(RegistryQueries registry, RegistryCommands commands, AdminQueries admin, SeatCommands seatCommands, SeatQueries seatQueries) : GovPage
 {
+    /// <summary>Its active tracking group, for the link to Seat groups.</summary>
+    public Guid? TrackingGroupId { get; private set; }
     [BindProperty(SupportsGet = true)] public Guid Id { get; set; }
     public FundingOwnerDetail D { get; private set; } = new();
     public IReadOnlyList<Option> People { get; private set; } = Array.Empty<Option>();
@@ -46,6 +48,7 @@ public class FundingOwnerModel(RegistryQueries registry, RegistryCommands comman
         LobRoles = (await admin.RolesAsync()).Where(r => r.IsLob && r.RoleCode is not (Roles.LobBusinessOwner or Roles.SharedServiceOwner)
             /* Copilot seats only: the seat admin is the one line-of-business role that still does something. */
             && (!d.SeatsOnly || r.RoleCode == SeatAccess.LobSeatAdmin)).ToList();
+        if (SeatsOnly) TrackingGroupId = await seatQueries.TrackingGroupOfAsync(D.Owner.FundingOwnerId);
         return Page();
     }
 
@@ -57,6 +60,11 @@ public class FundingOwnerModel(RegistryQueries registry, RegistryCommands comman
     }
 
     public Task<IActionResult> OnPostFlagAsync(string flag, bool value) => Act(() => commands.SetFundingOwnerFlagAsync(Idem, Id, flag, value), "Saved.");
+    public Task<IActionResult> OnPostCentralAsync(bool central)
+        => Act(() => seatCommands.SetCentralCostAsync(Idem, Id, central), central
+            ? "Now a central cost: its seats show on their own row, charged to no line of business, and the hierarchy audit leaves them out unless its tracking group has an expected leader."
+            : "Charged to this line of business again.");
+
     public Task<IActionResult> OnPostStatusAsync(string status, string reason) => Act(() => commands.SetFundingOwnerStatusAsync(Idem, Id, status, reason), $"Status set to {Ui.Words(status)}.");
     public Task<IActionResult> OnPostRuleAsync(string? division, string? costCenter, string? department, int priority)
         => Act(() => commands.AddAttributionRuleAsync(Idem, Id, division, costCenter, department, priority), "Rule added. Test it against the directory, then mark attribution tested.");

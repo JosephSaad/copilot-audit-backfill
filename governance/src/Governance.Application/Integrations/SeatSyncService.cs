@@ -176,6 +176,8 @@ public sealed class SeatSyncService(Db db, ISeatLicenseApi api, FindingWriter fi
                 var r = await new SeatFindingRules(findings, today, runId).EvaluateAsync(uow, settings);
                 var p = await ProposeReclaimsAsync(uow, settings, today, usageRead);
                 var s = await TakeSnapshotAsync(uow, settings, today, runId, force: false);
+                // The days figures for the monthly peaks (from Seats.TrackingStart, in the Workbench time zone).
+                await Seats.SeatMonths.RecordDayAsync(uow, runId, clock.UtcNow, settings.InactiveDays);
                 return (r, p, s);
             }, ct);
 

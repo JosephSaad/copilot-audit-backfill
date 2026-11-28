@@ -504,7 +504,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
                      Step("Lists that name people", "named", SectionPicker.Named(editing?.NamedPeople == true)) : "") +
 
             Step("Other roles (optional)", "role", "<fieldset class=\"roles\"><legend>Roles</legend>" +
-                string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}{((HtmlString)InfoTip.Icon(Roles.Describe[r], r)).Value}</label>")) + "</fieldset>" + pagePicker) +
+                string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(Roles.Title(r))}{((HtmlString)InfoTip.Icon(Roles.Describe[r], Roles.Title(r))).Value}</label>")) + "</fieldset>" + pagePicker) +
             "<div class=\"row\">" + Input("note", "Why (optional)", editing?.Note, 30) + Button(editing is null ? "Grant access" : "Save the change") + "</div>";
         Panels.Add(new(editing is null ? "Grant access" : $"Change {editing.PrincipalName ?? editing.Principal}'s sections",
             new HtmlString("<div id=\"grant\">" + Form("grant", grantForm).Replace("<form class=\"admin\"", "<form class=\"admin grantform\"") +
@@ -551,14 +551,14 @@ WHERE g.Principal IN @list;", new { list });
             var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
-                $"<span class=\"grant\">{E(g.Role)}" +
+                $"<span class=\"grant\">{E(Roles.Title(g.Role))}" +
                 (g.Role == Roles.Sections ? $" <small>({E(Sections.Names(g.Sections))}{(g.OrgWide ? "; whole organization" : "; their own team")}{(g.NamedPeople ? "; named people" : "")})</small>" +
                     $" <a class=\"btn quiet\" href=\"{E(Request.Path + "?edit=" + Uri.EscapeDataString(g.Principal))}#grant\" title=\"{E($"Change the sections of {g.Principal}")}\">Change</a>"
                   : g.OrgWide ? " <small>(whole organization)</small>" : "") +
                 (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $" <small>({E(AdminPages.Names(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Preview && !string.IsNullOrEmpty(g.Pages) ? $" <small>({E(CopilotInsights.Pages.HiddenReports.Titles(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Admin && !Viewer.IsAdmin ? "" :
-                    Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}"))) + "</span>")) +
+                    Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {Roles.Title(g.Role)} from {g.Principal}"))) + "</span>")) +
                 "<span class=\"grant all\">" + Form("revokeall", Hidden("principal", principal) +
                     $"<button class=\"btn quiet\" type=\"submit\" title=\"{E($"Remove every role from {principal}")}\" data-confirm=\"{E($"Remove every role from {principal}? They keep only what their level and their groups give them.")}\">Remove all</button>") + "</span>";
             var tick = $"<input type=\"checkbox\" name=\"principal\" value=\"{E(principal)}\" form=\"{many}\" aria-label=\"{E($"Select {principal}")}\" title=\"{E($"Select {principal}, to remove every role from several at once")}\"/>";
@@ -567,7 +567,7 @@ WHERE g.Principal IN @list;", new { list });
                         string.Join(", ", mine.Select(g => g.GrantedBy).Distinct()), mine.Max(g => g.GrantedUtc)]);
         }
         var tabs = "<a href=\"" + E(Request.Path) + "\"" + (roleFilter is null ? " class=\"on\"" : "") + ">All roles</a>" +
-            string.Concat(Roles.All.Select(r => $" · <a href=\"{E(Request.Path + "?role=" + r)}\"{(r == roleFilter ? " class=\"on\"" : "")}>{r}</a>"));
+            string.Concat(Roles.All.Select(r => $" · <a href=\"{E(Request.Path + "?role=" + r)}\"{(r == roleFilter ? " class=\"on\"" : "")}>{E(Roles.Title(r))}</a>"));
         Panels.Add(new("Grants", new HtmlString($"<p class=\"sub\">Role: {tabs}</p>" +
             pg.Controls(Request, new Dictionary<string, string> { ["principal"] = "Principal", ["new"] = "Newest" }).Value + t.Render().Value +
             (list.Count == 0 ? "" :
@@ -619,7 +619,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
                 : EntraPrincipal.TryParse(g.Principal, out var gid) && inEntra.Contains(gid) ? g.Principal : null;
             var held = all.Select(g => (Grant: g, Via: Through(g))).Where(x => x.Via is not null).ToList();
             string RoleText(ViewerService.GrantRow g) =>
-                (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $"Admin ({AdminPages.Names(g.Pages)})" : g.Role) + (g.OrgWide && AccessRules.IsPersona(g.Role) ? " across the organization" : "");
+                (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $"Admin ({AdminPages.Names(g.Pages)})" : Roles.Title(g.Role)) + (g.OrgWide && AccessRules.IsPersona(g.Role) ? " across the organization" : "");
 
             var roles = held.Select(x => x.Grant.Role).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var wideRoles = held.Where(x => x.Grant.OrgWide && AccessRules.IsPersona(x.Grant.Role)).Select(x => x.Grant.Role).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
@@ -1028,7 +1028,7 @@ IF NOT EXISTS (SELECT 1 FROM dash.ProfileGrant WHERE Principal = @principal AND 
         if (!Viewer.IsAdmin && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.RoleGrant WHERE GrantId = @id AND Role = 'Admin';", new { id }) > 0)
             throw new ArgumentException("only a full administrator can remove Admin.");
         var g = (await Db.QueryAsync<(string Principal, string Role)>("DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE GrantId = @id;", new { id })).FirstOrDefault();
-        return g.Principal is null ? "That grant was already gone." : $"Removed {g.Role} from {g.Principal}.";
+        return g.Principal is null ? "That grant was already gone." : $"Removed {Roles.Title(g.Role)} from {g.Principal}.";
     });
 
     /// <summary>Every role of one person or group.</summary>

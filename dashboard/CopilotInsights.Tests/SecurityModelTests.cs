@@ -122,7 +122,7 @@ public class NavigationTests
         Assert.Empty(CopilotInsights.Pages.Nav.For(V(5)));
         Assert.Empty(CopilotInsights.Pages.Nav.For(V(7)));
         var personas = CopilotInsights.Pages.Nav.For(VS(5, [Sections.Leadership, Sections.Regions, Sections.People, Sections.AppOwners, Sections.Governance])).Select(g => g.Persona).ToList();
-        Assert.Equal(["Leadership", "Regions", "People", "App owners", "Governance"], personas);
+        Assert.Equal(["Leadership", "Regions", "People", "App owners", "AI apps and controls"], personas);
         /* Only the sections ticked: Leadership alone is Leadership alone. */
         Assert.Equal(["Leadership"], CopilotInsights.Pages.Nav.For(VS(7, [Sections.Leadership])).Select(g => g.Persona));
         /* Every Insights section has a key a grant can tick, and every key is a section. */

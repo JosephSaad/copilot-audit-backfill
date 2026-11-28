@@ -62,7 +62,7 @@ public class Release340Tests
             Assert.Contains($":root[data-theme=\"dark\"] body[data-section=\"{slug}\"]", css);
             Assert.Contains($":root:not([data-theme=\"light\"]) body[data-section=\"{slug}\"]", css);
         }
-        Assert.Contains("data-section=\"@(page is null ? null : InsightsPage.SectionSlug(page.Persona))\"", Repo("dashboard", "CopilotInsights", "Pages", "Shared", "_Layout.cshtml"));
+        Assert.Contains("data-section=\"@(page is not null ? InsightsPage.SectionSlug(page.Persona) : Context.Request.Path.StartsWithSegments(\"/workbench\") ? \"copilot-seat-management\" : null)\"", Repo("dashboard", "CopilotInsights", "Pages", "Shared", "_Layout.cshtml"));
         /* Status tags carry their word, never color alone. */
         Assert.Contains(".tag.good", css);
         Assert.Contains(".tag.crit", css);

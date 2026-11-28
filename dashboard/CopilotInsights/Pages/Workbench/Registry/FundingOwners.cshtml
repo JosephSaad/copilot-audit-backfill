@@ -5,7 +5,7 @@
 }
 <div class="page-head">
     <div>
-        <div class="crumbs">@(Model.SeatsOnly ? "Copilot seats by line of business" : "Ownership registry")</div>
+        <div class="crumbs">@(Model.SeatsOnly ? "Copilot Seat Management" : "Ownership registry")</div>
         <h1>@ViewData["Title"]</h1>
         @if (Model.SeatsOnly)
         {
@@ -44,7 +44,7 @@
             <tr>
                 <td><a href="/workbench/Registry/FundingOwners/@f.PublicId"><strong>@f.Name</strong></a><div class="small muted">@f.Code</div></td>
                 <td>@(f.OwnerType == "LOB" ? "LOB" : "Enterprise Shared")</td>
-                <td>@(f.BusinessOwnerName ?? "Not named")</td>
+                <td>@(f.BusinessOwnerName ?? "Not named")@if (Model.SeatsOnly) { <div><a class="small" href="/workbench/Registry/Seats/@f.PublicId#admins">@(f.BusinessOwnerName is null ? "Name one" : "Change")</a></div> }</td>
                 @if (!Model.SeatsOnly)
                 {
                 <td class="num">@f.CostCenters</td>

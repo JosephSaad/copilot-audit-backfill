@@ -2,84 +2,311 @@
 @model Governance.Web.Pages.Reports.ReservationSummaryModel
 @{
     ViewData["Title"] = "Reservation summary";
-    var lines = Model.Lines;
-    var cur = Model.Settings.Currency;
-    string Money(decimal v) => v.ToString("N0") + " " + cur;
-    string Signed(int v) => v < 0 ? $"({Math.Abs(v):N0})" : v == 0 ? "–" : v.ToString("N0");
-    var maxOver = Model.MaxOverage;
+    var v = Model.View;
+    var monthly = v is not null && v.Status != "NOT_TRACKED";
+    var cur = monthly ? v!.Currency : Model.Settings.Currency;
+    var rate = monthly ? v!.Rate : Model.Settings.RatePerSeatMonth;
+    string Money(decimal x) => x.ToString("N0") + " " + cur;
+    string Signed(int x) => x < 0 ? $"({Math.Abs(x):N0})" : x == 0 ? "–" : x.ToString("N0");
 }
 <div class="page-head">
     <div>
         <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
         <h1>Reservation summary</h1>
-        <p class="lead">Each line of business's Copilot reservation against the seats its people hold today, and what it costs at @Model.Settings.RatePerSeatMonth.ToString("N2") @cur per seat a month. <help>A line of business pays its full reservation, plus every seat held above it. The rate is the one on Workbench settings (Seats.RatePerSeatMonth); allocated seats are the people in its tracking group who hold an active Copilot license, from the latest seat read.</help></p>
+        <p class="lead">Each line of business's Copilot reservation against the seats its people hold, and what it costs at @rate.ToString("N2") @cur per seat a month. <help>A line of business pays the larger of its peak seats in the month and its reservation; the overage is the peak above the reservation, and the cumulative overage adds the months since the last reset (Seats.CumulativeResetDate). Seats are read every day at Seats.DailyReadTime; a month is built from its days. The rate is Seats.RatePerSeatMonth.</help></p>
     </div>
-    <div class="page-actions"><a class="btn btn-ghost" href="?handler=Csv">Export CSV</a></div>
+    <div class="page-actions">
+        @if (Model.Periods.Count > 0 || Model.Months.Count > 0)
+        {
+            <form method="get" class="btn-row" id="pick">
+                @if (Model.Periods.Count > 0)
+                {
+                    <label for="period" class="sr-only">Period</label>
+                    <select id="period" name="period" data-autosubmit>
+                        @foreach (var p in Model.Periods) { <option value="@p.SeatPeriodId" selected="@(Model.Period?.SeatPeriodId == p.SeatPeriodId)">@p.Label</option> }
+                    </select>
+                }
+                <label for="month" class="sr-only">Month</label>
+                <select id="month" name="month" data-autosubmit>
+                    @if (Model.Period is not null) { <option value="all" selected="@(Model.PeriodView is not null)">Whole period</option> }
+                    @foreach (var m in Model.PeriodMonths) { <option value="@m.ToString("yyyy-MM")" selected="@(v?.Month == m)">@m.ToString("MMMM yyyy")@(m == Model.Months.FirstOrDefault() ? " (this month)" : "")</option> }
+                    @if (Model.PeriodMonths.Count == 0) { <option value="">No month tracked yet</option> }
+                </select>
+                <noscript><button class="btn btn-small" type="submit">Show</button></noscript>
+            </form>
+        }
+        <a class="btn btn-ghost" href="?handler=Csv@(v is null ? "" : "&month=" + v.Month.ToString("yyyy-MM"))">Export CSV</a>
+    </div>
 </div>
 
-<div class="grid grid-4">
-    <div class="stat"><div class="stat-label">Reserved <help>Seats reserved across every line of business today.</help></div><div class="stat-value">@Ui.Num(lines.Sum(l => l.Reserved))</div><div class="stat-note">@Money(lines.Sum(l => l.MonthlyReserved)) a month</div></div>
-    <div class="stat"><div class="stat-label">Allocated <help>Seats held by people in a line of business's tracking group.</help></div><div class="stat-value">@Ui.Num(lines.Sum(l => l.Allocated))</div><div class="stat-note">@(lines.Sum(l => l.Remaining) < 0 ? Ui.Num(-lines.Sum(l => l.Remaining)) + " above the reservations" : Ui.Num(lines.Sum(l => l.Remaining)) + " left in the reservations")</div></div>
-    <div class="stat"><div class="stat-label">Actual cost a month <help>Each line of business's reservation, or the seats it holds when more, at the rate. Twelve months of it is the annual actual cost.</help></div><div class="stat-value">@Money(lines.Sum(l => l.MonthlyActual))</div><div class="stat-note">@Money(lines.Sum(l => l.YearActual)) a year</div></div>
-    <div class="stat"><div class="stat-label">Overage a month <help>What seats held above the reservations add each month, across the lines of business over theirs.</help></div><div class="stat-value @(lines.Sum(l => l.MonthlyOverage) > 0 ? "text-bad" : "")">@Money(lines.Sum(l => l.MonthlyOverage))</div><div class="stat-note">@lines.Count(l => l.State == "over") over their reservation</div></div>
-</div>
-
-@if (Model.NoLob > 0)
+@if (Model.PeriodView is { } pv)
 {
-    <div class="alert alert-info mt" role="note">@Ui.Num(Model.NoLob) seats are held by people in no line of business's tracking group: charged to nobody, and not in the figures below. <a href="/workbench/Registry/Seats?show=nolob#nolob">See who</a>.</div>
-}
-
-<div class="card mt">
-    <div class="table-wrap">
-        <table class="stack resv">
-            <thead><tr>
-                <partial name="_Th" model='("", "Line of business", "Opens its seats page.")' />
-                <partial name="_Th" model='("num", "Reserved licenses", "The reservation in effect today.")' />
-                <partial name="_Th" model='("num", "Allocated licenses", "Seats held today by people in its tracking group.")' />
-                <partial name="_Th" model='("num", "Remaining licenses", "Reserved less allocated. In brackets: allocated above the reservation.")' />
-                <partial name="_Th" model='("num", "Over / (under) reservation", "Allocated less reserved. In brackets: reserved seats nobody holds yet.")' />
-                <partial name="_Th" model='("num", "Monthly reserved cost", "Reserved licenses at the rate.")' />
-                <partial name="_Th" model='("num", "12-month reserved forecast", "The monthly reserved cost for twelve months.")' />
-                <partial name="_Th" model='("num", "Monthly actual cost", "The reservation, or the seats held when more, at the rate. Red: over the reservation; green: under; yellow: exactly at it.")' />
-                <partial name="_Th" model='("num", "Monthly reserved cost overage", "Monthly actual cost less monthly reserved cost: the seats held above the reservation.")' />
-                <partial name="_Th" model='("num", "Annual actual cost (12 months)", "The monthly actual cost for twelve months.")' />
-            </tr></thead>
-            <tbody>
-            @if (lines.Count == 0) { <tr><td colspan="10" class="muted">No line of business yet. Add one on Lines of business.</td></tr> }
-            @foreach (var l in lines)
-            {
-                <tr>
-                    <td data-label="Line of business">@if (l.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g">@l.Name</a> } else { @l.Name }</td>
-                    <td data-label="Reserved licenses" class="num">@Ui.Num(l.Reserved)</td>
-                    <td data-label="Allocated licenses" class="num">@Ui.Num(l.Allocated)</td>
-                    <td data-label="Remaining licenses" class="num @(l.Remaining < 0 ? "text-bad" : "")">@Signed(l.Remaining)</td>
-                    <td data-label="Over / (under) reservation" class="num @(l.OverUnder < 0 ? "text-bad" : "")">@Signed(l.OverUnder)</td>
-                    <td data-label="Monthly reserved cost" class="num">@Money(l.MonthlyReserved)</td>
-                    <td data-label="12-month reserved forecast" class="num">@Money(l.YearReserved)</td>
-                    <td data-label="Monthly actual cost" class="num cost-@l.State"><strong>@Money(l.MonthlyActual)</strong></td>
-                    <td data-label="Monthly reserved cost overage" class="num overage">
-                        @if (l.MonthlyOverage > 0 && maxOver > 0) { <span class="overage-bar" style="width:@((int)Math.Max(4, Math.Round(l.MonthlyOverage / maxOver * 100)))%" aria-hidden="true"></span> }
-                        <span class="overage-value">@Money(l.MonthlyOverage)</span>
-                    </td>
-                    <td data-label="Annual actual cost (12 months)" class="num">@Money(l.YearActual)</td>
-                </tr>
-            }
-            </tbody>
-            @if (lines.Count > 0)
-            {
-                <tfoot><tr>
-                    <th scope="row">Total</th>
-                    <td data-label="Reserved licenses" class="num">@Ui.Num(lines.Sum(l => l.Reserved))</td>
-                    <td data-label="Allocated licenses" class="num">@Ui.Num(lines.Sum(l => l.Allocated))</td>
-                    <td data-label="Remaining licenses" class="num">@Signed(lines.Sum(l => l.Remaining))</td>
-                    <td data-label="Over / (under) reservation" class="num">@Signed(lines.Sum(l => l.OverUnder))</td>
-                    <td data-label="Monthly reserved cost" class="num">@Money(lines.Sum(l => l.MonthlyReserved))</td>
-                    <td data-label="12-month reserved forecast" class="num">@Money(lines.Sum(l => l.YearReserved))</td>
-                    <td data-label="Monthly actual cost" class="num">@Money(lines.Sum(l => l.MonthlyActual))</td>
-                    <td data-label="Monthly reserved cost overage" class="num">@Money(lines.Sum(l => l.MonthlyOverage))</td>
-                    <td data-label="Annual actual cost (12 months)" class="num">@Money(lines.Sum(l => l.YearActual))</td>
-                </tr></tfoot>
-            }
-        </table>
+    var pcharged = pv.Lines.Where(l => l.Charged).ToList();
+    var pcur = pv.Currency;
+    string PMoney(decimal x) => x.ToString("N0") + " " + pcur;
+    <div class="card mt">
+        <h2>@pv.Period.Name: @pv.Period.StartMonth.ToString("MMMM yyyy")@(pv.Period.EndMonth == pv.Period.StartMonth ? "" : " to " + pv.Period.EndMonth.ToString("MMMM yyyy")) <help>Every month of the period so far, added up line by line. The cumulative overage restarts at the first month of each period.</help></h2>
+        <p>@pv.Months.Count of @pv.Period.MonthCount months so far · @pv.Period.CertifiedMonths certified</p>
+        <div class="table-wrap">
+            <table class="stack resv sortable">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Line of business", "Opens its seats page.")' />
+                    <partial name="_Th" model='("", "Months", "Months of the period it has figures for.")' />
+                    <partial name="_Th" model='("", "Highest peak", "The highest monthly peak in the period.")' />
+                    <partial name="_Th" model='("", "Charged", "The monthly charges added up.")' />
+                    <partial name="_Th" model='("", "Overage", "The monthly overages added up: the cumulative overage of the period.")' />
+                    <partial name="_Th" model='("", "Adjustments", "Corrections to certified months charged in the period.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var l in pv.Lines)
+                {
+                    <tr class="@(l.IsNoLob ? "row-warn sort-last" : "")">
+                        <td data-label="Line of business">@if (l.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g">@l.Name</a> } else { @l.Name }@if (l.IsCentralCost) { <span class="pill">Central cost</span> }</td>
+                        <td data-label="Months" class="num">@l.Months</td>
+                        <td data-label="Highest peak" class="num">@Ui.Num(l.PeakSeats)</td>
+                        <td data-label="Charged" class="num">@if (l.Charged) { <strong>@PMoney(l.Charge)</strong> } else { <span class="small muted">@(l.IsNoLob ? "charged to nobody" : "central cost") · @PMoney(l.Cost)</span> }</td>
+                        <td data-label="Overage" class="num @(l.Overage > 0 ? "text-bad" : "")">@(l.Charged ? PMoney(l.Overage) : "")</td>
+                        <td data-label="Adjustments" class="num">@(l.Adjustments != 0 ? PMoney(l.Adjustments) : "")</td>
+                    </tr>
+                }
+                </tbody>
+                @if (pcharged.Count > 0)
+                {
+                    <tfoot><tr>
+                        <th scope="row">Total charged</th><td></td><td></td>
+                        <td class="num">@PMoney(pcharged.Sum(l => l.Charge))</td>
+                        <td class="num">@PMoney(pcharged.Sum(l => l.Overage))</td>
+                        <td class="num">@PMoney(pv.Lines.Sum(l => l.Adjustments))</td>
+                    </tr></tfoot>
+                }
+            </table>
+        </div>
     </div>
-</div>
+}
+else if (!monthly)
+{
+    <div class="alert alert-info" role="note">Seats are recorded day by day from the tracking start (Seats.TrackingStart, 1 December 2026 unless changed). Until then, today's live figures are shown. <help>From that day, each month shows its peak, low, average and month-end seats, the charge on the peak, the overage and the cumulative overage, and can be certified.</help></div>
+    var lines = Model.Lines;
+    var maxOver = Model.MaxOverage;
+    <div class="card mt">
+        <div class="table-wrap">
+            <table class="stack resv sortable">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Line of business", "Opens its seats page.")' />
+                    <partial name="_Th" model='("", "Reserved licenses", "The reservation in effect today.")' />
+                    <partial name="_Th" model='("", "Allocated licenses", "Seats held today by people in its tracking group.")' />
+                    <partial name="_Th" model='("", "Remaining licenses", "Reserved less allocated. In brackets: allocated above the reservation.")' />
+                    <partial name="_Th" model='("", "Over / (under) reservation", "Allocated less reserved.")' />
+                    <partial name="_Th" model='("", "Monthly reserved cost", "Reserved licenses at the rate.")' />
+                    <partial name="_Th" model='("", "Monthly actual cost", "The reservation, or the seats held when more, at the rate.")' />
+                    <partial name="_Th" model='("", "Monthly overage", "Monthly actual cost less monthly reserved cost.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var l in lines)
+                {
+                    <tr>
+                        <td data-label="Line of business">@if (l.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g">@l.Name</a> } else { @l.Name }</td>
+                        <td data-label="Reserved licenses" class="num">@Ui.Num(l.Reserved)</td>
+                        <td data-label="Allocated licenses" class="num">@Ui.Num(l.Allocated)</td>
+                        <td data-label="Remaining licenses" class="num @(l.Remaining < 0 ? "text-bad" : "")">@Signed(l.Remaining)</td>
+                        <td data-label="Over / (under) reservation" class="num @(l.OverUnder < 0 ? "text-bad" : "")">@Signed(l.OverUnder)</td>
+                        <td data-label="Monthly reserved cost" class="num">@Money(l.MonthlyReserved)</td>
+                        <td data-label="Monthly actual cost" class="num cost-@l.State"><strong>@Money(l.MonthlyActual)</strong></td>
+                        <td data-label="Monthly overage" class="num overage">@if (l.MonthlyOverage > 0 && maxOver > 0) { <span class="overage-bar" style="width:@((int)Math.Max(4, Math.Round(l.MonthlyOverage / maxOver * 100)))%" aria-hidden="true"></span> }<span class="overage-value">@Money(l.MonthlyOverage)</span></td>
+                    </tr>
+                }
+                </tbody>
+                @if (lines.Count > 0)
+                {
+                    <tfoot><tr>
+                        <th scope="row">Total</th>
+                        <td class="num">@Ui.Num(lines.Sum(l => l.Reserved))</td>
+                        <td class="num">@Ui.Num(lines.Sum(l => l.Allocated))</td>
+                        <td class="num">@Signed(lines.Sum(l => l.Remaining))</td>
+                        <td class="num">@Signed(lines.Sum(l => l.OverUnder))</td>
+                        <td class="num">@Money(lines.Sum(l => l.MonthlyReserved))</td>
+                        <td class="num">@Money(lines.Sum(l => l.MonthlyActual))</td>
+                        <td class="num">@Money(lines.Sum(l => l.MonthlyOverage))</td>
+                    </tr></tfoot>
+                }
+            </table>
+        </div>
+        @if (Model.NoLob > 0 || Model.Central > 0) { <p class="small muted mt">Not in the figures above: @Ui.Num(Model.Central) seats of central-cost lines of business and @Ui.Num(Model.NoLob) seats no tracking group claims.</p> }
+    </div>
+}
+else
+{
+    var charged = v!.Lines.Where(l => l.Charged).ToList();
+    var maxOver = charged.Count == 0 ? 0 : charged.Max(l => l.Overage);
+    <div class="card mt">
+        <div class="card-head">
+            <h2>@v.Month.ToString("MMMM yyyy") @Ui.Pill(v.Certified ? "CERTIFIED" : "DRAFT") <help>Draft: built from the days measured so far; it changes with each daily read. Certified: frozen; a later reservation change inside it is charged as an adjustment in the next open month.</help></h2>
+        </div>
+        <p>
+            <strong>@v.DaysMeasured of @v.DaysExpected</strong> days measured@(v.Ended || v.Certified ? "" : " so far")
+            @if (v.MissingDays.Count > 0) { <span class="text-bad"> · missing @string.Join(", ", v.MissingDays.Take(10).Select(d => d.ToString("d MMM")))@(v.MissingDays.Count > 10 ? $" and {v.MissingDays.Count - 10} more" : "")</span> }
+            @if (v.Certified) { <span> · certified by @(v.CertifiedByName ?? "someone") on @Ui.Local(v.CertifiedUtc)@(v.Reason is null ? "" : ": " + v.Reason)</span> }
+        </p>
+        @if (!v.Certified && Model.CanCertify)
+        {
+            if (v.Ended)
+            {
+                <form method="post" asp-page-handler="Certify" asp-route-month="@v.Month.ToString("yyyy-MM")" class="form-grid mt" data-confirm="Certify @v.Month.ToString("MMMM yyyy")? Its figures will not change after this.">
+                    <idem />
+                    @if (v.DaysMeasured < v.DaysExpected)
+                    {
+                        <div class="field full"><label for="why" class="req">Why certify with days missing <help>Recorded with the certification and in the audit trail.</help></label><input id="why" name="reason" maxlength="1000" required /></div>
+                    }
+                    <div><button class="btn btn-ok" type="submit">Certify @v.Month.ToString("MMMM yyyy")</button></div>
+                </form>
+            }
+            else { <p class="small muted">It can be certified from @v.Month.AddMonths(1).ToString("d MMMM yyyy"), once the month has ended.</p> }
+        }
+        @if (v.Certified && Model.CanReopen)
+        {
+            <details class="more mt"><summary>Reopen this month</summary>
+                <form method="post" asp-page-handler="Reopen" asp-route-month="@v.Month.ToString("yyyy-MM")" class="form-grid mt">
+                    <idem />
+                    <div class="field full"><label for="rw" class="req">Why reopen it <help>The month is built from its days again until it is certified again. Recorded in the audit trail.</help></label><input id="rw" name="reason" maxlength="1000" required /></div>
+                    <div><button class="btn btn-small" type="submit">Reopen</button></div>
+                </form>
+            </details>
+        }
+    </div>
+
+    <div class="grid grid-4 mt">
+        <div class="stat"><div class="stat-label">Charged to lines of business <help>Each line's larger of peak seats and reservation, at the rate. Central cost and No LOB are charged to nobody.</help></div><div class="stat-value">@Money(v.ChargedToLobs)</div><div class="stat-note">@Ui.Num(charged.Sum(l => l.ChargeSeats)) seats</div></div>
+        <div class="stat"><div class="stat-label">Overage this month <help>What the peaks added above the reservations.</help></div><div class="stat-value @(charged.Sum(l => l.Overage) > 0 ? "text-bad" : "")">@Money(charged.Sum(l => l.Overage))</div><div class="stat-note">@charged.Count(l => l.Overage > 0) over their reservation</div></div>
+        <div class="stat"><div class="stat-label">Cumulative overage <help>Every month's overage since the last reset (Seats.CumulativeResetDate), this month included.</help></div><div class="stat-value">@Money(charged.Sum(l => l.CumulativeOverage))</div><div class="stat-note">since the last reset</div></div>
+        <div class="stat"><div class="stat-label">Adjustments <help>Corrections to certified months charged in this month, after a reservation change dated inside them.</help></div><div class="stat-value">@Money(v.Lines.Sum(l => l.Adjustments))</div><div class="stat-note">from certified months</div></div>
+    </div>
+
+    <div class="card mt">
+        <div class="table-wrap">
+            <table class="stack resv sortable">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Line of business", "Opens its seats page.")' />
+                    <partial name="_Th" model='("", "Reserved", "The reservation in effect on the last day of the month (today for this month).")' />
+                    <partial name="_Th" model='("", "Peak", "The most seats on any day measured.")' />
+                    <partial name="_Th" model='("", "Low", "The fewest seats on any day measured.")' />
+                    <partial name="_Th" model='("", "Average", "The average over the days measured.")' />
+                    <partial name="_Th" model='("", "Month-end", "Seats on the last day measured.")' />
+                    <partial name="_Th" model='("", "Charged seats", "The larger of the peak and the reservation.")' />
+                    <partial name="_Th" model='("", "Monthly charge", "Charged seats at the rate. Red: the peak went over the reservation; green: under; yellow: exactly at it.")' />
+                    <partial name="_Th" model='("", "Overage", "The peak above the reservation, at the rate.")' />
+                    <partial name="_Th" model='("", "Cumulative overage", "The overage of every month since the last reset, this one included.")' />
+                    <partial name="_Th" model='("", "Adjustments", "Corrections to certified months charged in this month.")' />
+                    <partial name="_Th" model='("", "Days", "Days measured for this line.")' />
+                </tr></thead>
+                <tbody>
+                @foreach (var l in v.Lines)
+                {
+                    var state = !l.Charged ? "" : l.PeakSeats > l.Reserved ? "cost-over" : l.PeakSeats < l.Reserved ? "cost-under" : "cost-even";
+                    <tr class="@(l.IsNoLob ? "row-warn sort-last" : "")">
+                        <td data-label="Line of business">@if (l.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g">@l.Name</a> } else if (l.IsNoLob) { <a href="/workbench/Registry/Seats?show=nolob#nolob">No LOB</a> } else { @l.Name }
+                            @if (l.IsCentralCost) { <span class="pill">Central cost</span> }
+                            @if (l.TrackingGroup is not null) { <div class="small muted mono">@l.TrackingGroup</div> }</td>
+                        <td data-label="Reserved" class="num">@(l.IsNoLob ? "" : Ui.Num(l.Reserved))</td>
+                        <td data-label="Peak" class="num"><strong>@Ui.Num(l.PeakSeats)</strong></td>
+                        <td data-label="Low" class="num">@Ui.Num(l.LowSeats)</td>
+                        <td data-label="Average" class="num">@l.AvgSeats.ToString("N1")</td>
+                        <td data-label="Month-end" class="num">@Ui.Num(l.MonthEndSeats)</td>
+                        <td data-label="Charged seats" class="num">@(l.Charged ? Ui.Num(l.ChargeSeats) : "")</td>
+                        <td data-label="Monthly charge" class="num @state">@if (l.Charged) { <strong>@Money(l.Charge)</strong> } else { <span class="small muted">@(l.IsNoLob ? "charged to nobody" : "central cost") · @Money(l.Cost(v.Rate))</span> }</td>
+                        <td data-label="Overage" class="num overage">@if (l.Overage > 0 && maxOver > 0) { <span class="overage-bar" style="width:@((int)Math.Max(4, Math.Round(l.Overage / maxOver * 100)))%" aria-hidden="true"></span> }<span class="overage-value">@(l.Charged ? Money(l.Overage) : "")</span></td>
+                        <td data-label="Cumulative overage" class="num">@(l.Charged ? Money(l.CumulativeOverage) : "")</td>
+                        <td data-label="Adjustments" class="num">@(l.Adjustments != 0 ? Money(l.Adjustments) : "")</td>
+                        <td data-label="Days" class="num">@l.DaysMeasured</td>
+                    </tr>
+                }
+                </tbody>
+                @if (charged.Count > 0)
+                {
+                    <tfoot><tr>
+                        <th scope="row">Total charged</th>
+                        <td class="num">@Ui.Num(charged.Sum(l => l.Reserved))</td>
+                        <td class="num">@Ui.Num(charged.Sum(l => l.PeakSeats))</td>
+                        <td class="num">@Ui.Num(charged.Sum(l => l.LowSeats))</td>
+                        <td class="num">@charged.Sum(l => l.AvgSeats).ToString("N1")</td>
+                        <td class="num">@Ui.Num(charged.Sum(l => l.MonthEndSeats))</td>
+                        <td class="num">@Ui.Num(charged.Sum(l => l.ChargeSeats))</td>
+                        <td class="num">@Money(v.ChargedToLobs)</td>
+                        <td class="num">@Money(charged.Sum(l => l.Overage))</td>
+                        <td class="num">@Money(charged.Sum(l => l.CumulativeOverage))</td>
+                        <td class="num">@Money(v.Lines.Sum(l => l.Adjustments))</td>
+                        <td></td>
+                    </tr></tfoot>
+                }
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt">
+        <h2>Reconciliation with the bill <help>What the licenses bought cost at the rate, and where it goes: charged to lines of business, central cost, seats no tracking group claims, and the rest, mostly licenses bought but not held. A negative rest means the peaks add up to more than was bought: people counted by two lines of business, or seats moving between them during the month.</help></h2>
+        <div class="table-wrap">
+            <table>
+                <tbody>
+                    <tr><th scope="row">Licenses bought@(v.Purchased is int p ? $" ({p:N0})" : "") at the rate</th><td class="num">@(v.Invoice is decimal i ? Money(i) : "not read yet")</td></tr>
+                    <tr><th scope="row">Charged to lines of business</th><td class="num">@Money(v.ChargedToLobs)</td></tr>
+                    <tr><th scope="row">Central cost (peak seats)</th><td class="num">@Money(v.CentralCost)</td></tr>
+                    <tr><th scope="row">No LOB, charged to nobody (peak seats)</th><td class="num">@Money(v.NoLobCost)</td></tr>
+                    <tr><th scope="row">Rest: licenses not held, or counted twice</th><td class="num @(v.Remainder < 0 ? "text-bad" : "")"><strong>@(v.Remainder is decimal r ? Money(r) : "–")</strong></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+@if (Model.CanCertify || Model.Periods.Count > 0)
+{
+    var editing = Model.Periods.FirstOrDefault(p => p.SeatPeriodId == Model.EditPeriodId);
+    <div class="card mt" id="periods">
+        <h2>Periods <help>Named runs of whole months that never overlap: reports are read by period, then month, and the cumulative overage restarts at each period's first month. The Platform Owner or FinOps adds and changes them. A period with certified months must keep them inside it; it can only be removed once none is certified.</help></h2>
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Period", "Its name.")' />
+                    <partial name="_Th" model='("", "From", "The first month.")' />
+                    <partial name="_Th" model='("", "To", "The last month, included.")' />
+                    <partial name="_Th" model='("", "Certified months", "Months of the period already certified.")' />
+                    @if (Model.CanCertify) { <th scope="col"><span class="sr-only">Actions</span></th> }
+                </tr></thead>
+                <tbody>
+                @if (Model.Periods.Count == 0) { <tr><td colspan="5" class="muted">No period yet.</td></tr> }
+                @foreach (var p in Model.Periods)
+                {
+                    <tr>
+                        <td data-label="Period"><a href="?period=@p.SeatPeriodId&month=all">@p.Name</a></td>
+                        <td data-label="From">@p.StartMonth.ToString("MMMM yyyy")</td>
+                        <td data-label="To">@p.EndMonth.ToString("MMMM yyyy")</td>
+                        <td data-label="Certified months" class="num">@p.CertifiedMonths of @p.MonthCount</td>
+                        @if (Model.CanCertify)
+                        {
+                            <td class="nowrap">
+                                <a class="btn btn-small btn-ghost" href="?editperiod=@p.SeatPeriodId#periods">Edit</a>
+                                @if (p.CertifiedMonths == 0)
+                                {
+                                    <form method="post" asp-page-handler="DeletePeriod" asp-route-periodId="@p.SeatPeriodId" class="inline" data-confirm="Remove @p.Name?"><idem /><button class="btn btn-small btn-ghost" type="submit">Remove</button></form>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.CanCertify)
+        {
+            var last = Model.Periods.LastOrDefault();
+            var nextStart = editing?.StartMonth ?? (last is null ? new DateTime(2026, 12, 1) : last.EndMonth.AddMonths(1));
+            var nextEnd = editing?.EndMonth ?? nextStart.AddMonths(11);
+            <form method="post" asp-page-handler="SavePeriod" class="form-grid mt">
+                <idem />
+                @if (editing is not null) { <input type="hidden" name="periodId" value="@editing.SeatPeriodId" /> }
+                <div class="field"><label for="pn" class="req">@(editing is null ? "New period" : "Change " + editing.Name) <help>A name, for example FY2027.</help></label><input id="pn" name="name" maxlength="100" value="@(editing?.Name ?? "")" required /></div>
+                <div class="field"><label for="ps" class="req">From <help>The first month of the period.</help></label><input id="ps" type="month" name="startMonth" value="@nextStart.ToString("yyyy-MM")" required /></div>
+                <div class="field"><label for="pe" class="req">To <help>The last month of the period, included. It cannot overlap another period.</help></label><input id="pe" type="month" name="endMonth" value="@nextEnd.ToString("yyyy-MM")" required /></div>
+                <div class="btn-row"><button class="btn" type="submit">@(editing is null ? "Add the period" : "Save the period")</button>@if (editing is not null) { <a class="btn btn-ghost" href="?#periods">Cancel</a> }</div>
+            </form>
+        }
+    </div>
+}

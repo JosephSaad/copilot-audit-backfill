@@ -43,6 +43,19 @@ public static class Roles
         !string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase) && !IsWorkbench(role)
         && !string.Equals(role, Preview, StringComparison.OrdinalIgnoreCase) && !string.Equals(role, Stories, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// How a role is named on the pages. The Workbench's three keep their stored codes (Governance, GovernanceOperator,
+    /// GovernanceAuditor), so every grant keeps working, but show as Seat management: the menu section called
+    /// Governance holds AI apps and controls beyond Copilot, which these roles do not open.
+    /// </summary>
+    public static string Title(string role) => role switch
+    {
+        Governance => "Seat management",
+        GovernanceOperator => "Seat management operator",
+        GovernanceAuditor => "Seat management auditor",
+        _ => role,
+    };
+
     public static readonly Dictionary<string, string> Describe = new()
     {
         [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log; or only the Admin pages ticked for them. Sees no usage data by itself.",
@@ -53,9 +66,9 @@ public static class Roles
         [Compliance] = "The Compliance section, and in it who accessed which sensitivity-labeled or blocked resources.",
         [Agents] = "The Agents section, and in it the named people using each agent.",
         [Enablement] = "The Enablement section, and in it the named champions and people who may need support.",
-        [Governance] = "The Governance Workbench's central pages: the queues, the whole registry, consumption events and findings, and its reports. Shows no usage data.",
-        [GovernanceOperator] = "Everything Governance opens, and the Workbench's operator pages: sync and freshness, attestations, and running a read on demand.",
-        [GovernanceAuditor] = "The Workbench's reports and audit trail, read only, with exports.",
+        [Governance] = "Copilot Seat Management's central pages: every line of business, the seat reports, findings and the registry. Shows no usage data. (Stored as Governance.)",
+        [GovernanceOperator] = "Everything Seat management opens, and the operator pages: sync and freshness, and reading the seats on demand. (Stored as GovernanceOperator.)",
+        [GovernanceAuditor] = "The seat reports and the audit trail, read only, with exports. (Stored as GovernanceAuditor.)",
         [Sections] = "The menu sections ticked on the grant, for the holder's own part of the organization or the whole of it, with or without the lists that name people.",
         [Preview] = "Every beta report (Admin › Reports shown sets which are beta), in the sections the holder sees already, as those sections show them. Shows nothing else.",
         [Stories] = "Curates the success stories: sees every story entered, edits, approves or declines them, and ticks the ones the weekly report quotes. Shows no usage data.",

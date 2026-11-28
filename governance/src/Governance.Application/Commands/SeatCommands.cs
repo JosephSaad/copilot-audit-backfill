@@ -2,6 +2,7 @@ using System.Text.Json;
 using Governance.Application.Data;
 using Governance.Application.Outbox;
 using Governance.Application.Queries;
+using Governance.Application.Seats;
 using Governance.Domain;
 
 namespace Governance.Application.Commands;
@@ -88,6 +89,7 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
                     OUTPUT inserted.PublicId VALUES (@fo, @seats, @prev, @kind, @from, @me, @notes, @me)
                     """, new { fo, seats, prev = cur.Id == 0 ? (int?)null : cur.Seats, kind, from, me = Me.PersonId, notes = CommandRunner.TrimN(notes, 1000) });
             }
+            await Seats.SeatMonths.AdjustCertifiedAsync(uow, fo, clock.UtcNow, Me.PersonId, "Reservation set to " + seats + " from " + from.ToString("d MMM yyyy"));
             await run.AuditAsync(uow, "seat.reservation.set", "SeatReservation", id, $"{seats} seats from {from:yyyy-MM-dd}{(cur.Id == 0 ? "" : $" (was {cur.Seats})")}");
             return id.ToString();
         });
@@ -126,6 +128,7 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
                 """, new { seats, from, notes = CommandRunner.TrimN(notes, 1000), row.Id });
             if (before.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET EffectiveTo = @to WHERE SeatReservationId = @Id", new { to = from.AddDays(-1), before.Id });
             if (after.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET PreviousSeats = @seats WHERE SeatReservationId = @Id", new { seats, after.Id });
+            await Seats.SeatMonths.AdjustCertifiedAsync(uow, row.Fo, clock.UtcNow, Me.PersonId, "Reservation corrected to " + seats + " from " + from.ToString("d MMM yyyy"));
             await run.AuditAsync(uow, "seat.reservation.edit", "SeatReservation", reservationPublicId,
                 $"{seats} seats from {from:yyyy-MM-dd} (was {row.Seats} from {row.From:yyyy-MM-dd})");
             return reservationPublicId.ToString();
@@ -156,6 +159,7 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             if (before.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET EffectiveTo = @To WHERE SeatReservationId = @Id", new { row.To, before.Id });
             if (after != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET PreviousSeats = @prev WHERE SeatReservationId = @after",
                 new { prev = before.Id == 0 ? (int?)null : before.Seats, after });
+            await Seats.SeatMonths.AdjustCertifiedAsync(uow, row.Fo, clock.UtcNow, Me.PersonId, "Reservation of " + row.Seats + " from " + row.From.ToString("d MMM yyyy") + " deleted");
             await run.AuditAsync(uow, "seat.reservation.delete", "SeatReservation", reservationPublicId,
                 $"deleted {row.Seats} seats from {row.From:yyyy-MM-dd} to {(row.To is null ? "now" : row.To.Value.ToString("yyyy-MM-dd"))}");
             return reservationPublicId.ToString();
@@ -181,6 +185,123 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             if (n == 0) throw new DomainException("Only an active LOB tracking group has a mapping.");
             await run.AuditAsync(uow, "seat.group.mapping", "SeatGroup", groupPublicId, upn is null ? "mapping cleared" : $"{upn} at level {level}");
             return groupPublicId.ToString();
+        });
+
+    // ---------------------------------------------------------------- months
+
+    /// <summary>The Platform Owner or FinOps (the FinOps lead role, or registry.finance), read from the database where it is a role.</summary>
+    private async Task RequireCertifierAsync(Uow uow)
+    {
+        if (Me.Can(Permissions.RegistryFinance)) return;
+        if ((await uow.QueryAsync<string>(
+                "SELECT RoleCode FROM sec.RoleAssignment WHERE PersonId = @me AND RoleCode IN ('PLATFORM_OWNER','FINOPS_LEAD') AND ScopeType = 'TENANT' AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)",
+                new { me = Me.PersonId, today = Today })).Any()) return;
+        throw new DomainException("Only the Platform Owner or FinOps certifies a month.");
+    }
+
+    /// <summary>
+    /// Certifies an ended month: its figures (peak, low, average, month-end seats, reservation, charge and overage per line)
+    /// are frozen, with the hierarchy audit and Duplicate review as they stand. With days not measured, a reason is needed.
+    /// </summary>
+    public Task<string?> CertifySeatMonthAsync(Guid idem, DateTime month, string? reason, string? auditJson, string? duplicatesJson)
+        => run.RunAsync(idem, "seat.month.certify", async uow =>
+        {
+            await RequireCertifierAsync(uow);
+            var settings = await SeatSettings.LoadAsync(uow);
+            var view = await SeatMonths.MonthAsync(uow, month, clock.UtcNow, settings, withCumulative: false);
+            if (view.Status == "NOT_TRACKED") throw new DomainException("That month is before the seats were tracked day by day (Seats.TrackingStart).");
+            if (view.Certified) throw new DomainException($"{view.Month:MMMM yyyy} is already certified.");
+            if (!view.Ended) throw new DomainException($"{view.Month:MMMM yyyy} has not ended yet: certify it from its first day after.");
+            var why = CommandRunner.TrimN(reason, 1000);
+            if (view.DaysMeasured < view.DaysExpected && (why is null || why.Trim().Length < 5))
+                throw new DomainException($"Only {view.DaysMeasured} of {view.DaysExpected} days were measured. Say why the month can be certified anyway.");
+            await uow.ExecuteAsync(
+                """
+                INSERT core.SeatMonthCertification (PeriodMonth, CertifiedByPersonId, DaysMeasured, DaysInMonth, Reason, Rate, Currency, Purchased, AuditJson, DuplicatesJson)
+                VALUES (@Month, @me, @DaysMeasured, @DaysExpected, @why, @Rate, @Currency, @Purchased, @auditJson, @duplicatesJson)
+                """, new { view.Month, me = Me.PersonId, view.DaysMeasured, view.DaysExpected, why, view.Rate, view.Currency, view.Purchased, auditJson, duplicatesJson });
+            foreach (var l in view.Lines)
+                await uow.ExecuteAsync(
+                    """
+                    INSERT core.SeatMonth (PeriodMonth, RowKey, FundingOwnerId, Name, TrackingGroup, IsCentralCost, Reserved, PeakSeats, LowSeats, AvgSeats, MonthEndSeats, DaysMeasured, ChargeSeats, Charge, Overage)
+                    VALUES (@Month, @RowKey, @FundingOwnerId, @Name, @TrackingGroup, @IsCentralCost, @Reserved, @PeakSeats, @LowSeats, @AvgSeats, @MonthEndSeats, @DaysMeasured, @ChargeSeats, @Charge, @Overage)
+                    """, new { view.Month, l.RowKey, l.FundingOwnerId, l.Name, l.TrackingGroup, l.IsCentralCost, l.Reserved, l.PeakSeats, l.LowSeats, l.AvgSeats, l.MonthEndSeats, l.DaysMeasured, l.ChargeSeats, l.Charge, l.Overage });
+            await run.AuditAsync(uow, "seat.month.certify", "SeatMonth", view.Month.ToString("yyyy-MM"),
+                $"{view.DaysMeasured} of {view.DaysExpected} days, charged {view.ChargedToLobs:N2} {view.Currency}{(why is null ? "" : "; " + why)}");
+            return view.Month.ToString("yyyy-MM");
+        });
+
+    /// <summary>
+    /// Adds or changes a period (the Platform Owner or FinOps): whole months, never overlapping another period. A period
+    /// with certified months keeps them: its new start and end must still hold every certified month it had.
+    /// </summary>
+    public Task<string?> SavePeriodAsync(Guid idem, int? periodId, string name, DateTime startMonth, DateTime endMonth)
+        => run.RunAsync(idem, "seat.period.save", async uow =>
+        {
+            await RequireCertifierAsync(uow);
+            var label = CommandRunner.Trim(name ?? "", 100).Trim();
+            if (label.Length == 0) throw new DomainException("Give the period a name, for example FY2027.");
+            var start = SeatMonths.MonthOf(startMonth);
+            var end = SeatMonths.MonthOf(endMonth);
+            if (end < start) throw new DomainException("The period ends before it starts.");
+            var periods = await SeatMonths.PeriodsAsync(uow);
+            if (SeatMonths.Overlapping(periods, periodId, start, end) is { } other)
+                throw new DomainException($"It overlaps {other.Label}. Periods cannot overlap: change that one first, or choose other months.");
+            if (periodId is int id)
+            {
+                var old = periods.FirstOrDefault(p => p.SeatPeriodId == id) ?? throw new DomainException("That period was not found.");
+                var stranded = await uow.ScalarAsync<int>(
+                    "SELECT COUNT(*) FROM core.SeatMonthCertification WHERE PeriodMonth BETWEEN @OldStart AND @OldEnd AND (PeriodMonth < @start OR PeriodMonth > @end)",
+                    new { OldStart = old.StartMonth, OldEnd = old.EndMonth, start, end });
+                if (stranded > 0) throw new DomainException($"{stranded} certified month(s) of {old.Name} would fall outside it. Reopen them first, or keep them inside the period.");
+                await uow.ExecuteAsync("UPDATE core.SeatPeriod SET Name = @label, StartMonth = @start, EndMonth = @end WHERE SeatPeriodId = @id", new { label, start, end, id });
+            }
+            else
+                periodId = await uow.ScalarAsync<int>(
+                    "INSERT core.SeatPeriod (Name, StartMonth, EndMonth, CreatedByPersonId) OUTPUT inserted.SeatPeriodId VALUES (@label, @start, @end, @me)",
+                    new { label, start, end, me = Me.PersonId });
+            await run.AuditAsync(uow, "seat.period.save", "SeatPeriod", periodId, $"{label}: {start:yyyy-MM} to {end:yyyy-MM}");
+            return periodId.ToString();
+        });
+
+    /// <summary>Removes a period with no certified month (the Platform Owner or FinOps).</summary>
+    public Task<string?> DeletePeriodAsync(Guid idem, int periodId)
+        => run.RunAsync(idem, "seat.period.delete", async uow =>
+        {
+            await RequireCertifierAsync(uow);
+            var p = (await SeatMonths.PeriodsAsync(uow)).FirstOrDefault(x => x.SeatPeriodId == periodId) ?? throw new DomainException("That period was not found.");
+            if (p.CertifiedMonths > 0) throw new DomainException($"{p.Name} has certified months: reopen them first.");
+            await uow.ExecuteAsync("DELETE core.SeatPeriod WHERE SeatPeriodId = @periodId", new { periodId });
+            await run.AuditAsync(uow, "seat.period.delete", "SeatPeriod", periodId, p.Label);
+            return periodId.ToString();
+        });
+
+    /// <summary>Reopens a certified month (the Platform Owner, with a reason): its figures are built from its days again.</summary>
+    public Task<string?> ReopenSeatMonthAsync(Guid idem, DateTime month, string? reason)
+        => run.RunAsync(idem, "seat.month.reopen", async uow =>
+        {
+            await RequirePlatformOwnerAsync(uow);
+            var why = CommandRunner.TrimN(reason, 1000);
+            if (why is null || why.Trim().Length < 5) throw new DomainException("Say why the month is reopened: it is kept in the audit trail.");
+            var m = SeatMonths.MonthOf(month);
+            var n = await uow.ExecuteAsync("DELETE core.SeatMonth WHERE PeriodMonth = @m; DELETE core.SeatMonthCertification WHERE PeriodMonth = @m;", new { m });
+            if (n == 0) throw new DomainException($"{m:MMMM yyyy} is not certified.");
+            await run.AuditAsync(uow, "seat.month.reopen", "SeatMonth", m.ToString("yyyy-MM"), why);
+            return m.ToString("yyyy-MM");
+        });
+
+    /// <summary>
+    /// Marks a line of business as central cost (for example people licensed by exception): its seats show on its own
+    /// row, are charged to no line of business, and its holders are left out of the hierarchy audit unless its tracking group has an expected leader.
+    /// </summary>
+    public Task<string?> SetCentralCostAsync(Guid idem, Guid fundingOwnerPublicId, bool central)
+        => run.RunAsync(idem, "fundingowner.central", async uow =>
+        {
+            run.RequireAny(Permissions.RegistryFinance, Permissions.RegistryEdit);
+            var fo = await FundingOwnerIdAsync(uow, fundingOwnerPublicId);
+            await uow.ExecuteAsync("UPDATE core.FundingOwner SET IsCentralCost = @central WHERE FundingOwnerId = @fo", new { central, fo });
+            await run.AuditAsync(uow, "fundingowner.central", "FundingOwner", fo, central ? "central cost" : "charged to the line of business");
+            return fundingOwnerPublicId.ToString();
         });
 
     // ---------------------------------------------------------------- reclaim

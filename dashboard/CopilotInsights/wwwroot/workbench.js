@@ -187,3 +187,59 @@
         });
     });
 })();
+
+// Tables: a heading lines up with its figures (right for numbers), and a table marked "sortable" sorts in the page
+// when a heading is clicked. Numbers sort as numbers: thousands separators, currency words and a bracketed negative
+// such as (49) are understood. The total row (tfoot) stays at the foot.
+(function () {
+    'use strict';
+    function value(cell) {
+        if (!cell) return '';
+        var raw = cell.getAttribute('data-sort');
+        var t = (raw !== null ? raw : cell.textContent || '').replace(/\s+/g, ' ').trim();
+        var neg = /^\(.*\)$/.test(t);
+        var n = t.replace(/[(),%]/g, '').replace(/[A-Za-z$\u00a3\u20ac]/g, '').trim();
+        if (n === '' || n === '\u2013' || n === '-') return t === '' || t === '\u2013' ? -Infinity : t.toLowerCase();
+        var f = parseFloat(n);
+        if (!isNaN(f) && /^-?[0-9.]+$/.test(n)) return neg ? -f : f;
+        return t.toLowerCase();
+    }
+    document.querySelectorAll('.wb table').forEach(function (table) {
+        var head = table.tHead && table.tHead.rows[0];
+        var body = table.tBodies[0];
+        if (!head || !body) return;
+        var first = body.rows[0];
+        if (first) {
+            Array.prototype.forEach.call(head.cells, function (th, i) {
+                var td = first.cells[i];
+                if (td && td.classList.contains('num')) th.classList.add('num');
+            });
+        }
+        if (!table.classList.contains('sortable')) return;
+        Array.prototype.forEach.call(head.cells, function (th, i) {
+            if (th.querySelector('a') || th.querySelector('button:not(.help-btn)')) return;
+            var label = th.querySelector('.th-inner > span') || null;
+            if (!label || !label.textContent.trim()) return;
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'th-sort';
+            btn.textContent = label.textContent;
+            btn.setAttribute('aria-label', 'Sort by ' + label.textContent);
+            label.replaceWith(btn);
+            btn.addEventListener('click', function () {
+                var asc = th.getAttribute('aria-sort') !== 'ascending';
+                Array.prototype.forEach.call(head.cells, function (o) { o.removeAttribute('aria-sort'); });
+                th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+                var rows = Array.prototype.slice.call(body.rows).filter(function (r) { return r.cells.length > 1; });
+                var keep = Array.prototype.slice.call(body.rows).filter(function (r) { return r.cells.length <= 1 || r.classList.contains('sort-last'); });
+                rows = rows.filter(function (r) { return keep.indexOf(r) < 0; });
+                rows.sort(function (a, b) {
+                    var x = value(a.cells[i]), y = value(b.cells[i]);
+                    var c = (typeof x === 'number' && typeof y === 'number') ? x - y : String(x).localeCompare(String(y));
+                    return asc ? c : -c;
+                });
+                rows.concat(keep).forEach(function (r) { body.appendChild(r); });
+            });
+        });
+    });
+})();

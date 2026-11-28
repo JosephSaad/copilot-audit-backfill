@@ -7,7 +7,7 @@ they are not, and none ever failing the night. Each run is a row of `audit.Exter
 |---|---|---|
 | `tools/Import-GatewayTokenUsage.ps1` | The AI gateway's model tokens by day and business unit (Application Insights, from API Management's token metric policy), and its token limits (the gateway's policies, through Azure Resource Manager) | Leadership › Model tokens by business unit; Forecasting › Spend limits |
 | `tools/Import-SpendLimits.ps1` | Microsoft 365 Copilot spending policies (Microsoft Graph beta) and GitHub budgets | Forecasting › Spend limits |
-| `tools/Invoke-AgentActions.ps1` | Carries out approved agent actions: quarantine, release from quarantine, a new owner for an orphaned agent, through the Power Platform API; and checks the night after that they still hold | Governance › Agent policies |
+| `tools/Invoke-AgentActions.ps1` | Carries out approved agent actions: quarantine, release from quarantine, a new owner for an orphaned agent, through the Power Platform API; and checks the night after that they still hold | AI apps and controls › Agent policies |
 
 The first two only read. The third is the first part of the product that changes Microsoft 365, so it has an app
 registration of its own and does nothing until an administrator turns it on.
@@ -89,7 +89,7 @@ limit's L2 and L3 executives. Both are set on the page.
 
 ## Agent actions (off by default)
 
-**What it changes.** Only what an administrator approved on Governance › Agent policies: quarantine an agent, release
+**What it changes.** Only what an administrator approved on AI apps and controls › Agent policies: quarantine an agent, release
 it, or give an orphaned agent to a new owner. It never deletes an agent. Notify (an email to the agent's owner) is
 sent by the dashboard itself and needs none of this.
 

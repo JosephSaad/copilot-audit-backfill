@@ -1,4 +1,4 @@
-# release 3.6.3
+# release 3.7.0
 # The shape of the Governance Workbench's database (its own, beside the Copilot one) as this release installs it.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -249,6 +249,7 @@ C	governance	core.FundingOwner	U	15	EffectiveTo	date	1
 C	governance	core.FundingOwner	U	16	RowVer	timestamp	0	
 C	governance	core.FundingOwner	U	17	SysStart	datetime2(7)	0	
 C	governance	core.FundingOwner	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.FundingOwner	U	19	IsCentralCost	bit	1	
 C	governance	core.FundingOwner	U	2	PublicId	uniqueidentifier	0	D
 C	governance	core.FundingOwner	U	3	Code	varchar(32)	0	
 C	governance	core.FundingOwner	U	4	Name	nvarchar(200)	0	
@@ -267,6 +268,7 @@ C	governance	core.FundingOwnerHistory	U	15	EffectiveTo	date	1
 C	governance	core.FundingOwnerHistory	U	16	RowVer	timestamp	0	
 C	governance	core.FundingOwnerHistory	U	17	SysStart	datetime2(7)	0	
 C	governance	core.FundingOwnerHistory	U	18	SysEnd	datetime2(7)	0	
+C	governance	core.FundingOwnerHistory	U	19	IsCentralCost	bit	1	
 C	governance	core.FundingOwnerHistory	U	2	PublicId	uniqueidentifier	0	
 C	governance	core.FundingOwnerHistory	U	3	Code	varchar(32)	0	
 C	governance	core.FundingOwnerHistory	U	4	Name	nvarchar(200)	0	
@@ -283,6 +285,14 @@ C	governance	core.LicenseDetermination	U	5	IncludedInLicense	bit	0
 C	governance	core.LicenseDetermination	U	6	DeterminedByPersonId	int	0	
 C	governance	core.LicenseDetermination	U	7	DeterminedOn	date	0	
 C	governance	core.LicenseDetermination	U	8	SourceRef	nvarchar(400)	1	
+C	governance	core.SeatAdjustment	U	1	SeatAdjustmentId	int	0	I
+C	governance	core.SeatAdjustment	U	2	PeriodMonth	date	0	
+C	governance	core.SeatAdjustment	U	3	SourceMonth	date	0	
+C	governance	core.SeatAdjustment	U	4	FundingOwnerId	int	0	
+C	governance	core.SeatAdjustment	U	5	Amount	decimal(18,2)	0	
+C	governance	core.SeatAdjustment	U	6	Reason	nvarchar(1000)	0	
+C	governance	core.SeatAdjustment	U	7	CreatedByPersonId	int	1	
+C	governance	core.SeatAdjustment	U	8	CreatedUtc	datetime2(7)	0	D
 C	governance	core.SeatChargeSnapshot	U	1	SnapshotId	bigint	0	I
 C	governance	core.SeatChargeSnapshot	U	10	Currency	char(3)	0	
 C	governance	core.SeatChargeSnapshot	U	11	Amount	decimal(18,2)	0	
@@ -336,6 +346,38 @@ C	governance	core.SeatGroupHistory	U	6	FundingOwnerId	int	1
 C	governance	core.SeatGroupHistory	U	7	OimRoleName	nvarchar(300)	1	
 C	governance	core.SeatGroupHistory	U	8	Source	varchar(20)	0	
 C	governance	core.SeatGroupHistory	U	9	PurposeConfirmed	bit	0	
+C	governance	core.SeatMonth	U	1	PeriodMonth	date	0	
+C	governance	core.SeatMonth	U	10	AvgSeats	decimal(12,2)	0	
+C	governance	core.SeatMonth	U	11	MonthEndSeats	int	0	
+C	governance	core.SeatMonth	U	12	DaysMeasured	int	0	
+C	governance	core.SeatMonth	U	13	ChargeSeats	int	0	
+C	governance	core.SeatMonth	U	14	Charge	decimal(18,2)	0	
+C	governance	core.SeatMonth	U	15	Overage	decimal(18,2)	0	
+C	governance	core.SeatMonth	U	2	RowKey	varchar(40)	0	
+C	governance	core.SeatMonth	U	3	FundingOwnerId	int	1	
+C	governance	core.SeatMonth	U	4	Name	nvarchar(200)	0	
+C	governance	core.SeatMonth	U	5	TrackingGroup	nvarchar(256)	1	
+C	governance	core.SeatMonth	U	6	IsCentralCost	bit	0	D
+C	governance	core.SeatMonth	U	7	Reserved	int	0	
+C	governance	core.SeatMonth	U	8	PeakSeats	int	0	
+C	governance	core.SeatMonth	U	9	LowSeats	int	0	
+C	governance	core.SeatMonthCertification	U	1	PeriodMonth	date	0	
+C	governance	core.SeatMonthCertification	U	10	AuditJson	nvarchar(max)	1	
+C	governance	core.SeatMonthCertification	U	11	DuplicatesJson	nvarchar(max)	1	
+C	governance	core.SeatMonthCertification	U	2	CertifiedByPersonId	int	1	
+C	governance	core.SeatMonthCertification	U	3	CertifiedUtc	datetime2(7)	0	D
+C	governance	core.SeatMonthCertification	U	4	DaysMeasured	int	0	
+C	governance	core.SeatMonthCertification	U	5	DaysInMonth	int	0	
+C	governance	core.SeatMonthCertification	U	6	Reason	nvarchar(1000)	1	
+C	governance	core.SeatMonthCertification	U	7	Rate	decimal(18,2)	0	
+C	governance	core.SeatMonthCertification	U	8	Currency	char(3)	0	
+C	governance	core.SeatMonthCertification	U	9	Purchased	int	1	
+C	governance	core.SeatPeriod	U	1	SeatPeriodId	int	0	I
+C	governance	core.SeatPeriod	U	2	Name	nvarchar(100)	0	
+C	governance	core.SeatPeriod	U	3	StartMonth	date	0	
+C	governance	core.SeatPeriod	U	4	EndMonth	date	0	
+C	governance	core.SeatPeriod	U	5	CreatedByPersonId	int	1	
+C	governance	core.SeatPeriod	U	6	CreatedUtc	datetime2(7)	0	D
 C	governance	core.SeatReclaim	U	1	SeatReclaimId	int	0	I
 C	governance	core.SeatReclaim	U	10	DecidedUtc	datetime2(7)	1	
 C	governance	core.SeatReclaim	U	11	TicketRef	nvarchar(100)	1	
@@ -700,6 +742,17 @@ C	governance	intg.RegistryRow	U	6	OwnerUpn	nvarchar(256)	1
 C	governance	intg.RegistryRow	U	7	Status	nvarchar(60)	1	
 C	governance	intg.RegistryRow	U	8	Audience	nvarchar(400)	1	
 C	governance	intg.RegistryRow	U	9	Matched	bit	0	D
+C	governance	intg.SeatDay	U	1	Day	date	0	
+C	governance	intg.SeatDay	U	10	LastRunId	bigint	1	
+C	governance	intg.SeatDay	U	11	UpdatedUtc	datetime2(7)	0	D
+C	governance	intg.SeatDay	U	2	RowKey	varchar(40)	0	
+C	governance	intg.SeatDay	U	3	FundingOwnerId	int	1	
+C	governance	intg.SeatDay	U	4	Members	int	0	
+C	governance	intg.SeatDay	U	5	Seats	int	0	
+C	governance	intg.SeatDay	U	6	Active	int	1	
+C	governance	intg.SeatDay	U	7	Reserved	int	1	
+C	governance	intg.SeatDay	U	8	Purchased	int	1	
+C	governance	intg.SeatDay	U	9	Reads	int	0	D
 C	governance	intg.SeatGroupReading	U	1	SeatGroupReadingId	bigint	0	I
 C	governance	intg.SeatGroupReading	U	10	ReadUtc	datetime2(7)	0	D
 C	governance	intg.SeatGroupReading	U	11	MembersFrom	varchar(10)	1	
@@ -1294,7 +1347,14 @@ C	governance	wf.WorkflowDefinition	U	6	TypicalUser	nvarchar(200)	0
 C	governance	wf.WorkflowDefinition	U	7	Turnaround	nvarchar(100)	0	
 C	governance	wf.WorkflowDefinition	U	8	IsActive	bit	0	
 G	governance	app_web	DELETE	core.ControlCheck
+G	governance	app_web	DELETE	core.SeatMonth
+G	governance	app_web	DELETE	core.SeatMonthCertification
+G	governance	app_web	DELETE	core.SeatPeriod
+G	governance	app_web	DELETE	core.SeatReservation
 G	governance	app_web	DELETE	core.WorkloadMeter
+G	governance	app_web	DELETE	intg.CopilotActivity
+G	governance	app_web	DELETE	intg.GroupMember
+G	governance	app_web	DELETE	intg.SeatHolder
 G	governance	app_web	DELETE	ref.TextBlock
 G	governance	app_web	DELETE	sec.DelegationEnvelope
 G	governance	app_web	DELETE	sec.GroupRoleMap
@@ -1401,9 +1461,13 @@ O	governance	core.FundingEnvelopeHistory	U
 O	governance	core.FundingOwner	U
 O	governance	core.FundingOwnerHistory	U
 O	governance	core.LicenseDetermination	U
+O	governance	core.SeatAdjustment	U
 O	governance	core.SeatChargeSnapshot	U
 O	governance	core.SeatGroup	U
 O	governance	core.SeatGroupHistory	U
+O	governance	core.SeatMonth	U
+O	governance	core.SeatMonthCertification	U
+O	governance	core.SeatPeriod	U
 O	governance	core.SeatReclaim	U
 O	governance	core.SeatReservation	U
 O	governance	core.SeatReservationHistory	U
@@ -1435,6 +1499,7 @@ O	governance	intg.InventoryItem	U
 O	governance	intg.JobRun	U
 O	governance	intg.PersonCostCenterSeen	U
 O	governance	intg.RegistryRow	U
+O	governance	intg.SeatDay	U
 O	governance	intg.SeatGroupReading	U
 O	governance	intg.SeatHolder	U
 O	governance	intg.SeatSkuReading	U

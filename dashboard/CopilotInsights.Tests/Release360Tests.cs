@@ -44,7 +44,7 @@ public class Release360Tests
     [InlineData("/workbench/Registry/Envelopes", false)]
     [InlineData("/workbench/Registry/SeatsExtra", false)]    // a prefix is not enough: whole segments
     [InlineData("/workbench/Reports/Kpis", false)]
-    [InlineData("/workbench/Operations/Findings", false)]
+    [InlineData("/workbench/Operations/Findings", true)]   // open with seats only: the tenant-wide seat findings
     [InlineData("/workbench/Admin/Intake", false)]
     [InlineData("/workbench/Queues/Intake", false)]
     public void Only_the_seat_pages_open_with_seats_only(string path, bool open)
@@ -100,13 +100,13 @@ public class Release360Tests
         /* FinOps-like: central, with the tenant-wide seat view (Copilot seats keeps its own rule). */
         var all = WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, IsCentral = true, Permissions = Set("seats.view"),
             AppRoles = Set(AppRoles.Central, AppRoles.Operator, AppRoles.Auditor, AppRoles.Admin) }, true, true);
-        Assert.Equal(["Copilot seats by line of business"], all.Select(g => g.Persona));
-        Assert.Equal(["Copilot seats", "Lines of business", "Reservation summary", "Seat chargeback", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Multiple groups", "Hierarchy mapping",
-            "Seat groups", "Workbench roles", "Settings", "Sync and freshness"], all.SelectMany(g => g.Pages).Select(p => p.Title));
+        Assert.Equal(["Copilot Seat Management"], all.Select(g => g.Persona));
+        Assert.Equal(["Copilot seats", "Lines of business", "Reservation summary", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Duplicate review", "Hierarchy mapping",
+            "Seat groups", "Workbench roles", "Settings", "Seat findings", "Sync and freshness"], all.SelectMany(g => g.Pages).Select(p => p.Title));
         foreach (var p in all.SelectMany(g => g.Pages)) Assert.True(WorkbenchScope.PageOpen(p.Path, true), p.Path);
         Assert.Empty(Pages());
         Assert.Empty(Pages(AppRoles.User));                         // requests and approvals are closed
-        Assert.Equal(["Reservation summary", "Seat chargeback", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Multiple groups", "Hierarchy mapping"], Pages(AppRoles.Auditor));
+        Assert.Equal(["Reservation summary", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Duplicate review", "Hierarchy mapping"], Pages(AppRoles.Auditor));
         Assert.DoesNotContain("Settings", Pages(AppRoles.Registry));
         // With the whole Workbench, the menu is as it was.
         Assert.Contains("Ownership and approvals", WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, AppRoles = Set(AppRoles.User) }, true).Select(g => g.Persona));

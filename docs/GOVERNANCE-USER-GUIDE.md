@@ -7,7 +7,7 @@ lists every page.
 
 **Copilot seats only (3.6.0).** Unless an administrator has turned the whole Workbench back on (Workbench settings ›
 Settings › *What the Workbench is used for*), the Workbench does one thing: it shows each line of business's Copilot
-license holders and how they use Copilot. Its menu has one section, *Copilot seats by line of business*; the journeys
+license holders and how they use Copilot. Its menu has one section, *Copilot Seat Management*; the journeys
 below (requests, approvals, workloads, envelopes, recertification and the rest) are not offered, and their addresses
 open Copilot seats. The LOB seat admin and FinOps sections below still apply; a line of business is active once it is
 added, with its AD tracking group set on Seat groups.

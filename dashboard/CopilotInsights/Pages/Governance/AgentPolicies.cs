@@ -13,7 +13,7 @@ namespace CopilotInsights.Pages.Governance;
 public sealed class AgentPoliciesModel(PageServices s, AgentPolicies data, OpsReports reports) : InsightsPage(s)
 {
     public override string Title => "Agent policies";
-    public override string Persona => "Governance";
+    public override string Persona => "AI apps and controls";
     public override bool UsesTeam => false;
     public override bool CountsWholeOrganization => true;
     public override string? OwnWindow => "today";

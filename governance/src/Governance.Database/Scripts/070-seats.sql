@@ -118,6 +118,95 @@ CREATE TABLE core.SeatChargeSnapshot
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SeatChargeSnapshot_Period')
     CREATE UNIQUE INDEX UX_SeatChargeSnapshot_Period ON core.SeatChargeSnapshot (PeriodMonth, FundingOwnerId);
 
+-- A line of business whose seats are a central cost: shown on its own row, charged to no line of business, and left
+-- out of the hierarchy audit (for example people licensed by exception).
+IF COL_LENGTH('core.FundingOwner', 'IsCentralCost') IS NULL ALTER TABLE core.FundingOwner ADD IsCentralCost bit NULL;
+
+-- One row per day and line of business (RowKey FO:<id>), plus NOLOB and TENANT, written by every seat read: the
+-- highest seats and members any read saw that day, the active users of the last read, the reservation in effect and,
+-- for TENANT, the licenses purchased. Months are built from these days; a day no read reached is missing.
+IF OBJECT_ID('intg.SeatDay') IS NULL
+CREATE TABLE intg.SeatDay
+(
+    Day             date          NOT NULL,
+    RowKey          varchar(40)   NOT NULL,
+    FundingOwnerId  int           NULL,
+    Members         int           NOT NULL,
+    Seats           int           NOT NULL,
+    Active          int           NULL,
+    Reserved        int           NULL,
+    Purchased       int           NULL,
+    Reads           int           NOT NULL CONSTRAINT DF_SeatDay_Reads DEFAULT 1,
+    LastRunId       bigint        NULL,
+    UpdatedUtc      datetime2     NOT NULL CONSTRAINT DF_SeatDay_Updated DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_SeatDay PRIMARY KEY (Day, RowKey)
+);
+
+-- A month certified by the Platform Owner or FinOps: its figures frozen per row (RowKey as in intg.SeatDay), never
+-- changed afterwards. Later corrections are core.SeatAdjustment rows in an open month.
+IF OBJECT_ID('core.SeatMonthCertification') IS NULL
+CREATE TABLE core.SeatMonthCertification
+(
+    PeriodMonth          date          NOT NULL CONSTRAINT PK_SeatMonthCertification PRIMARY KEY CONSTRAINT CK_SeatMonthCertification_Month CHECK (DAY(PeriodMonth) = 1),
+    CertifiedByPersonId  int           NULL,
+    CertifiedUtc         datetime2     NOT NULL CONSTRAINT DF_SeatMonthCertification_Utc DEFAULT SYSUTCDATETIME(),
+    DaysMeasured         int           NOT NULL,
+    DaysInMonth          int           NOT NULL,
+    Reason               nvarchar(1000) NULL,      -- why it was certified with days missing
+    Rate                 decimal(18,2) NOT NULL,
+    Currency             char(3)       NOT NULL,
+    Purchased            int           NULL,
+    AuditJson            nvarchar(max) NULL,       -- the hierarchy audit's summary as it was
+    DuplicatesJson       nvarchar(max) NULL        -- Duplicate review as it was
+);
+IF OBJECT_ID('core.SeatMonth') IS NULL
+CREATE TABLE core.SeatMonth
+(
+    PeriodMonth     date          NOT NULL,
+    RowKey          varchar(40)   NOT NULL,
+    FundingOwnerId  int           NULL,
+    Name            nvarchar(200) NOT NULL,
+    TrackingGroup   nvarchar(256) NULL,
+    IsCentralCost   bit           NOT NULL CONSTRAINT DF_SeatMonth_Central DEFAULT 0,
+    Reserved        int           NOT NULL,
+    PeakSeats       int           NOT NULL,
+    LowSeats        int           NOT NULL,
+    AvgSeats        decimal(12,2) NOT NULL,
+    MonthEndSeats   int           NOT NULL,
+    DaysMeasured    int           NOT NULL,
+    ChargeSeats     int           NOT NULL,
+    Charge          decimal(18,2) NOT NULL,
+    Overage         decimal(18,2) NOT NULL,
+    CONSTRAINT PK_SeatMonth PRIMARY KEY (PeriodMonth, RowKey)
+);
+-- Periods: named runs of whole months that never overlap (the first: December 2026). Reports are read by period,
+-- then month; the cumulative overage restarts at each period's first month.
+IF OBJECT_ID('core.SeatPeriod') IS NULL
+CREATE TABLE core.SeatPeriod
+(
+    SeatPeriodId       int IDENTITY CONSTRAINT PK_SeatPeriod PRIMARY KEY,
+    Name               nvarchar(100) NOT NULL,
+    StartMonth         date          NOT NULL CONSTRAINT UX_SeatPeriod_Start UNIQUE,
+    EndMonth           date          NOT NULL,
+    CreatedByPersonId  int           NULL,
+    CreatedUtc         datetime2     NOT NULL CONSTRAINT DF_SeatPeriod_Created DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_SeatPeriod_Months CHECK (DAY(StartMonth) = 1 AND DAY(EndMonth) = 1 AND EndMonth >= StartMonth)
+);
+IF NOT EXISTS (SELECT 1 FROM core.SeatPeriod)
+    INSERT core.SeatPeriod (Name, StartMonth, EndMonth) VALUES (N'Period 1', '2026-12-01', '2026-12-01');
+IF OBJECT_ID('core.SeatAdjustment') IS NULL
+CREATE TABLE core.SeatAdjustment
+(
+    SeatAdjustmentId   int IDENTITY CONSTRAINT PK_SeatAdjustment PRIMARY KEY,
+    PeriodMonth        date          NOT NULL,     -- the open month it is charged in
+    SourceMonth        date          NOT NULL,     -- the certified month it corrects
+    FundingOwnerId     int           NOT NULL,
+    Amount             decimal(18,2) NOT NULL,
+    Reason             nvarchar(1000) NOT NULL,
+    CreatedByPersonId  int           NULL,
+    CreatedUtc         datetime2     NOT NULL CONSTRAINT DF_SeatAdjustment_Created DEFAULT SYSUTCDATETIME()
+);
+
 -- Seats proposed for reclaim (no Copilot activity for Seats.InactiveDays) and the business owner's answer.
 -- RECLAIM opens an ITSM task to remove the OIM role; REMOVED is set when the read-back shows the seat gone.
 IF OBJECT_ID('core.SeatReclaim') IS NULL
@@ -250,6 +339,8 @@ USING (VALUES
     ('Seats.GateBaselineUnassigned', N'0',     N'Purchase gate: the unassigned seats counted when the gate started. 0 until an administrator sets it.'),
     ('Seats.GroupMembersFrom',       N'AUTO',  N'Where the seat read takes the seat groups'' members: ENTRA (Microsoft Graph, needs GroupMember.Read.All), AD (on-premises Active Directory over LDAP, as the worker''s account) or AUTO (Entra, and AD for on-premises groups when Graph refuses).'),
     ('Seats.NewHireDays',            N'90',    N'Hierarchy audit: a license holder hired this many days ago or less is a new hire, left out of the hierarchy check (their manager may not be set yet).'),
+    ('Seats.TrackingStart',          N'2026-12-01', N'The first day the seats are recorded day by day: monthly peaks, charges and cumulative overages count from this day''s month.'),
+    ('Seats.DailyReadTime',          N'08:00', N'When the web site reads the seats each day, in the Workbench time zone (Calendar.TimeZone), as HH:mm. Empty turns the daily read off.'),
     ('Seats.AdDomain',               N'',      N'The AD domain that holds the seat groups: its DNS name or one of its domain controllers. Empty: the users'' AD domain set on Copilot Insights'' Admin > Directory quality, else the domain the server is in.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey

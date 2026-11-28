@@ -164,7 +164,7 @@ public class Release350LimitsTests
     [Fact]
     public void The_three_pages_are_in_their_sections_and_documented()
     {
-        foreach (var (section, path) in new[] { ("Leadership", "/leadership/model-tokens"), ("Forecasting", "/forecasting/spend-limits"), ("Governance", "/governance/agent-policies") })
+        foreach (var (section, path) in new[] { ("Leadership", "/leadership/model-tokens"), ("Forecasting", "/forecasting/spend-limits"), ("AI apps and controls", "/governance/agent-policies") })
         {
             var page = Nav.Groups.Single(g => g.Persona == section).Pages.Single(p => p.Path == path);
             Assert.NotNull(Guidance.For(path));

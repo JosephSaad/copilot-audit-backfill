@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 namespace Governance.Web.Infrastructure;
 
 /// <summary>
-/// The Workbench's Copilot seats by line of business, as Copilot Insights' reservation pages show them when the
+/// The Workbench's Copilot Seat Management, as Copilot Insights' reservation pages show them when the
 /// Workbench is on: core.SeatReservation is the record and dash.Reservation is kept as it is, unread by these pages.
 /// A viewer with the Licensing role, or one whose role covers the whole organization, reads every line of business;
 /// anyone else reads the lines of business their Workbench roles let them see, as the Workbench's own pages do.

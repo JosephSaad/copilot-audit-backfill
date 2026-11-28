@@ -8,7 +8,7 @@ using WorkbenchSeats = Governance.Web.Infrastructure.WorkbenchSeats;
 namespace CopilotInsights.Pages.Leadership;
 
 /// <summary>
-/// The page with the Workbench on: Copilot seats by line of business from core.SeatReservation and the seat read-back,
+/// The page with the Workbench on: Copilot Seat Management from core.SeatReservation and the seat read-back,
 /// and the monthly chargeback the FinOps lead certified. The leader-based register (dash.Reservation) keeps its rows
 /// and is not read or written here. Each linked figure opens the Workbench page that shows the same number.
 /// </summary>
@@ -66,7 +66,7 @@ public sealed partial class ReservationsModel
         string M(decimal x) => CostRules.Money(Math.Round(x, MidpointRounding.AwayFromZero), cur);
         var s = v.Summary;
         var read = s?.LastReadUtc is { } r ? $"from the license read-back of {When(r)}" : "from the Workbench's latest license read-back";
-        var state = $"<b>Copilot seats by line of business</b>, {E(read)}: the Workbench's reservations (core.SeatReservation) against the seats each line of business's tracking group holds. " +
+        var state = $"<b>Copilot Seat Management</b>, {E(read)}: the Workbench's reservations (core.SeatReservation) against the seats each line of business's tracking group holds. " +
                     "A line of business pays its full reservation, plus the seats assigned above it." +
                     (s?.Stale == true ? " <b>The read-back is more than a day old</b>: the figures may be out of date." : "") +
                     (whole ? "" : " Only the lines of business your Workbench roles cover are shown.");

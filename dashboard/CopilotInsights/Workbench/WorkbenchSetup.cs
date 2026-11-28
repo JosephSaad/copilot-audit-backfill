@@ -38,7 +38,7 @@ public static class WorkbenchSetup
         services.AddSingleton(new WorkbenchState(on, cfg["Workbench:Tenant"]));
         services.AddSingleton(new TestingOptions(false, actAs && env.IsDevelopment()));
         services.AddScoped<WebPrincipal>();
-        /* Copilot seats by line of business for Insights' reservation pages; with the Workbench off they keep the leader-based register. */
+        /* Copilot Seat Management for Insights' reservation pages; with the Workbench off they keep the leader-based register. */
         services.AddScoped<WorkbenchSeats>();
         services.AddScoped<WorkbenchLines>();
         services.AddHostedService<SeatModelSwitch>();
@@ -129,6 +129,8 @@ public static class WorkbenchSetup
         services.AddScoped<ReservationImport>();
         services.AddScoped<WorkbenchMode>();
         services.AddScoped<SeatAudit>();
+        /* The daily seat read (Seats.DailyReadTime), on whichever web server takes its lock first. */
+        services.AddHostedService<SeatDailyRead>();
         services.AddSingleton<HelpText>();
     }
 

@@ -78,6 +78,7 @@ FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc >= @b0 AND F
             var n = (await leaversTask).Count;
             Kpis.Add(new("Licenses on disabled accounts", Num(n), n > 0 ? "still paid for: take them back" : "none", n > 0 ? "crit" : "good", Href: Open("/licensing/leavers")));
         }
+        if (await SeatsKpiAsync() is { } seatsKpi) Kpis.Add(seatsKpi);
 
         /* What to do this week: the three biggest savings, then the action list's counts. */
         var counts = await countsTask;
@@ -152,6 +153,36 @@ FROM audit.AiCostDay WHERE CostType = 'Actual' AND [Day] BETWEEN DATEADD(DAY, -7
     };
 
     /// <summary>This month's AI bill in Azure, billed so far and forecast, against the budgets set there: null before the wider bill is loaded.</summary>
+    /// <summary>
+    /// Copilot Seat Management's month so far, for those who may open its seat reports: what the lines of business are
+    /// charged, how many are over their reservation and by how much, and the days measured. Nothing before the seats are
+    /// tracked day by day, nor where the Workbench is not set up; a failure leaves the figure out.
+    /// </summary>
+    async Task<Kpi?> SeatsKpiAsync()
+    {
+        try
+        {
+            var services = HttpContext.RequestServices;
+            if (services.GetService<global::Governance.Web.Infrastructure.WorkbenchState>() is not { On: true }
+                || services.GetService<global::Governance.Application.Data.Db>() is not { } gov) return null;
+            var pageRoles = global::Governance.Web.Infrastructure.PrincipalLoader.PageRoles(Viewer.Roles, Viewer.SectionKeys);
+            if (!pageRoles.Overlaps([global::Governance.Domain.AppRoles.Auditor, global::Governance.Domain.AppRoles.Central, global::Governance.Domain.AppRoles.Admin])) return null;
+            var v = await gov.InTransactionAsync(async u =>
+                await global::Governance.Application.Seats.SeatMonths.MonthAsync(u, DateTime.UtcNow, DateTime.UtcNow, await global::Governance.Application.Seats.SeatSettings.LoadAsync(u)));
+            if (v.Status == "NOT_TRACKED") return null;
+            var over = v.Lines.Where(l => l.Charged && l.Overage > 0).ToList();
+            var note = $"{v.Month:MMMM} so far: {(over.Count == 0 ? "no line of business over its reservation" : $"{over.Count} over their reservation, {StartFigures.Money(over.Sum(l => l.Overage), v.Currency)} overage")}"
+                       + $"; {v.DaysMeasured} of {v.DaysExpected} days measured";
+            return new($"Copilot seats charged ({v.Currency})", StartFigures.Money(v.ChargedToLobs, v.Currency), note,
+                over.Count > 0 || v.DaysMeasured < v.DaysExpected ? "warn" : "good", Href: "/workbench/Reports/ReservationSummary");
+        }
+        catch (Exception ex)
+        {
+            Failure(ex, "reading Copilot Seat Management for the daily brief");
+            return null;
+        }
+    }
+
     async Task<Kpi?> AiBillAsync()
     {
         if (!(Viewer.OrgWide || Viewer.Has(Roles.Licensing)) || Open("/leadership/ai-spend") is not { } href) return null;

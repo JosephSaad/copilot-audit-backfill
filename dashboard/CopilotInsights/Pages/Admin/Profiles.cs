@@ -109,7 +109,7 @@ FROM dash.AccessProfile AS p ORDER BY p.Name;");
         form.Append($"<fieldset class=\"step\"><legend>{(hasSections ? 5 : 2)}. Other roles (optional){TipFor("role", "Other roles")}</legend><fieldset class=\"roles\"><legend>Roles</legend>" + string.Concat(offered.Select(r =>
         {
             var have = current.FirstOrDefault(c => c.Role == r);
-            return $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"{(have is not null ? " checked" : "")}/> {E(r)}</label>" +
+            return $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"{(have is not null ? " checked" : "")}/> {E(Roles.Title(r))}</label>" +
                    (AccessRules.IsPersona(r) && r != Roles.Organization ? $"<label class=\"check sub\"><input type=\"checkbox\" name=\"wide\" value=\"{E(r)}\"{(have?.OrgWide == true ? " checked" : "")}/> whole organization</label>" : "");
         })) + "</fieldset>");
         if (Viewer.IsAdmin)

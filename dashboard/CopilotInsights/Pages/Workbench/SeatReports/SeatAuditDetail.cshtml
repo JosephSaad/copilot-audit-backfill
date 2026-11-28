@@ -35,14 +35,14 @@
     <div class="table-wrap">
         <table class="stack">
             <thead><tr>
-                <partial name="_Th" model='("", "Employee name", "The seat holder, with their sign-in.")' />
-                <partial name="_Th" model='("", "Current tracking group", "The tracking group that counts their seat, and its line of business.")' />
-                <partial name="_Th" model='("", "Expected leader", "The leader the members of the group should report up to.")' />
-                <partial name="_Th" model='("", "Expected level", "Where that leader sits: level 1 is the top of the organization, level 2 reports to the top.")' />
-                <partial name="_Th" model='("", "Actual name at expected level", "Who is at that level in the manager chain of the holder.")' />
-                <partial name="_Th" model='("", "Primary audit status", "PASS, NEW HIRE or the REVIEW reason.")' />
-                <partial name="_Th" model='("", "Potential correct tracking group", "Another group whose mapped leader is in the chain of the holder at its level: a recommendation to investigate.")' />
-                <partial name="_Th" model='("", "Potential correct leader", "The expected leader of that group.")' />
+                <partial name="_Th" model='("name", "Employee name", "The seat holder, with their sign-in.")' />
+                <partial name="_Th" model='("group", "Current tracking group", "The tracking group that counts their seat, and its line of business.")' />
+                <partial name="_Th" model='("leader", "Expected leader", "The leader the members of the group should report up to.")' />
+                <partial name="_Th" model='("level", "Expected level", "Where that leader sits: level 1 is the top of the organization, level 2 reports to the top.")' />
+                <partial name="_Th" model='("actual", "Actual name at expected level", "Who is at that level in the manager chain of the holder.")' />
+                <partial name="_Th" model='("status", "Primary audit status", "PASS, NEW HIRE or the REVIEW reason.")' />
+                <partial name="_Th" model='("potential", "Potential correct tracking group", "Another group whose mapped leader is in the chain of the holder at its level: a recommendation to investigate.")' />
+                <partial name="_Th" model='("potentialleader", "Potential correct leader", "The expected leader of that group.")' />
             </tr></thead>
             <tbody>
             @if (Model.Rows.Count == 0) { <tr><td colspan="8" class="muted">Nobody in this list.</td></tr> }
