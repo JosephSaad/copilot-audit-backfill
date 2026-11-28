@@ -1,0 +1,67 @@
+@page "/workbench/Admin/SeatMapping"
+@model Governance.Web.Pages.Admin.SeatMappingModel
+@{
+    ViewData["Title"] = "Hierarchy mapping";
+    var i = 0;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Reports/SeatAudit">Hierarchy audit</a></div>
+        <h1>Hierarchy mapping</h1>
+        <p class="lead">For each tracking group, the leader its members report up to and the level that leader sits at. The hierarchy audit checks every seat holder against it. <help>Levels count from the top of the organization as Copilot Insights' directory does: level 1 is the top (set as the top of the organization on Copilot Insights' Admin), level 2 reports to the top, and so on. A group without a leader shows its holders as Unknown tracking group. Only the Platform Owner changes the mapping; each change is in the audit trail.</help></p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr>
+                <partial name="_Th" model='("", "Tracking group", "The AD group, with its line of business.")' />
+                <partial name="_Th" model='("num", "Seat holders", "Members holding a Copilot seat at the latest seat read.")' />
+                <partial name="_Th" model='("", "Expected leader", "Their name and level in the directory.")' />
+                <partial name="_Th" model='("", "Expected level", "Where the leader should sit in the chain of each member.")' />
+                @if (Model.CanEdit) { <partial name="_Th" model='("", "Change", "Choose the leader by sign-in and the level, then save.")' /> }
+            </tr></thead>
+            <tbody>
+            @if (Model.Rows.Count == 0) { <tr><td colspan="5" class="muted">No tracking group yet. Add one on Seat groups.</td></tr> }
+            @foreach (var r in Model.Rows)
+            {
+                i++;
+                var leader = r.ExpectedLeaderUpn is { } u && Model.Leaders.TryGetValue(u, out var l) ? l : ((string?)null, (int?)null);
+                <tr>
+                    <td data-label="Tracking group">@r.GroupName@if (r.LobName is not null) { <div class="small muted">@r.LobName</div> }</td>
+                    <td data-label="Seat holders" class="num">@Ui.Num(r.SeatHolders)</td>
+                    <td data-label="Expected leader">
+                        @if (r.ExpectedLeaderUpn is null) { <span class="pill pill-warn">Not mapped</span> }
+                        else
+                        {
+                            <strong>@(leader.Item1 ?? r.ExpectedLeaderUpn)</strong><div class="small muted">@r.ExpectedLeaderUpn</div>
+                            @if (leader.Item1 is null) { <div class="small text-bad">Not in the directory</div> }
+                            else if (leader.Item2 is int dl && r.ExpectedLevel is byte el && dl != el) { <div class="small text-bad">The directory has them at level @dl</div> }
+                        }
+                    </td>
+                    <td data-label="Expected level">@(r.ExpectedLevel is byte lv ? $"Level {lv}" : "")</td>
+                    @if (Model.CanEdit)
+                    {
+                        <td data-label="Change">
+                            <form method="post" asp-page-handler="Save" asp-route-group="@r.PublicId" class="form-grid">
+                                <idem />
+                                <div class="field"><label for="ml-@i">Leader&apos;s sign-in <help>Their sign-in name, for example jane.doe@@contoso.com, or search Active Directory below. Empty clears the mapping.</help></label>
+                                    <input id="ml-@i" name="leader" value="@r.ExpectedLeaderUpn" autocomplete="off" placeholder="name@@contoso.com" />
+                                    <partial name="_FindPerson" model='("ml-" + i, true)' />
+                                </div>
+                                <div class="field"><label for="lv-@i">Level <help>1 is the top of the organization, 2 reports to the top, and so on.</help></label>
+                                    <select id="lv-@i" name="level">
+                                        @for (var n = 1; n <= 8; n++) { <option value="@n" selected="@((r.ExpectedLevel ?? 2) == n)">Level @n</option> }
+                                    </select>
+                                </div>
+                                <div><button class="btn btn-small" type="submit">Save</button></div>
+                            </form>
+                        </td>
+                    }
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

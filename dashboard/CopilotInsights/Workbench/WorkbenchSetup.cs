@@ -48,9 +48,11 @@ public static class WorkbenchSetup
         services.AddScoped<IAuthorizationHandler, AppRoleHandler>();
         services.AddScoped<IAuthorizationHandler, PlatformGovernanceHandler>();
         services.AddScoped<IAuthorizationHandler, SeatReadHandler>();
+        services.AddScoped<IAuthorizationHandler, SeatReportHandler>();
         services.AddAuthorization(o =>
         {
             o.AddPolicy(Policies.SeatRead, b => b.RequireAuthenticatedUser().AddRequirements(new SeatReadRequirement()));
+            o.AddPolicy(Policies.SeatReports, b => b.RequireAuthenticatedUser().AddRequirements(new SeatReportRequirement()));
             o.AddPolicy(Policies.Central, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Central, AppRoles.Admin)));
             o.AddPolicy(Policies.Operator, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Operator)));
             o.AddPolicy(Policies.Admin, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(AppRoles.Admin)));
@@ -68,6 +70,7 @@ public static class WorkbenchSetup
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Operations", Policies.Central);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Queues", Policies.Central);
             o.Conventions.AuthorizeFolder($"{PagesFolder}/Reports", Policies.Auditor);
+            o.Conventions.AuthorizeFolder($"{PagesFolder}/SeatReports", Policies.SeatReports);
             /* The two everyday sections, each granted in Admin › Access like every other section. */
             foreach (var page in new[] { "Start", "MyWork", "Me", "Recertification", "Exceptions", "Retirement", "Evidence" })
                 o.Conventions.AuthorizePage($"{PagesFolder}/{page}", Policies.Ownership);
@@ -80,7 +83,17 @@ public static class WorkbenchSetup
         services.AddRateLimiter(o =>
         {
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            o.AddFixedWindowLimiter("sync", w => { w.PermitLimit = 2; w.Window = TimeSpan.FromMinutes(5); w.QueueLimit = 0; });
+            /* The reads started on Sync and freshness: two runs every five minutes for each person. Opening or refreshing
+               the page counts for nothing (before, every visit counted, for everyone on the server together). */
+            o.AddPolicy("sync", ctx => HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method)
+                ? RateLimitPartition.GetNoLimiter("view")
+                : RateLimitPartition.GetFixedWindowLimiter(ctx.User.Identity?.Name ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+                    _ => new FixedWindowRateLimiterOptions { PermitLimit = 2, Window = TimeSpan.FromMinutes(5), QueueLimit = 0 }));
+            o.OnRejected = async (ctx, ct) =>
+            {
+                ctx.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
+                await ctx.HttpContext.Response.WriteAsync("Too many tries in five minutes (two runs, or thirty uploads, each). Wait a few minutes, then go back and try again.", ct);
+            };
             o.AddFixedWindowLimiter("upload", w => { w.PermitLimit = 30; w.Window = TimeSpan.FromMinutes(5); w.QueueLimit = 0; });
         });
         services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o => o.MultipartBodyLengthLimit = 25 * 1024 * 1024);
@@ -115,6 +128,7 @@ public static class WorkbenchSetup
         services.AddScoped<SeatQueries>();
         services.AddScoped<ReservationImport>();
         services.AddScoped<WorkbenchMode>();
+        services.AddScoped<SeatAudit>();
         services.AddSingleton<HelpText>();
     }
 

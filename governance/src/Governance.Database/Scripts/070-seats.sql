@@ -56,6 +56,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SeatGroup_Name')
 -- The group's objectGUID in on-premises AD, recorded when the seat read takes its members from AD
 -- (Seats.GroupMembersFrom): the key its members are kept under in intg.GroupMember when they come from AD.
 IF COL_LENGTH('core.SeatGroup', 'AdObjectGuid') IS NULL ALTER TABLE core.SeatGroup ADD AdObjectGuid uniqueidentifier NULL;
+-- The hierarchy audit's mapping: the leader a tracking group's members report up to, and at which level under the top
+-- of the organization (1 = the top, 2 = reports to the top, ...), as Copilot Insights' directory counts levels.
+IF COL_LENGTH('core.SeatGroup', 'ExpectedLeaderUpn') IS NULL ALTER TABLE core.SeatGroup ADD ExpectedLeaderUpn nvarchar(256) NULL;
+IF COL_LENGTH('core.SeatGroup', 'ExpectedLevel') IS NULL ALTER TABLE core.SeatGroup ADD ExpectedLevel tinyint NULL;
 
 -- Seat reservation per LOB. One row per period: a change ends the open row and starts a new one, so the
 -- row itself records the effective date, previous and new quantity, approver and flex-pool review (CAL-06).
@@ -245,6 +249,7 @@ USING (VALUES
     ('Seats.PurchaseGatePercent',    N'95',    N'Purchase gate: the share of the unassigned seats counted at the baseline to assign before more seats are bought.'),
     ('Seats.GateBaselineUnassigned', N'0',     N'Purchase gate: the unassigned seats counted when the gate started. 0 until an administrator sets it.'),
     ('Seats.GroupMembersFrom',       N'AUTO',  N'Where the seat read takes the seat groups'' members: ENTRA (Microsoft Graph, needs GroupMember.Read.All), AD (on-premises Active Directory over LDAP, as the worker''s account) or AUTO (Entra, and AD for on-premises groups when Graph refuses).'),
+    ('Seats.NewHireDays',            N'90',    N'Hierarchy audit: a license holder hired this many days ago or less is a new hire, left out of the hierarchy check (their manager may not be set yet).'),
     ('Seats.AdDomain',               N'',      N'The AD domain that holds the seat groups: its DNS name or one of its domain controllers. Empty: the users'' AD domain set on Copilot Insights'' Admin > Directory quality, else the domain the server is in.')
 ) AS s (SettingKey, SettingValue, Description)
 ON t.SettingKey = s.SettingKey

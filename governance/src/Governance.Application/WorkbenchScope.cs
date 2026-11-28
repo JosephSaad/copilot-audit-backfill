@@ -27,7 +27,8 @@ public static class WorkbenchScope
     public static readonly IReadOnlyList<string> SeatPages =
     [
         "/workbench/Registry/Seats", "/workbench/Registry/FundingOwners", "/workbench/Reports/SeatChargeback",
-        "/workbench/Admin/SeatGroups", "/workbench/Admin/Roles", "/workbench/Admin/Settings",
+        "/workbench/Admin/SeatGroups", "/workbench/Admin/Roles", "/workbench/Admin/Settings", "/workbench/Admin/SeatMapping",
+        "/workbench/Reports/ReservationSummary", "/workbench/Reports/SeatAudit", "/workbench/Reports/SeatMultipleGroups",
         "/workbench/Operations/Sync", "/workbench/Operations/SyncRun",
         "/workbench/People", "/workbench/Me", "/workbench/AccessDenied", "/workbench/Error", "/workbench/ActAs",
     ];

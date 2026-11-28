@@ -238,3 +238,19 @@
 .wb .find-pick { display: block; width: 100%; text-align: left; padding: .45rem .6rem; background: var(--surface); color: var(--text); border: 0; cursor: pointer; white-space: normal; }
 .wb .find-pick:hover, .wb .find-pick:focus-visible { background: var(--surface-2); }
 .wb .find-note:empty { display: none; }
+
+/* Copilot seat reports: reservation summary, hierarchy audit, multiple groups. */
+.wb td.cost-over { background: var(--bad-soft); color: var(--bad); }
+.wb td.cost-under { background: var(--ok-soft); color: var(--ok); }
+.wb td.cost-even { background: var(--warn-soft); color: var(--warn); }
+.wb td.overage { position: relative; }
+.wb .overage-bar { position: absolute; left: 0; top: 15%; bottom: 15%; background: linear-gradient(90deg, var(--brand), var(--brand-soft)); border-radius: 0 4px 4px 0; opacity: .55; }
+.wb .overage-value { position: relative; }
+.wb table.resv tfoot th, .wb table.resv tfoot td { background: var(--brand); color: #fff; font-weight: 700; border-top: 0; }
+.wb td.status-review { background: var(--bad-soft); color: var(--bad); font-weight: 600; }
+.wb td.status-pass { color: var(--ok); font-weight: 600; }
+.wb td.status-new { color: var(--warn); font-weight: 600; }
+.wb a.stat-link { display: block; color: inherit; text-decoration: none; }
+.wb a.stat-link:hover, .wb a.stat-link:focus-visible { border-color: var(--brand); }
+.wb .stat .small-value { font-size: 1.05rem; line-height: 1.35; white-space: normal; }
+.wb .hotspot { background: var(--bad-soft); }

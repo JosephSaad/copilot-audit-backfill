@@ -26,6 +26,9 @@ public static class Policies
     /// administrators, who read the seats there (each other read still needs the platform operator role).
     /// </summary>
     public const string SeatRead = "SeatRead";
+
+    /// <summary>The Copilot seat reports and the hierarchy mapping: auditors, central roles, Copilot Insights administrators and the Platform Owner.</summary>
+    public const string SeatReports = "SeatReports";
 }
 
 /// <summary>The person acting in this request, loaded once by <see cref="PrincipalMiddleware"/>.</summary>

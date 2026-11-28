@@ -1,0 +1,85 @@
+@page "/workbench/Reports/ReservationSummary"
+@model Governance.Web.Pages.Reports.ReservationSummaryModel
+@{
+    ViewData["Title"] = "Reservation summary";
+    var lines = Model.Lines;
+    var cur = Model.Settings.Currency;
+    string Money(decimal v) => v.ToString("N0") + " " + cur;
+    string Signed(int v) => v < 0 ? $"({Math.Abs(v):N0})" : v == 0 ? "–" : v.ToString("N0");
+    var maxOver = Model.MaxOverage;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
+        <h1>Reservation summary</h1>
+        <p class="lead">Each line of business's Copilot reservation against the seats its people hold today, and what it costs at @Model.Settings.RatePerSeatMonth.ToString("N2") @cur per seat a month. <help>A line of business pays its full reservation, plus every seat held above it. The rate is the one on Workbench settings (Seats.RatePerSeatMonth); allocated seats are the people in its tracking group who hold an active Copilot license, from the latest seat read.</help></p>
+    </div>
+    <div class="page-actions"><a class="btn btn-ghost" href="?handler=Csv">Export CSV</a></div>
+</div>
+
+<div class="grid grid-4">
+    <div class="stat"><div class="stat-label">Reserved <help>Seats reserved across every line of business today.</help></div><div class="stat-value">@Ui.Num(lines.Sum(l => l.Reserved))</div><div class="stat-note">@Money(lines.Sum(l => l.MonthlyReserved)) a month</div></div>
+    <div class="stat"><div class="stat-label">Allocated <help>Seats held by people in a line of business's tracking group.</help></div><div class="stat-value">@Ui.Num(lines.Sum(l => l.Allocated))</div><div class="stat-note">@(lines.Sum(l => l.Remaining) < 0 ? Ui.Num(-lines.Sum(l => l.Remaining)) + " above the reservations" : Ui.Num(lines.Sum(l => l.Remaining)) + " left in the reservations")</div></div>
+    <div class="stat"><div class="stat-label">Actual cost a month <help>Each line of business's reservation, or the seats it holds when more, at the rate. Twelve months of it is the annual actual cost.</help></div><div class="stat-value">@Money(lines.Sum(l => l.MonthlyActual))</div><div class="stat-note">@Money(lines.Sum(l => l.YearActual)) a year</div></div>
+    <div class="stat"><div class="stat-label">Overage a month <help>What seats held above the reservations add each month, across the lines of business over theirs.</help></div><div class="stat-value @(lines.Sum(l => l.MonthlyOverage) > 0 ? "text-bad" : "")">@Money(lines.Sum(l => l.MonthlyOverage))</div><div class="stat-note">@lines.Count(l => l.State == "over") over their reservation</div></div>
+</div>
+
+@if (Model.NoLob > 0)
+{
+    <div class="alert alert-info mt" role="note">@Ui.Num(Model.NoLob) seats are held by people in no line of business's tracking group: charged to nobody, and not in the figures below. <a href="/workbench/Registry/Seats?show=nolob#nolob">See who</a>.</div>
+}
+
+<div class="card mt">
+    <div class="table-wrap">
+        <table class="stack resv">
+            <thead><tr>
+                <partial name="_Th" model='("", "Line of business", "Opens its seats page.")' />
+                <partial name="_Th" model='("num", "Reserved licenses", "The reservation in effect today.")' />
+                <partial name="_Th" model='("num", "Allocated licenses", "Seats held today by people in its tracking group.")' />
+                <partial name="_Th" model='("num", "Remaining licenses", "Reserved less allocated. In brackets: allocated above the reservation.")' />
+                <partial name="_Th" model='("num", "Over / (under) reservation", "Allocated less reserved. In brackets: reserved seats nobody holds yet.")' />
+                <partial name="_Th" model='("num", "Monthly reserved cost", "Reserved licenses at the rate.")' />
+                <partial name="_Th" model='("num", "12-month reserved forecast", "The monthly reserved cost for twelve months.")' />
+                <partial name="_Th" model='("num", "Monthly actual cost", "The reservation, or the seats held when more, at the rate. Red: over the reservation; green: under; yellow: exactly at it.")' />
+                <partial name="_Th" model='("num", "Monthly reserved cost overage", "Monthly actual cost less monthly reserved cost: the seats held above the reservation.")' />
+                <partial name="_Th" model='("num", "Annual actual cost (12 months)", "The monthly actual cost for twelve months.")' />
+            </tr></thead>
+            <tbody>
+            @if (lines.Count == 0) { <tr><td colspan="10" class="muted">No line of business yet. Add one on Lines of business.</td></tr> }
+            @foreach (var l in lines)
+            {
+                <tr>
+                    <td data-label="Line of business">@if (l.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g">@l.Name</a> } else { @l.Name }</td>
+                    <td data-label="Reserved licenses" class="num">@Ui.Num(l.Reserved)</td>
+                    <td data-label="Allocated licenses" class="num">@Ui.Num(l.Allocated)</td>
+                    <td data-label="Remaining licenses" class="num @(l.Remaining < 0 ? "text-bad" : "")">@Signed(l.Remaining)</td>
+                    <td data-label="Over / (under) reservation" class="num @(l.OverUnder < 0 ? "text-bad" : "")">@Signed(l.OverUnder)</td>
+                    <td data-label="Monthly reserved cost" class="num">@Money(l.MonthlyReserved)</td>
+                    <td data-label="12-month reserved forecast" class="num">@Money(l.YearReserved)</td>
+                    <td data-label="Monthly actual cost" class="num cost-@l.State"><strong>@Money(l.MonthlyActual)</strong></td>
+                    <td data-label="Monthly reserved cost overage" class="num overage">
+                        @if (l.MonthlyOverage > 0 && maxOver > 0) { <span class="overage-bar" style="width:@((int)Math.Max(4, Math.Round(l.MonthlyOverage / maxOver * 100)))%" aria-hidden="true"></span> }
+                        <span class="overage-value">@Money(l.MonthlyOverage)</span>
+                    </td>
+                    <td data-label="Annual actual cost (12 months)" class="num">@Money(l.YearActual)</td>
+                </tr>
+            }
+            </tbody>
+            @if (lines.Count > 0)
+            {
+                <tfoot><tr>
+                    <th scope="row">Total</th>
+                    <td data-label="Reserved licenses" class="num">@Ui.Num(lines.Sum(l => l.Reserved))</td>
+                    <td data-label="Allocated licenses" class="num">@Ui.Num(lines.Sum(l => l.Allocated))</td>
+                    <td data-label="Remaining licenses" class="num">@Signed(lines.Sum(l => l.Remaining))</td>
+                    <td data-label="Over / (under) reservation" class="num">@Signed(lines.Sum(l => l.OverUnder))</td>
+                    <td data-label="Monthly reserved cost" class="num">@Money(lines.Sum(l => l.MonthlyReserved))</td>
+                    <td data-label="12-month reserved forecast" class="num">@Money(lines.Sum(l => l.YearReserved))</td>
+                    <td data-label="Monthly actual cost" class="num">@Money(lines.Sum(l => l.MonthlyActual))</td>
+                    <td data-label="Monthly reserved cost overage" class="num">@Money(lines.Sum(l => l.MonthlyOverage))</td>
+                    <td data-label="Annual actual cost (12 months)" class="num">@Money(lines.Sum(l => l.YearActual))</td>
+                </tr></tfoot>
+            }
+        </table>
+    </div>
+</div>

@@ -7,10 +7,19 @@
     <div>
         <div class="crumbs">Governance operations</div>
         <h1>Sync and freshness</h1>
-        <p class="lead">Where the Workbench's Microsoft data comes from and how fresh it is. The worker reads Entra and licensing on a schedule; the Power Platform inventory accepts only a signed-in operator's token, so an operator runs it here, at least weekly and before every verification. <help>Process references: H10.</help></p>
+        @if (Model.SeatsOnly)
+        {
+            <p class="lead">Where the Copilot seat figures come from and how fresh they are. <em>Read seats now</em> reads the license holders, the tracking groups and Copilot use again. <help>With the Workbench set to Copilot seats only, the Power Platform inventory, licensing and Agent Registry reads are not used, so they are not shown.</help></p>
+        }
+        else
+        {
+            <p class="lead">Where the Workbench's Microsoft data comes from and how fresh it is. The worker reads Entra and licensing on a schedule; the Power Platform inventory accepts only a signed-in operator's token, so an operator runs it here, at least weekly and before every verification. <help>Process references: H10.</help></p>
+        }
     </div>
 </div>
-<div class="grid grid-3">
+<div class="@(Model.SeatsOnly ? "grid" : "grid grid-3")">
+    @if (!Model.SeatsOnly)
+    {
     <form method="post" asp-antiforgery="true" action="/workbench/Operations/SyncRun?handler=Inventory" class="card">
         <idem />
         <h2>Inventory sync (X4) <help k="sync.inventory">Environments, Copilot Studio agents (with harness and owner) and agent flows, paged until the end. New or changed items raise findings: unregistered, owner change, harness change, environment type change. Runs under your own sign-in; limited to two runs every five minutes.</help></h2>
@@ -23,18 +32,22 @@
         <p class="small muted">Verification waits up to 15 minutes for credit availability to refresh.</p>
         <button class="btn btn-ghost" type="submit" disabled="@(!Model.HasLicensing)">Read licensing now</button>
     </form>
+    }
     <form method="post" asp-antiforgery="true" action="/workbench/Operations/SyncRun?handler=Seats" class="card">
         <idem />
-        <h2>Copilot seats (X13) <help k="sync.seats">Subscribed Copilot SKUs, the license and LOB tracking groups, each person's license state and the Copilot usage report, read from Microsoft Graph with the Worker's app permissions. Then seat findings, reclaim proposals and the draft monthly chargeback. The worker runs it daily; this runs it now.</help></h2>
+        <h2>Copilot seats (X13) <help k="sync.seats">Subscribed Copilot SKUs, the license and LOB tracking groups, each person's license state and the Copilot usage report, read from Microsoft Graph with the Worker's app permissions. Then seat findings, reclaim proposals and the draft monthly chargeback. The worker runs it daily; this runs it now. Two runs every five minutes for each person: opening or refreshing this page does not count. The read can take several minutes: wait for the page to come back rather than pressing again.</help></h2>
         <p class="small muted">Read-only: seats change only through OIM roles and ServiceNow.</p>
         <button class="btn btn-ghost" type="submit" disabled="@(!Model.HasSeats)">Read seats now</button>
     </form>
+    @if (!Model.SeatsOnly)
+    {
     <form method="post" asp-antiforgery="true" action="/workbench/Operations/SyncRun?handler=Registry" enctype="multipart/form-data" class="card">
         <idem />
         <h2>Agent Registry export (X7) <help k="sync.registry">Without Agent 365 or E7 there is no Graph access to the registry, so an operator uploads the Microsoft 365 admin center export monthly and before recertification. Unmatched agents raise findings.</help></h2>
         <input type="file" name="file" accept=".csv" aria-label="Registry export CSV" required />
         <button class="btn btn-ghost mt" type="submit" disabled="@(!Model.HasRegistry)">Import</button>
     </form>
+    }
 </div>
 <h2 class="mt">Freshness by source</h2>
 <div class="table-wrap">

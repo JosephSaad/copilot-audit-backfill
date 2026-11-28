@@ -190,8 +190,13 @@ public sealed class SeatTests(SeededFixture fx) : IClassFixture<SeededFixture>
     [Fact]
     public async Task With_seats_only_the_reservation_is_set_on_the_page_and_its_history_kept()
     {
+        // The Platform Owner alone sets reservations; FinOps is refused.
+        var po = fx.Seed.As("platformOwner");
+        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(po), new FinOps(po.PersonId, Governance.Domain.Permissions.RegistryEdit), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
         var finops = fx.Seed.As("finopsLead");
-        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(finops), new FinOps(finops.PersonId), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var notPo = new SeatCommands(new CommandRunner(fx.Host.DbFor(finops), new FinOps(finops.PersonId), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var refused = await Assert.ThrowsAsync<DomainException>(() => notPo.SetReservationAsync(Guid.NewGuid(), Lob("HR"), 5, DateTime.UtcNow.Date.AddYears(5), null));
+        Assert.Contains("Only the Platform Owner", refused.Message);
         var fo = fx.Seed.FundingOwners["HR"];
         using var c = fx.Admin();
         var scope = c.ExecuteScalar<string?>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = 'Workbench.Scope'");
@@ -233,6 +238,89 @@ public sealed class SeatTests(SeededFixture fx) : IClassFixture<SeededFixture>
         var e = await Assert.ThrowsAsync<DomainException>(() => cmd.SaveGroupAsync(Guid.NewGuid(), null,
             new SeatGroupInput("GSGu_MCO_TestTracking", "LICENSE", fx.Seed.FundingOwners["HR"], null, "ON_PREM_AD", false, null, null)));
         Assert.Contains("Only an LOB tracking group belongs to a line of business", e.Message);
+    }
+
+    [Fact]
+    public async Task A_reservation_date_is_corrected_between_its_neighbors_and_the_history_follows()
+    {
+        var po = fx.Seed.As("platformOwner");
+        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(po), new FinOps(po.PersonId, Governance.Domain.Permissions.RegistryEdit), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var fo = fx.Seed.FundingOwners["HR"];
+        using var c = fx.Admin();
+        var scope = c.ExecuteScalar<string?>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = 'Workbench.Scope'");
+        try
+        {
+            c.Execute("UPDATE ref.Setting SET SettingValue = 'SEATS' WHERE SettingKey = 'Workbench.Scope'");
+            var latest = c.QuerySingle<DateTime>("SELECT EffectiveFrom FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveTo IS NULL", new { fo });
+            var a = latest.AddDays(30);
+            var b = latest.AddDays(60);
+            await cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), 100, a, "first");
+            await cmd.SetReservationAsync(Guid.NewGuid(), Lob("HR"), 120, b, "second");
+            var mid = c.QuerySingle<Guid>("SELECT PublicId FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveFrom = @a", new { fo, a });
+
+            // Moved later and to 110 seats: the one before ends the day before, the one after shows 110 as what it replaced.
+            await cmd.EditReservationAsync(Guid.NewGuid(), mid, 110, a.AddDays(5), null);
+            var rows = c.Query<(int Seats, int? Prev, DateTime From, DateTime? To, string? Notes)>(
+                "SELECT Seats, PreviousSeats, EffectiveFrom, EffectiveTo, Notes FROM core.SeatReservation WHERE FundingOwnerId = @fo ORDER BY EffectiveFrom", new { fo }).ToList();
+            Assert.Equal(a.AddDays(4), rows[^3].To);
+            Assert.Equal((110, a.AddDays(5), (DateTime?)b.AddDays(-1), "first"), (rows[^2].Seats, rows[^2].From, rows[^2].To, rows[^2].Notes));
+            Assert.Equal(110, rows[^1].Prev);
+
+            // Not past the figures around it.
+            await Assert.ThrowsAsync<DomainException>(() => cmd.EditReservationAsync(Guid.NewGuid(), mid, 110, b, null));
+            await Assert.ThrowsAsync<DomainException>(() => cmd.EditReservationAsync(Guid.NewGuid(), mid, 110, latest, null));
+
+            // Deleted from the middle: the figure before runs on to where it ended, the one after shows it as what it replaced.
+            var count = rows.Count;
+            await cmd.DeleteReservationAsync(Guid.NewGuid(), mid);
+            rows = c.Query<(int Seats, int? Prev, DateTime From, DateTime? To, string? Notes)>(
+                "SELECT Seats, PreviousSeats, EffectiveFrom, EffectiveTo, Notes FROM core.SeatReservation WHERE FundingOwnerId = @fo ORDER BY EffectiveFrom", new { fo }).ToList();
+            Assert.Equal(count - 1, rows.Count);
+            Assert.Equal(b.AddDays(-1), rows[^2].To);
+            Assert.Equal(rows[^2].Seats, rows[^1].Prev);
+
+            // Deleted the latest: the one before is open again, to now.
+            var last = c.QuerySingle<Guid>("SELECT PublicId FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveFrom = @b", new { fo, b });
+            await cmd.DeleteReservationAsync(Guid.NewGuid(), last);
+            Assert.Equal(latest, c.QuerySingle<DateTime>("SELECT EffectiveFrom FROM core.SeatReservation WHERE FundingOwnerId = @fo AND EffectiveTo IS NULL", new { fo }));
+            await Assert.ThrowsAsync<DomainException>(() => cmd.DeleteReservationAsync(Guid.NewGuid(), last));
+        }
+        finally
+        {
+            c.Execute("UPDATE ref.Setting SET SettingValue = @scope WHERE SettingKey = 'Workbench.Scope'", new { scope = scope ?? "SEATS" });
+        }
+    }
+
+    [Fact]
+    public async Task The_business_owner_is_changed_or_cleared_after_the_line_of_business_was_added()
+    {
+        var finops = fx.Seed.As("finopsLead");
+        var cmd = new SeatCommands(new CommandRunner(fx.Host.DbFor(finops), new FinOps(finops.PersonId), new AuditWriter(fx.Host.Clock)), fx.Host.Clock, new OutboxWriter());
+        var fo = fx.Seed.FundingOwners["HR"];
+        var next = fx.Seed.As("RETAIL.maker1").PersonId;
+        using var c = fx.Admin();
+        var original = c.ExecuteScalar<int?>("SELECT BusinessOwnerPersonId FROM core.FundingOwner WHERE FundingOwnerId = @fo", new { fo });
+        const string active = "SELECT PersonId FROM sec.RoleAssignment WHERE ScopeType = 'FUNDING_OWNER' AND ScopeId = @fo AND RoleCode = 'LOB_BUSINESS_OWNER' AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)";
+        var today = fx.Host.Clock.UtcNow.Date;
+        try
+        {
+            // Changed: the new person holds the owner role from today, the previous one no longer.
+            await cmd.SetBusinessOwnerAsync(Guid.NewGuid(), Lob("HR"), next.ToString());
+            Assert.Equal(next, c.ExecuteScalar<int?>("SELECT BusinessOwnerPersonId FROM core.FundingOwner WHERE FundingOwnerId = @fo", new { fo }));
+            Assert.Equal(new[] { next }, c.Query<int>(active, new { fo, today }).ToArray());
+
+            // Nobody names themselves.
+            await Assert.ThrowsAsync<DomainException>(() => cmd.SetBusinessOwnerAsync(Guid.NewGuid(), Lob("HR"), finops.PersonId.ToString()));
+
+            // Cleared: no owner, and no one holds the role.
+            await cmd.SetBusinessOwnerAsync(Guid.NewGuid(), Lob("HR"), "");
+            Assert.Null(c.ExecuteScalar<int?>("SELECT BusinessOwnerPersonId FROM core.FundingOwner WHERE FundingOwnerId = @fo", new { fo }));
+            Assert.Empty(c.Query<int>(active, new { fo, today }));
+        }
+        finally
+        {
+            if (original is int o && o != finops.PersonId) await cmd.SetBusinessOwnerAsync(Guid.NewGuid(), Lob("HR"), o.ToString());
+        }
     }
 
     /// <summary>FinOps (registry.finance); another permission stands in for the Platform Owner's (registry.edit).</summary>

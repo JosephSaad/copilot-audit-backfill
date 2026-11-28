@@ -131,6 +131,9 @@ public sealed class SeatLobDetail
     public Guid PublicId { get; init; }
     public int FundingOwnerId { get; init; }
     public string? OimRoleName { get; init; }
+    /// <summary>The business owner named for this line of business, if any.</summary>
+    public string? BusinessOwnerName { get; init; }
+    public string? BusinessOwnerUpn { get; init; }
     public IReadOnlyList<SeatReservationRow> Reservations { get; init; } = Array.Empty<SeatReservationRow>();
     public IReadOnlyList<SeatHolderRow> Holders { get; init; } = Array.Empty<SeatHolderRow>();
     public IReadOnlyList<SeatReclaimRow> Reclaims { get; init; } = Array.Empty<SeatReclaimRow>();
@@ -292,8 +295,8 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
     {
         var s = await SettingsAsync();
         await using var c = await db.OpenUserAsync();
-        var fo = await c.QuerySingleOrDefaultAsync<(int FundingOwnerId, string Code, string Name)>(
-            "SELECT FundingOwnerId, Code, Name FROM core.FundingOwner WHERE PublicId = @fundingOwnerPublicId", new { fundingOwnerPublicId });
+        var fo = await c.QuerySingleOrDefaultAsync<(int FundingOwnerId, string Code, string Name, string? OwnerName, string? OwnerUpn)>(
+            "SELECT f.FundingOwnerId, f.Code, f.Name, p.DisplayName, p.UserPrincipalName FROM core.FundingOwner f LEFT JOIN sec.Person p ON p.PersonId = f.BusinessOwnerPersonId WHERE f.PublicId = @fundingOwnerPublicId", new { fundingOwnerPublicId });
         if (fo.FundingOwnerId == 0 || !SeatAccess.CanView(principal, fo.FundingOwnerId)) return null;
         var position = (await LobsAsync()).FirstOrDefault(r => r.FundingOwnerId == fo.FundingOwnerId)
                        ?? new SeatLobRow { FundingOwnerId = fo.FundingOwnerId, PublicId = fundingOwnerPublicId, Code = fo.Code, Name = fo.Name };
@@ -332,7 +335,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             new { id = fo.FundingOwnerId })).ToList();
         return new SeatLobDetail
         {
-            Position = position, LobName = fo.Name, Code = fo.Code, PublicId = fundingOwnerPublicId, FundingOwnerId = fo.FundingOwnerId, OimRoleName = oim,
+            Position = position, LobName = fo.Name, Code = fo.Code, PublicId = fundingOwnerPublicId, FundingOwnerId = fo.FundingOwnerId, OimRoleName = oim, BusinessOwnerName = fo.OwnerName, BusinessOwnerUpn = fo.OwnerUpn,
             Reservations = reservations, Holders = holders, Reclaims = reclaims, Admins = admins, Trend = trend, Findings = findings,
         };
     }
@@ -454,4 +457,116 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
         await using var c = await db.OpenSystemAsync();
         return (await c.QueryAsync<SettingRow>("SELECT SettingKey, SettingValue, Description FROM ref.Setting WHERE SettingKey LIKE 'Seats.%' ORDER BY SettingKey")).ToList();
     }
+
+    /// <summary>The hierarchy audit's mapping: each active tracking group, its line of business, its expected leader and level.</summary>
+    public async Task<IReadOnlyList<SeatMappingRow>> MappingAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<SeatMappingRow>(
+            """
+            SELECT g.PublicId, g.DisplayName AS GroupName, fo.Name AS LobName, g.ExpectedLeaderUpn, g.ExpectedLevel,
+                   (SELECT COUNT(*) FROM intg.GroupMember gm JOIN rpt.fn_SeatHolders() h ON h.MemberObjectId = gm.MemberObjectId
+                    WHERE gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)) AS SeatHolders
+            FROM core.SeatGroup g
+            LEFT JOIN core.FundingOwner fo ON fo.FundingOwnerId = g.FundingOwnerId
+            WHERE g.Purpose = 'LOB_TRACKING' AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
+            ORDER BY g.DisplayName
+            """, new { today = Today })).ToList();
+    }
+
+    /// <summary>
+    /// The hierarchy audit's population: every seat holder in an active tracking group, once per group they are in, with
+    /// the group's mapping. The sign-in from the license read, else the Workbench's own record of the person.
+    /// </summary>
+    public async Task<IReadOnlyList<SeatAuditMember>> AuditPopulationAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<SeatAuditMember>(
+            """
+            SELECT gm.MemberObjectId, COALESCE(x.UserPrincipalName, p.UserPrincipalName) AS UserPrincipalName, p.DisplayName,
+                   g.PublicId AS GroupPublicId, g.DisplayName AS GroupName, fo.Name AS LobName, g.ExpectedLeaderUpn, g.ExpectedLevel
+            FROM core.SeatGroup g
+            JOIN intg.GroupMember gm ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)
+            JOIN rpt.fn_SeatHolders() h ON h.MemberObjectId = gm.MemberObjectId
+            LEFT JOIN core.FundingOwner fo ON fo.FundingOwnerId = g.FundingOwnerId
+            OUTER APPLY (SELECT TOP (1) s.UserPrincipalName FROM intg.SeatHolder s WHERE s.MemberObjectId = gm.MemberObjectId AND s.UserPrincipalName IS NOT NULL) x
+            LEFT JOIN sec.Person p ON p.EntraObjectId = gm.MemberObjectId
+            WHERE g.Purpose = 'LOB_TRACKING' AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
+            """, new { today = Today }, commandTimeout: 300)).ToList();
+    }
+
+    /// <summary>
+    /// Seat holders who may be licensed or counted through more than one AD group: in two or more active tracking groups
+    /// (counted by more than one line of business), or given the Copilot license by more than one group (or by a group
+    /// and directly).
+    /// </summary>
+    public async Task<IReadOnlyList<SeatMultiGroupRow>> MultipleGroupsAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<SeatMultiGroupRow>(
+            """
+            WITH tracking AS (
+                SELECT gm.MemberObjectId, g.DisplayName, fo.Name AS LobName
+                FROM core.SeatGroup g
+                JOIN intg.GroupMember gm ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid)
+                LEFT JOIN core.FundingOwner fo ON fo.FundingOwnerId = g.FundingOwnerId
+                WHERE g.Purpose = 'LOB_TRACKING' AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)),
+            licensing AS (
+                SELECT DISTINCT s.MemberObjectId,
+                       CASE WHEN s.AssignedByGroupId = '00000000-0000-0000-0000-000000000000' THEN N'Assigned directly'
+                            ELSE COALESCE((SELECT TOP (1) lg.DisplayName FROM core.SeatGroup lg WHERE lg.EntraGroupId = s.AssignedByGroupId), CAST(s.AssignedByGroupId AS nvarchar(40))) END AS Source
+                FROM intg.SeatHolder s JOIN core.SeatSku k ON k.SkuId = s.SkuId AND k.Kind = 'COPILOT_ADDON'
+                WHERE s.State IN ('Active','ActiveWithError')),
+            who AS (
+                SELECT MemberObjectId FROM tracking GROUP BY MemberObjectId HAVING COUNT(*) > 1
+                UNION SELECT MemberObjectId FROM licensing GROUP BY MemberObjectId HAVING COUNT(*) > 1)
+            SELECT w.MemberObjectId,
+                   COALESCE((SELECT TOP (1) s.UserPrincipalName FROM intg.SeatHolder s WHERE s.MemberObjectId = w.MemberObjectId AND s.UserPrincipalName IS NOT NULL), p.UserPrincipalName) AS UserPrincipalName,
+                   p.DisplayName,
+                   (SELECT COUNT(*) FROM tracking t WHERE t.MemberObjectId = w.MemberObjectId) AS TrackingGroupCount,
+                   STUFF((SELECT N'; ' + t.DisplayName + COALESCE(N' (' + t.LobName + N')', N'') FROM tracking t WHERE t.MemberObjectId = w.MemberObjectId ORDER BY t.DisplayName FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, '') AS TrackingGroups,
+                   (SELECT COUNT(*) FROM licensing l WHERE l.MemberObjectId = w.MemberObjectId) AS LicenseSourceCount,
+                   STUFF((SELECT N'; ' + l.Source FROM licensing l WHERE l.MemberObjectId = w.MemberObjectId ORDER BY l.Source FOR XML PATH(''), TYPE).value('.', 'nvarchar(max)'), 1, 2, '') AS LicenseSources,
+                   CAST(CASE WHEN EXISTS (SELECT 1 FROM rpt.fn_SeatHolders() h WHERE h.MemberObjectId = w.MemberObjectId) THEN 1 ELSE 0 END AS bit) AS HasSeat
+            FROM who w
+            LEFT JOIN sec.Person p ON p.EntraObjectId = w.MemberObjectId
+            """, new { today = Today }, commandTimeout: 300)).ToList();
+    }
+}
+
+/// <summary>One tracking group in the hierarchy audit's mapping.</summary>
+public sealed class SeatMappingRow
+{
+    public Guid PublicId { get; init; }
+    public string GroupName { get; init; } = "";
+    public string? LobName { get; init; }
+    public string? ExpectedLeaderUpn { get; init; }
+    public byte? ExpectedLevel { get; init; }
+    public int SeatHolders { get; init; }
+}
+
+/// <summary>One seat holder in one tracking group, with that group's mapping.</summary>
+public sealed class SeatAuditMember
+{
+    public Guid MemberObjectId { get; init; }
+    public string? UserPrincipalName { get; init; }
+    public string? DisplayName { get; init; }
+    public Guid GroupPublicId { get; init; }
+    public string GroupName { get; init; } = "";
+    public string? LobName { get; init; }
+    public string? ExpectedLeaderUpn { get; init; }
+    public byte? ExpectedLevel { get; init; }
+}
+
+/// <summary>A person in more than one tracking group, or licensed by more than one group.</summary>
+public sealed class SeatMultiGroupRow
+{
+    public Guid MemberObjectId { get; init; }
+    public string? UserPrincipalName { get; init; }
+    public string? DisplayName { get; init; }
+    public int TrackingGroupCount { get; init; }
+    public string? TrackingGroups { get; init; }
+    public int LicenseSourceCount { get; init; }
+    public string? LicenseSources { get; init; }
+    public bool HasSeat { get; init; }
 }

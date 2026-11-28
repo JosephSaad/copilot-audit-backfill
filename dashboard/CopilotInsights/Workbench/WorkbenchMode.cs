@@ -80,3 +80,19 @@ public sealed class WorkbenchScopeMiddleware(RequestDelegate next)
         await next(http);
     }
 }
+
+public sealed record SeatReportRequirement : Microsoft.AspNetCore.Authorization.IAuthorizationRequirement;
+
+/// <summary><see cref="Policies.SeatReports"/>: auditors, central roles, Copilot Insights administrators and the Platform Owner.</summary>
+public sealed class SeatReportHandler(IHttpContextAccessor http) : Microsoft.AspNetCore.Authorization.AuthorizationHandler<SeatReportRequirement>
+{
+    public static bool Allows(WebPrincipal p) => p.IsAuthenticated
+        && (p.AppRoles.Contains(Governance.Domain.AppRoles.Auditor) || p.AppRoles.Contains(Governance.Domain.AppRoles.Central) || p.AppRoles.Contains(Governance.Domain.AppRoles.Admin)
+            || p.HasCentral(Governance.Domain.Roles.PlatformOwner));
+
+    protected override Task HandleRequirementAsync(Microsoft.AspNetCore.Authorization.AuthorizationHandlerContext context, SeatReportRequirement requirement)
+    {
+        if (http.HttpContext?.RequestServices.GetService<WebPrincipal>() is { } p && Allows(p)) context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}

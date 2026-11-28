@@ -43,6 +43,13 @@ public static class WorkbenchNav
         [$"{P}/Reports/Kpis"] = "The Workbench's own measures: cycle times, SLAs met, findings closed.",
         [$"{P}/Reports/Audit"] = "Who did what in the Workbench, from the tamper-evident ledger, with export.",
         [$"{P}/Reports/SeatChargeback"] = "Monthly Copilot seat chargeback per line of business, drafted by the worker and certified by FinOps.",
+        [$"{P}/Reports/ReservationSummary"] = "Each line of business's reservation against the seats it holds, and the reserved, actual and overage cost.",
+        [$"{P}/Reports/SeatAudit"] = "Executive summary of the tracking group and manager hierarchy audit: pass rate, reviews and hotspots.",
+        [$"{P}/Reports/SeatAudit/Detail?status=review"] = "Seat holders whose tracking group does not match their manager chain, with the likely right group.",
+        [$"{P}/Reports/SeatAudit/Detail?status=newhire"] = "Recently hired seat holders, whose hierarchy check is deferred.",
+        [$"{P}/Reports/SeatAudit/Detail"] = "Every seat holder with the result of the hierarchy check.",
+        [$"{P}/Reports/SeatMultipleGroups"] = "People in more than one tracking group, or licensed through more than one group.",
+        [$"{P}/Admin/SeatMapping"] = "Each tracking group's expected leader and level, which the hierarchy audit checks against.",
         [$"{P}/Admin/Raci"] = "Who is responsible, accountable, consulted and informed for each activity.",
         [$"{P}/Admin/Workflows"] = "The stages of each journey and who acts at each.",
         [$"{P}/Admin/Sla"] = "How long each stage may take, the reminders and the escalation ladder.",
@@ -105,7 +112,18 @@ public static class WorkbenchNav
         var pages = new List<NavPage>();
         if (Governance.Web.Pages.Registry.SeatsModel.CanOpen(me)) pages.Add(new("Copilot seats", $"{P}/Registry/Seats"));
         if (me.SeesRegistry) pages.Add(new("Lines of business", $"{P}/Registry/FundingOwners"));
+        var reports = SeatReportHandler.Allows(me);
+        if (reports) pages.Add(new("Reservation summary", $"{P}/Reports/ReservationSummary"));
         if (auditor) pages.Add(new("Seat chargeback", $"{P}/Reports/SeatChargeback"));
+        if (reports)
+        {
+            pages.Add(new("Hierarchy audit", $"{P}/Reports/SeatAudit"));
+            pages.Add(new("Exception report", $"{P}/Reports/SeatAudit/Detail?status=review"));
+            pages.Add(new("New hire report", $"{P}/Reports/SeatAudit/Detail?status=newhire"));
+            pages.Add(new("Detailed audit", $"{P}/Reports/SeatAudit/Detail"));
+            pages.Add(new("Multiple groups", $"{P}/Reports/SeatMultipleGroups"));
+            pages.Add(new("Hierarchy mapping", $"{P}/Admin/SeatMapping"));
+        }
         if (settings)
         {
             pages.Add(new("Seat groups", $"{P}/Admin/SeatGroups"));
@@ -175,6 +193,13 @@ public static class WorkbenchNav
             ops.Add(new("Governance KPIs", $"{P}/Reports/Kpis"));
             ops.Add(new("Audit trail", $"{P}/Reports/Audit"));
             ops.Add(new("Seat chargeback", $"{P}/Reports/SeatChargeback"));
+        }
+        if (SeatReportHandler.Allows(me))
+        {
+            ops.Add(new("Reservation summary", $"{P}/Reports/ReservationSummary"));
+            ops.Add(new("Hierarchy audit", $"{P}/Reports/SeatAudit"));
+            ops.Add(new("Multiple groups", $"{P}/Reports/SeatMultipleGroups"));
+            ops.Add(new("Hierarchy mapping", $"{P}/Admin/SeatMapping"));
         }
         if (ops.Count > 0) groups.Add(new("Governance operations", "The platform team, FinOps and auditors", ops));
 

@@ -123,7 +123,16 @@ public abstract class GovPage : PageModel
     [BindProperty(SupportsGet = true, Name = "q")] public string? Search { get; set; }
     [BindProperty(SupportsGet = true, Name = "sort")] public string? Sort { get; set; }
     [BindProperty(SupportsGet = true, Name = "desc")] public bool Desc { get; set; }
-    [BindProperty(SupportsGet = true, Name = "page")] public int PageNo { get; set; } = 1;
+    /// <summary>
+    /// The list page asked for (?page=), read from the query string: Razor Pages keeps the name "page" for the page's
+    /// own route value, so model binding never saw the number and every list stayed on its first page.
+    /// </summary>
+    public int PageNo
+    {
+        get => pageNo ??= int.TryParse(PageContext?.HttpContext?.Request.Query["page"].ToString(), out var p) && p > 0 ? p : 1;
+        set => pageNo = value;
+    }
+    private int? pageNo;
 
     public ListQuery Query => new(Search, Sort, Desc, Math.Max(1, PageNo));
 

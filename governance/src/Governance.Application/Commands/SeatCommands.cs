@@ -60,7 +60,7 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
     public Task<string?> SetReservationAsync(Guid idem, Guid fundingOwnerPublicId, int seats, DateTime effectiveFrom, string? notes)
         => run.RunAsync(idem, "seat.reservation.set", async uow =>
         {
-            run.RequireAny(Permissions.RegistryFinance, Permissions.RegistryEdit);
+            await RequirePlatformOwnerAsync(uow);
             if (!WorkbenchScope.SeatsOnly(await uow.ScalarAsync<string?>(WorkbenchScope.Sql)))
                 throw new DomainException("With the whole Workbench, a reservation changes through a seat reservation request (J9), so the change is approved and recorded.");
             if (seats < 0) throw new DomainException("Seats cannot be negative.");
@@ -90,6 +90,97 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
             }
             await run.AuditAsync(uow, "seat.reservation.set", "SeatReservation", id, $"{seats} seats from {from:yyyy-MM-dd}{(cur.Id == 0 ? "" : $" (was {cur.Seats})")}");
             return id.ToString();
+        });
+
+    /// <summary>
+    /// Copilot seats only: corrects one figure in the history: its seats, its start date or its source. The date stays
+    /// between the figures before and after it; the one before then ends the day before the new date, and the one after
+    /// shows these seats as what it replaced. The table keeps every earlier version (system-versioned), and the change is audited.
+    /// </summary>
+    public Task<string?> EditReservationAsync(Guid idem, Guid reservationPublicId, int seats, DateTime effectiveFrom, string? notes)
+        => run.RunAsync(idem, "seat.reservation.edit", async uow =>
+        {
+            await RequirePlatformOwnerAsync(uow);
+            if (!WorkbenchScope.SeatsOnly(await uow.ScalarAsync<string?>(WorkbenchScope.Sql)))
+                throw new DomainException("With the whole Workbench, a reservation changes through a seat reservation request (J9), so the change is approved and recorded.");
+            if (seats < 0) throw new DomainException("Seats cannot be negative.");
+            var row = await uow.QuerySingleOrDefaultAsync<(int Id, int Fo, int Seats, DateTime From)>(
+                "SELECT SeatReservationId, FundingOwnerId, Seats, EffectiveFrom FROM core.SeatReservation WHERE PublicId = @reservationPublicId", new { reservationPublicId });
+            if (row.Id == 0) throw new DomainException("This reservation was not found.");
+            var from = effectiveFrom.Date;
+            var before = await uow.QuerySingleOrDefaultAsync<(int Id, DateTime From)>(
+                "SELECT TOP (1) SeatReservationId, EffectiveFrom FROM core.SeatReservation WHERE FundingOwnerId = @Fo AND SeatReservationId <> @Id AND EffectiveFrom <= @From ORDER BY EffectiveFrom DESC, SeatReservationId DESC",
+                new { row.Fo, row.Id, row.From });
+            var after = await uow.QuerySingleOrDefaultAsync<(int Id, DateTime From)>(
+                "SELECT TOP (1) SeatReservationId, EffectiveFrom FROM core.SeatReservation WHERE FundingOwnerId = @Fo AND SeatReservationId <> @Id AND EffectiveFrom >= @From ORDER BY EffectiveFrom, SeatReservationId",
+                new { row.Fo, row.Id, row.From });
+            if (before.Id != 0 && from <= before.From)
+                throw new DomainException($"Choose a date after {before.From:d MMM yyyy}, when the figure before this one starts.");
+            if (after.Id != 0 && from >= after.From)
+                throw new DomainException($"Choose a date before {after.From:d MMM yyyy}, when the figure after this one starts.");
+            await uow.ExecuteAsync(
+                """
+                UPDATE core.SeatReservation SET Seats = @seats, EffectiveFrom = @from, Notes = COALESCE(@notes, Notes),
+                       ChangeKind = CASE WHEN @seats = Seats OR ChangeKind = 'INITIAL' THEN ChangeKind ELSE 'CORRECTION' END
+                WHERE SeatReservationId = @Id
+                """, new { seats, from, notes = CommandRunner.TrimN(notes, 1000), row.Id });
+            if (before.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET EffectiveTo = @to WHERE SeatReservationId = @Id", new { to = from.AddDays(-1), before.Id });
+            if (after.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET PreviousSeats = @seats WHERE SeatReservationId = @Id", new { seats, after.Id });
+            await run.AuditAsync(uow, "seat.reservation.edit", "SeatReservation", reservationPublicId,
+                $"{seats} seats from {from:yyyy-MM-dd} (was {row.Seats} from {row.From:yyyy-MM-dd})");
+            return reservationPublicId.ToString();
+        });
+
+    /// <summary>
+    /// Copilot seats only: the Platform Owner deletes one figure from the history. The figure before it then runs on to
+    /// where the deleted one ended (to now, if it was the latest), and the one after shows the figure before as what it
+    /// replaced. The deleted row stays in the table's version history, and the deletion is audited.
+    /// </summary>
+    public Task<string?> DeleteReservationAsync(Guid idem, Guid reservationPublicId)
+        => run.RunAsync(idem, "seat.reservation.delete", async uow =>
+        {
+            await RequirePlatformOwnerAsync(uow);
+            if (!WorkbenchScope.SeatsOnly(await uow.ScalarAsync<string?>(WorkbenchScope.Sql)))
+                throw new DomainException("With the whole Workbench, a reservation changes through a seat reservation request (J9), so the change is approved and recorded.");
+            var row = await uow.QuerySingleOrDefaultAsync<(int Id, int Fo, int Seats, DateTime From, DateTime? To)>(
+                "SELECT SeatReservationId, FundingOwnerId, Seats, EffectiveFrom, EffectiveTo FROM core.SeatReservation WHERE PublicId = @reservationPublicId", new { reservationPublicId });
+            if (row.Id == 0) throw new DomainException("This reservation was not found or was already deleted.");
+            var before = await uow.QuerySingleOrDefaultAsync<(int Id, int Seats)>(
+                "SELECT TOP (1) SeatReservationId, Seats FROM core.SeatReservation WHERE FundingOwnerId = @Fo AND SeatReservationId <> @Id AND EffectiveFrom <= @From ORDER BY EffectiveFrom DESC, SeatReservationId DESC",
+                new { row.Fo, row.Id, row.From });
+            var after = await uow.QuerySingleOrDefaultAsync<int>(
+                "SELECT TOP (1) SeatReservationId FROM core.SeatReservation WHERE FundingOwnerId = @Fo AND SeatReservationId <> @Id AND EffectiveFrom >= @From ORDER BY EffectiveFrom, SeatReservationId",
+                new { row.Fo, row.Id, row.From });
+            await uow.ExecuteAsync("DELETE core.SeatReservation WHERE SeatReservationId = @Id", new { row.Id });
+            // The open figure is unique per line of business: the one before reopens only once the deleted one is gone.
+            if (before.Id != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET EffectiveTo = @To WHERE SeatReservationId = @Id", new { row.To, before.Id });
+            if (after != 0) await uow.ExecuteAsync("UPDATE core.SeatReservation SET PreviousSeats = @prev WHERE SeatReservationId = @after",
+                new { prev = before.Id == 0 ? (int?)null : before.Seats, after });
+            await run.AuditAsync(uow, "seat.reservation.delete", "SeatReservation", reservationPublicId,
+                $"deleted {row.Seats} seats from {row.From:yyyy-MM-dd} to {(row.To is null ? "now" : row.To.Value.ToString("yyyy-MM-dd"))}");
+            return reservationPublicId.ToString();
+        });
+
+    /// <summary>
+    /// The hierarchy audit's mapping for one tracking group: the leader its members should report up to (by sign-in, as
+    /// Copilot Insights' directory has it) and at which level under the top of the organization. Empty clears both.
+    /// The Platform Owner sets it; each change is audited.
+    /// </summary>
+    public Task<string?> SetGroupMappingAsync(Guid idem, Guid groupPublicId, string? leaderUpn, int? level)
+        => run.RunAsync(idem, "seat.group.mapping", async uow =>
+        {
+            await RequirePlatformOwnerAsync(uow);
+            var upn = string.IsNullOrWhiteSpace(leaderUpn) ? null : leaderUpn.Trim();
+            if (upn is not null && (upn.Length > 256 || !upn.Contains('@'))) throw new DomainException("The expected leader is a sign-in name, for example jane.doe@contoso.com.");
+            if (upn is not null && level is not (>= 1 and <= 12)) throw new DomainException("Choose the level the expected leader sits at: 1 is the top of the organization, 2 reports to the top, and so on.");
+            var n = await uow.ExecuteAsync(
+                """
+                UPDATE core.SeatGroup SET ExpectedLeaderUpn = @upn, ExpectedLevel = @level
+                WHERE PublicId = @groupPublicId AND Purpose = 'LOB_TRACKING'
+                """, new { upn, level = upn is null ? null : (byte?)level, groupPublicId });
+            if (n == 0) throw new DomainException("Only an active LOB tracking group has a mapping.");
+            await run.AuditAsync(uow, "seat.group.mapping", "SeatGroup", groupPublicId, upn is null ? "mapping cleared" : $"{upn} at level {level}");
+            return groupPublicId.ToString();
         });
 
     // ---------------------------------------------------------------- reclaim
@@ -261,16 +352,66 @@ public sealed class SeatCommands(CommandRunner run, IClock clock, OutboxWriter o
 
     // ---------------------------------------------------------------- LOB seat admins
 
+    /// <summary>Reservation figures (set and corrected on the seats page) are the Platform Owner's alone, read from the database.</summary>
+    private async Task RequirePlatformOwnerAsync(Uow uow)
+    {
+        if (!(await uow.QueryAsync<string>(
+                "SELECT RoleCode FROM sec.RoleAssignment WHERE PersonId = @me AND RoleCode = 'PLATFORM_OWNER' AND ScopeType = 'TENANT' AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)",
+                new { me = Me.PersonId, today = Today })).Any())
+            throw new DomainException("Only the Platform Owner sets or corrects a line of business's reservation.");
+    }
+
     /// <summary>
     /// Whether the acting person may name or end seat admins for this LOB: a seat admin or business owner of the same
     /// LOB, or the Platform Owner. Never another role, never another LOB.
     /// </summary>
+
     private async Task<(bool Allowed, bool IsOwner)> AdminRightsAsync(Uow uow, int fo)
     {
         var mine = (await MyRolesAsync(uow, fo)).ToHashSet();
         var owner = mine.Overlaps(OwnerRoles) || mine.Contains(Roles.PlatformOwner);
         return (owner || mine.Contains(SeatAccess.LobSeatAdmin), owner);
     }
+
+    /// <summary>
+    /// Names (or clears) a line of business's business owner after it was added: the owner role moves to the new person
+    /// from today and the previous owner's ends. The Platform Owner or FinOps does it; nobody names themselves.
+    /// </summary>
+    public Task<string?> SetBusinessOwnerAsync(Guid idem, Guid fundingOwnerPublicId, string? personUpnOrId)
+        => run.RunAsync(idem, "fundingowner.owner", async uow =>
+        {
+            run.RequireAny(Permissions.RegistryFinance, Permissions.RegistryEdit);
+            var fo = await FundingOwnerIdAsync(uow, fundingOwnerPublicId);
+            var key = (personUpnOrId ?? "").Trim();
+            int? target = null;
+            if (key.Length > 0)
+            {
+                target = int.TryParse(key, out var pid)
+                    ? await uow.ScalarAsync<int?>("SELECT PersonId FROM sec.Person WHERE PersonId = @pid AND AccountEnabled = 1", new { pid })
+                    : await uow.ScalarAsync<int?>("SELECT TOP (1) PersonId FROM sec.Person WHERE UserPrincipalName = @key AND AccountEnabled = 1", new { key });
+                if (target is null) throw new DomainException("Choose a person from the list: no active person has that sign-in name.");
+                if (target == Me.PersonId) throw new DomainException("You cannot name yourself. Another person with this permission names you.");
+            }
+            var ownerType = await uow.ScalarAsync<string>("SELECT OwnerType FROM core.FundingOwner WHERE FundingOwnerId = @fo", new { fo });
+            var role = ownerType == "ENTERPRISE_SHARED" ? Roles.SharedServiceOwner : Roles.LobBusinessOwner;
+            await uow.ExecuteAsync("UPDATE core.FundingOwner SET BusinessOwnerPersonId = @target WHERE FundingOwnerId = @fo", new { target, fo });
+            await uow.ExecuteAsync(
+                """
+                UPDATE sec.RoleAssignment SET EffectiveTo = @yesterday
+                WHERE ScopeType = 'FUNDING_OWNER' AND ScopeId = @fo AND RoleCode IN ('LOB_BUSINESS_OWNER','SHARED_SERVICE_OWNER')
+                  AND (@target IS NULL OR PersonId <> @target) AND (EffectiveTo IS NULL OR EffectiveTo >= @today)
+                """, new { yesterday = Today.AddDays(-1), today = Today, fo, target });
+            if (target is int bo)
+                await uow.ExecuteAsync(
+                    """
+                    IF NOT EXISTS (SELECT 1 FROM sec.RoleAssignment WHERE PersonId = @bo AND RoleCode = @role AND ScopeType = 'FUNDING_OWNER' AND ScopeId = @fo
+                                     AND (EffectiveTo IS NULL OR EffectiveTo >= @today))
+                        INSERT sec.RoleAssignment (PersonId, RoleCode, ScopeType, ScopeId, EffectiveFrom, Source, AcceptedUtc, ReviewDueOn, GrantedByPersonId)
+                        VALUES (@bo, @role, 'FUNDING_OWNER', @fo, @today, 'WORKBENCH', @now, @review, @me)
+                    """, new { bo, role, fo, today = Today, now = clock.UtcNow, review = Today.AddYears(1), me = Me.PersonId });
+            await run.AuditAsync(uow, "fundingowner.owner", "FundingOwner", fo, target is null ? "business owner cleared" : $"business owner person {target}");
+            return target?.ToString();
+        });
 
     public Task<string?> AddSeatAdminAsync(Guid idem, Guid fundingOwnerPublicId, string personUpnOrId)
         => run.RunAsync(idem, "seat.admin.add", async uow =>
