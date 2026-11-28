@@ -37,7 +37,7 @@ public class Release362Tests
     {
         static string Page(params string[] p) => Repo(["dashboard", "CopilotInsights", "Pages", "Workbench", .. p]);
         Assert.Contains("asp-page-handler=\"SetReservation\"", Page("Registry", "SeatLob.cshtml"));
-        Assert.Contains("public bool CanSetReservation => SeatsOnly && (Principal.Can(Permissions.RegistryFinance) || Principal.Can(Permissions.RegistryEdit));", Page("Registry", "Seats.cshtml.cs"));
+        Assert.Contains("public bool CanSetReservation => SeatsOnly && Principal.HasRole(Roles.PlatformOwner);", Page("Registry", "Seats.cshtml.cs"));   // the Platform Owner alone
         Assert.Contains("selected=\"@((e?.Purpose ?? \"LOB_TRACKING\") == kv.Key)\"", Page("Admin", "SeatGroups.cshtml"));
     }
 

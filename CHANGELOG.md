@@ -4,6 +4,63 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.3] - 2026-11-28
+
+Copilot seat reports for each line of business: a reservation summary with its costs, a tracking group and manager
+hierarchy audit (executive summary, exception report, new hire report, detailed audit and the mapping it checks),
+and the people licensed or counted through more than one group. Reservations are the Platform Owner's alone and can
+be corrected or deleted; a line of business's people can be changed after it is added; every Workbench list pages.
+
+**Install over 3.6.2** (the change bundle runs from v3.6.2): deploy the Workbench database scripts (two new columns on
+core.SeatGroup, one new setting; nothing dropped or renamed), then build and deploy the dashboard
+(docs\BUILD-FROM-SOURCE.md). Nothing changes in the Copilot Insights database or on the job server.
+
+### Added
+- **Reservation summary** (Copilot seats by line of business › Reservation summary): each line of business's
+  reserved, allocated and remaining licenses, over or under the reservation, monthly reserved cost, 12-month
+  forecast, monthly actual cost (the reservation, or the seats held when more; red over, green under, yellow even),
+  monthly overage with a bar, and annual actual cost, at Seats.RatePerSeatMonth, with a total row and CSV.
+- **Tracking group and manager hierarchy audit.** *Hierarchy mapping* names, for each tracking group, the leader its
+  members report up to and that leader's level under the top of the organization (Platform Owner). Each Copilot seat
+  holder's manager chain is read from Copilot Insights' AD directory: PASS when the person at that level is the
+  expected leader; otherwise a REVIEW reason (possible incorrect tracking group, with the likely right group and
+  leader; expected leader at a different level; hierarchy mismatch; unknown tracking group; missing data). Holders
+  hired within Seats.NewHireDays (new setting, 90) are NEW HIRE and not checked. Pages: *Hierarchy audit* (executive
+  summary: metrics with definitions, a reconciliation difference that must be zero, exception hotspots, results by
+  group), *Exception report*, *New hire report* and *Detailed audit*, each paged with CSV. It never changes a group
+  or a license.
+- **Multiple groups**: people in two or more tracking groups (counted by more than one line of business), and people
+  licensed through more than one group, or a group and directly.
+- **Correct or delete a reservation figure.** Each figure in a line of business's reservation history has *Edit*
+  (seats, start date, source) and *Delete*; the figures around it follow. Every change is in the audit trail and the
+  table's version history.
+- **People for this line of business** on its seats page: change or clear the business owner, add or end seat admins.
+
+### Changed
+- **Reservations: the Platform Owner alone** sets, corrects and deletes them (before: the Platform Owner or FinOps).
+- **Holder lists page**: People in the tracking group (four lists) and Seats no LOB claims show 50 a page, sorted by
+  sign-in, with a CSV of the whole list on show. Names come from Copilot Insights' AD directory (by sign-in, else by
+  object ID) for people the Workbench has not recorded; before, they showed as *Unknown person*.
+- **Sync and freshness with seats only** shows only the Copilot seats card.
+- The seat reports and the mapping open to auditors, central roles, Copilot Insights administrators and the
+  Platform Owner (Policies.SeatReports).
+
+### Fixed
+- **Read seats now answered HTTP 429.** The limit of two runs every five minutes counted every visit to the page the
+  buttons post to, for everyone on the web server together. It now counts only runs, for each person, and the 429
+  page says to wait.
+- **Every Workbench list stayed on its first page.** Razor Pages keeps the name *page* for the page's own route, so
+  the bound page number never saw `?page=`; it is now read from the query string.
+
+### Known limits
+- Tested on this PC with a 300-holder test population over the demo directory; not against the client's 18,000
+  holders, AD hierarchy or hire dates.
+- The audit's level numbers follow Copilot Insights' top of the organization (Admin); without it every holder is
+  *Missing data*.
+- Not measured: duplicate employee IDs (the directory load records no employee ID) and manager or organization
+  changes (no manager history is kept).
+- The Delete button was tried through the database test, not in a browser.
+
 ## [3.6.2] - 2026-11-27
 
 *Read seats now* finishes with tens of thousands of license holders. It stopped with *Execution Timeout Expired*

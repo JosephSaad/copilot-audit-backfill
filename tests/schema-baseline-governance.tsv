@@ -1,4 +1,4 @@
-# release 3.6.2
+# release 3.6.3
 # The shape of the Governance Workbench's database (its own, beside the Copilot one) as this release installs it.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -308,6 +308,8 @@ C	governance	core.SeatGroup	U	13	RowVer	timestamp	0
 C	governance	core.SeatGroup	U	14	SysStart	datetime2(7)	0	
 C	governance	core.SeatGroup	U	15	SysEnd	datetime2(7)	0	
 C	governance	core.SeatGroup	U	16	AdObjectGuid	uniqueidentifier	1	
+C	governance	core.SeatGroup	U	17	ExpectedLeaderUpn	nvarchar(256)	1	
+C	governance	core.SeatGroup	U	18	ExpectedLevel	tinyint	1	
 C	governance	core.SeatGroup	U	2	PublicId	uniqueidentifier	0	D
 C	governance	core.SeatGroup	U	3	EntraGroupId	uniqueidentifier	1	
 C	governance	core.SeatGroup	U	4	DisplayName	nvarchar(256)	0	
@@ -324,6 +326,8 @@ C	governance	core.SeatGroupHistory	U	13	RowVer	timestamp	0
 C	governance	core.SeatGroupHistory	U	14	SysStart	datetime2(7)	0	
 C	governance	core.SeatGroupHistory	U	15	SysEnd	datetime2(7)	0	
 C	governance	core.SeatGroupHistory	U	16	AdObjectGuid	uniqueidentifier	1	
+C	governance	core.SeatGroupHistory	U	17	ExpectedLeaderUpn	nvarchar(256)	1	
+C	governance	core.SeatGroupHistory	U	18	ExpectedLevel	tinyint	1	
 C	governance	core.SeatGroupHistory	U	2	PublicId	uniqueidentifier	0	
 C	governance	core.SeatGroupHistory	U	3	EntraGroupId	uniqueidentifier	1	
 C	governance	core.SeatGroupHistory	U	4	DisplayName	nvarchar(256)	0	

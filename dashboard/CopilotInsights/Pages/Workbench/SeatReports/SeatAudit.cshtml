@@ -1,0 +1,94 @@
+@page "/workbench/Reports/SeatAudit"
+@model Governance.Web.Pages.Reports.SeatAuditModel
+@{
+    ViewData["Title"] = "Hierarchy audit";
+    var o = Model.Outcome;
+    const string Detail = "/workbench/Reports/SeatAudit/Detail";
+    var unmapped = o.Mappings.Count(m => string.IsNullOrWhiteSpace(m.LeaderUpn));
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
+        <h1>Tracking group and manager hierarchy audit</h1>
+        <p class="lead">Executive summary · audited @Ui.Local(o.TakenUtc) · the source population is kept as it is · recommendations never change anyone's group or license. <help>Each Copilot seat holder in a tracking group is checked against their manager chain from Copilot Insights' AD directory: the person at the group's expected level should be the group's expected leader (Hierarchy mapping). Read again every five minutes at most.</help></p>
+    </div>
+    <div class="page-actions">
+        <a class="btn" href="@Detail?status=review">Exception report</a>
+        <a class="btn btn-ghost" href="?handler=Csv">Export CSV</a>
+    </div>
+</div>
+
+@if (!o.DirectoryRead)
+{
+    <div class="alert alert-bad" role="alert">Copilot Insights' directory could not be read, so every holder shows as missing data. The error is in this web server's Windows Application log.</div>
+}
+@if (unmapped > 0)
+{
+    <div class="alert alert-info" role="note">@unmapped tracking @(unmapped == 1 ? "group has" : "groups have") no expected leader yet: their holders show as Unknown tracking group. Set them on <a href="/workbench/Admin/SeatMapping">Hierarchy mapping</a>.</div>
+}
+
+<div class="card mt">
+    <h2>Population and outcome metrics <help>Each figure opens the people it counts, where there is a list.</help></h2>
+    <div class="table-wrap">
+        <table class="stack audit-metrics">
+            <thead><tr>
+                <partial name="_Th" model='("", "Metric", "What is counted.")' />
+                <partial name="_Th" model='("num", "Value", "The count or rate.")' />
+                <partial name="_Th" model='("", "Definition / reconciliation basis", "How it is counted.")' />
+            </tr></thead>
+            <tbody>
+            @foreach (var m in Model.Metrics)
+            {
+                var recon = m.Name == "Reconciliation difference";
+                <tr>
+                    <td data-label="Metric">@if (m.Strong) { <strong>@m.Name</strong> } else { @m.Name }</td>
+                    <td data-label="Value" class="num @(recon ? (m.Value == "0" ? "cost-under" : "cost-over") : "")">@if (m.Href is not null) { <a href="@m.Href"><strong>@m.Value</strong></a> } else { <strong>@m.Value</strong> }</td>
+                    <td data-label="Definition" class="small muted">@m.Definition</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt">
+    <h2>Exception hotspots <help>The tracking groups with the most REVIEW records, and with the highest share of their holders under review.</help></h2>
+    @if (Model.MostReviews is null) { <p class="muted">No REVIEW records.</p> }
+    else
+    {
+        <div class="grid grid-2">
+            <div class="stat hotspot"><div class="stat-label">Highest REVIEW count group</div><div class="stat-value small-value"><a href="@Detail?status=review&group=@Model.MostReviews.GroupPublicId">@Model.MostReviews.GroupName</a></div><div class="stat-note">@Ui.Num(Model.MostReviews.Review) REVIEW records</div></div>
+            <div class="stat hotspot"><div class="stat-label">Highest REVIEW % group</div><div class="stat-value small-value"><a href="@Detail?status=review&group=@Model.HighestShare!.GroupPublicId">@Model.HighestShare.GroupName</a></div><div class="stat-note">@Model.HighestShare.ReviewShare.ToString("0.0%") of its @Ui.Num(Model.HighestShare.Total) holders</div></div>
+        </div>
+    }
+</div>
+
+<div class="card mt">
+    <h2>By tracking group <help>Each tracking group's holders: passed, new hires, and under review, most REVIEW records first.</help></h2>
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr>
+                <partial name="_Th" model='("", "Tracking group", "Opens its holders in the detailed audit.")' />
+                <partial name="_Th" model='("num", "Holders", "Seat holders in the group.")' />
+                <partial name="_Th" model='("num", "PASS", "Passed the hierarchy check.")' />
+                <partial name="_Th" model='("num", "New hires", "Check deferred.")' />
+                <partial name="_Th" model='("num", "REVIEW", "To investigate.")' />
+                <partial name="_Th" model='("num", "REVIEW %", "REVIEW records over its holders.")' />
+            </tr></thead>
+            <tbody>
+            @if (Model.Groups.Count == 0) { <tr><td colspan="6" class="muted">No seat holder in a tracking group yet. Read seats on Sync and freshness.</td></tr> }
+            @foreach (var g in Model.Groups)
+            {
+                <tr>
+                    <td data-label="Tracking group"><a href="@Detail?group=@g.GroupPublicId">@g.GroupName</a>@if (g.LobName is not null) { <div class="small muted">@g.LobName</div> }</td>
+                    <td data-label="Holders" class="num">@Ui.Num(g.Total)</td>
+                    <td data-label="PASS" class="num">@Ui.Num(g.Pass)</td>
+                    <td data-label="New hires" class="num">@Ui.Num(g.NewHire)</td>
+                    <td data-label="REVIEW" class="num @(g.Review > 0 ? "text-bad" : "")">@if (g.Review > 0) { <a href="@Detail?status=review&group=@g.GroupPublicId">@Ui.Num(g.Review)</a> } else { <text>0</text> }</td>
+                    <td data-label="REVIEW %" class="num">@g.ReviewShare.ToString("0.0%")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

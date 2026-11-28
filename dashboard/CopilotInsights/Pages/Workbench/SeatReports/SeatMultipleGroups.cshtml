@@ -1,0 +1,52 @@
+@page "/workbench/Reports/SeatMultipleGroups"
+@model Governance.Web.Pages.Reports.SeatMultipleGroupsModel
+@{
+    ViewData["Title"] = "Multiple groups";
+    var req = ViewContext.HttpContext.Request;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
+        <h1>Licensed or counted through more than one group</h1>
+        <p class="lead">People in two or more tracking groups, so more than one line of business counts their seat, and people whose Copilot license comes through more than one group, or through a group and directly. <help>Both come from the latest seat read: the tracking groups' members, and the groups Microsoft 365 says each Copilot license is assigned through. One license is used either way: this lists what to clean up so each person is counted once.</help></p>
+    </div>
+</div>
+
+<div class="grid grid-3">
+    <a class="stat stat-link" href="?"><div class="stat-label">Everyone listed <help>Either case.</help></div><div class="stat-value">@Ui.Num(Model.AllCount)</div><div class="stat-note">@(Model.Show is null or "" ? "shown below" : "show all")</div></a>
+    <a class="stat stat-link" href="?show=tracking"><div class="stat-label">In more than one tracking group <help>Counted by more than one line of business.</help></div><div class="stat-value @(Model.TrackingCount > 0 ? "text-bad" : "")">@Ui.Num(Model.TrackingCount)</div><div class="stat-note">counted twice or more</div></a>
+    <a class="stat stat-link" href="?show=license"><div class="stat-label">Licensed through more than one group <help>The Copilot license is assigned through two or more groups, or through a group and directly.</help></div><div class="stat-value @(Model.LicenseCount > 0 ? "text-bad" : "")">@Ui.Num(Model.LicenseCount)</div><div class="stat-note">license groups to tidy</div></a>
+</div>
+
+<div class="card mt">
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr>
+                <partial name="_Th" model='("", "Person", "Name and sign-in.")' />
+                <partial name="_Th" model='("num", "Tracking groups", "How many tracking groups list the person.")' />
+                <partial name="_Th" model='("", "Which tracking groups", "Each with its line of business.")' />
+                <partial name="_Th" model='("num", "Licensed through", "How many groups (or a direct assignment) give the Copilot license.")' />
+                <partial name="_Th" model='("", "License sources", "The license groups, or Assigned directly.")' />
+            </tr></thead>
+            <tbody>
+            @if (Model.Rows.Count == 0) { <tr><td colspan="5" class="muted">Nobody: every seat holder is in one tracking group and licensed one way.</td></tr> }
+            @foreach (var r in Model.Rows)
+            {
+                <tr>
+                    <td data-label="Person">@Model.NameOf(r)@if (!r.HasSeat) { <span class="pill">no active seat</span> }<div class="small muted">@Model.UpnOf(r)</div></td>
+                    <td data-label="Tracking groups" class="num @(r.TrackingGroupCount > 1 ? "text-bad" : "")">@r.TrackingGroupCount</td>
+                    <td data-label="Which tracking groups" class="small">@r.TrackingGroups</td>
+                    <td data-label="Licensed through" class="num @(r.LicenseSourceCount > 1 ? "text-bad" : "")">@r.LicenseSourceCount</td>
+                    <td data-label="License sources" class="small">@r.LicenseSources</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <div class="pager" aria-label="Pages">
+        <span>@Model.Total.ToString("N0") @(Model.Total == 1 ? "person" : "people") · page @Model.PageShown of @Model.Pages</span>
+        @if (Model.PageShown > 1) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageShown - 1)">Previous</a> }
+        @if (Model.PageShown < Model.Pages) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageShown + 1)">Next</a> }
+        <a class="btn btn-small btn-ghost" href="@Ui.CsvHref(req)">Export CSV <help>Everyone in this list, all pages.</help></a>
+    </div>
+</div>

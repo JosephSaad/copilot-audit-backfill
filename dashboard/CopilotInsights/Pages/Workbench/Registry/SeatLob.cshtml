@@ -6,13 +6,7 @@
     ViewData["Title"] = $"{d.LobName} seats";
     var current = d.Reservations.FirstOrDefault(r => r.EffectiveFrom <= DateTime.UtcNow.Date && (r.EffectiveTo is null || r.EffectiveTo >= DateTime.UtcNow.Date));
     var upcoming = d.Reservations.Where(r => r.EffectiveFrom > DateTime.UtcNow.Date).ToList();
-    var holders = Model.HolderFilter switch
-    {
-        "noseat" => d.Holders.Where(h => !h.HasSeat).ToList(),
-        "inactive" => d.Holders.Where(h => h.HasSeat && (h.LastActivityDate is null || h.LastActivityDate < DateTime.UtcNow.Date.AddDays(-Model.InactiveDays))).ToList(),
-        "all" => d.Holders.ToList(),
-        _ => d.Holders.Where(h => h.HasSeat).ToList(),
-    };
+    var holders = Model.HolderPage;
     var maxTrend = d.Trend.Count == 0 ? 1 : Math.Max(1, d.Trend.Max(t => Math.Max(t.ReservedSeats, t.AssignedSeats)));
 }
 <div class="page-head">
@@ -42,6 +36,61 @@
     <p class="small muted mt">Tracking group <span class="mono">@(p.TrackingGroup ?? "not mapped")</span> · OIM role <span class="mono">@(d.OimRoleName ?? "not recorded")</span> <help>People get a seat by requesting the OIM role, which ServiceNow provisions into the tracking group and the shared license group. The Workbench reads these groups; it never changes them.</help></p>
 }
 
+<div class="card mt" id="admins">
+    <h2>People for this line of business <help>The business owner answers for the line of business and its seats. Seat admins follow its reservation against actual seats. Both can be changed at any time; every change is recorded in the audit trail.</help></h2>
+    <h3>Business owner <help>One person. Changing it gives the role to the new person from today and ends the previous owner's. The Platform Owner or FinOps changes it; nobody names themselves.</help></h3>
+    <div class="btn-row">
+        <span>@if (d.BusinessOwnerName is null) { <span class="muted">Not named yet.</span> } else { <strong>@d.BusinessOwnerName</strong> <span class="small muted">@d.BusinessOwnerUpn</span> }</span>
+        @if (Model.CanSetOwner && d.BusinessOwnerName is not null)
+        {
+            <form method="post" asp-page-handler="Owner" asp-route-id="@d.PublicId" class="inline" data-confirm="Clear the business owner of @d.LobName?"><idem /><input type="hidden" name="owner" value="" /><button class="btn btn-small btn-ghost" type="submit">Clear</button></form>
+        }
+    </div>
+    @if (Model.CanSetOwner)
+    {
+        <form method="post" asp-page-handler="Owner" asp-route-id="@d.PublicId" class="form-grid mt">
+            <idem />
+            <div class="field"><label for="bo" class="req">@(d.BusinessOwnerName is null ? "Name the business owner" : "Change the business owner to") <help>Start typing a name or sign-in name and choose from the list, or search everyone in Active Directory below. You cannot name yourself.</help></label>
+                <input id="bo" name="owner" list="people-list" autocomplete="off" required placeholder="Name or sign-in name" />
+                <partial name="_FindPerson" model='("bo", true)' />
+            </div>
+            <div><button class="btn" type="submit">@(d.BusinessOwnerName is null ? "Name business owner" : "Change business owner")</button></div>
+        </form>
+    }
+
+    <h3 class="mt">Seat admins <help>Seat admins follow this LOB's reservation against actual seats. Any seat admin can name or end other seat admins for this LOB only. The business owner or the Platform Owner names the first one. To replace one, add the new person, then end the old one. The last seat admin cannot remove themselves.</help></h3>
+    @if (d.Admins.Count == 0) { <p class="muted">No seat admin yet.</p> }
+    else
+    {
+        <ul class="plain">
+            @foreach (var a in d.Admins)
+            {
+                <li class="btn-row">
+                    <span><strong>@a.DisplayName</strong> <span class="small muted">@a.UserPrincipalName · since @Ui.Date(a.EffectiveFrom)@(a.GrantedByName is null ? "" : ", named by " + a.GrantedByName)</span></span>
+                    @if (Model.CanManageAdmins)
+                    {
+                        <form method="post" asp-page-handler="EndAdmin" asp-route-id="@d.PublicId" asp-route-assignment="@a.PublicId" class="inline" data-confirm="End @a.DisplayName's seat admin role for @d.LobName?"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form>
+                    }
+                </li>
+            }
+        </ul>
+    }
+    @if (Model.CanManageAdmins)
+    {
+        <form method="post" asp-page-handler="AddAdmin" asp-route-id="@d.PublicId" class="form-grid mt">
+            <idem />
+            <div class="field"><label for="ap" class="req">Add a seat admin <help>Start typing a name or sign-in name and choose from the list, or search everyone in Active Directory below. You cannot name yourself.</help></label>
+                <input id="ap" name="person" list="people-list" autocomplete="off" required placeholder="Name or sign-in name" />
+                <partial name="_FindPerson" model='("ap", true)' />
+            </div>
+            <div><button class="btn" type="submit">Add seat admin</button></div>
+        </form>
+    }
+    @if (Model.CanManageAdmins || Model.CanSetOwner)
+    {
+        <datalist id="people-list">@foreach (var o in Model.People) { <option value="@o.Value">@o.Text</option> }</datalist>
+    }
+</div>
 <div class="card mt">
     <div class="card-head">
         <h2>Reserved against assigned, by month <help>From the monthly chargeback snapshots: the reservation in effect and the seats assigned at month end. Certified months never change.</help></h2>
@@ -122,6 +171,7 @@
                     <partial name="_Th" model='("", "Approved by", "Who approved the change.")' />
                     <partial name="_Th" model='("", "Flex-pool review", "What Digital Workplace and Finance checked: unallocated inventory, pending demand and the buffer.")' />
                     <partial name="_Th" model='("", "Request", "The reservation request that made the change.")' />
+                    @if (Model.CanSetReservation) { <partial name="_Th" model='("", "Correct", "Edit changes the seats, start date or source of this figure: the figure before it then ends the day before, and the one after shows these seats as what it replaced. Delete removes the figure: the one before runs on in its place. Platform Owner only; every change is in the audit trail.")' /> }
                 </tr></thead>
                 <tbody>
                 @foreach (var r in d.Reservations)
@@ -133,11 +183,31 @@
                         <td data-label="Approved by">@r.ApprovedByName</td>
                         <td data-label="Flex-pool review">@(r.FlexPoolReview ?? r.Notes)</td>
                         <td data-label="Request">@if (r.RequestPublicId is Guid rq && !Model.SeatsOnly) { <a href="/workbench/Requests/@rq">@r.RequestNumber</a> } else { @r.RequestNumber }</td>
+                        @if (Model.CanSetReservation)
+                        {
+                            <td data-label="Correct" class="nowrap">
+                                <a class="btn btn-small btn-ghost" href="?edit=@r.PublicId#correct">Edit</a>
+                                <form method="post" asp-page-handler="DeleteReservation" asp-route-id="@d.PublicId" asp-route-reservation="@r.PublicId" class="inline" data-confirm="Delete @Ui.Num(r.Seats) seats from @Ui.Date(r.EffectiveFrom) from the history? The figure before it runs on in its place."><idem /><button class="btn btn-small btn-ghost" type="submit">Delete</button></form>
+                            </td>
+                        }
                     </tr>
                 }
                 </tbody>
             </table>
         </div>
+        @if (Model.CanSetReservation && d.Reservations.FirstOrDefault(x => x.PublicId == Model.EditId) is { } e)
+        {
+            <form method="post" asp-page-handler="EditReservation" asp-route-id="@d.PublicId" asp-route-reservation="@e.PublicId" class="mt" id="correct">
+                <idem />
+                <h3>Correct @Ui.Num(e.Seats) seats from @Ui.Date(e.EffectiveFrom) <help>Change the seats, start date or source of this figure. The date stays between the start dates of the figures before and after it; the figure before then ends the day before, and the one after shows these seats as what it replaced. Every earlier version is kept, and the change is in the audit trail.</help></h3>
+                <div class="form-grid">
+                    <div class="field"><label for="es" class="req">Seats reserved <help>The seats reserved by this figure.</help></label><input id="es" type="number" name="seatCount" min="0" step="1" value="@e.Seats" required /></div>
+                    <div class="field"><label for="ef" class="req">In effect from <help>The first day this figure applies.</help></label><input id="ef" type="date" name="effectiveFrom" value="@e.EffectiveFrom.ToString("yyyy-MM-dd")" required /></div>
+                    <div class="field full"><label for="en">Source <help>Where the figure comes from. Left empty, the source stays as it is.</help></label><input id="en" name="notes" maxlength="1000" value="@e.Notes" /></div>
+                    <div class="btn-row"><button class="btn" type="submit">Save the correction</button> <a class="btn btn-ghost" href="?">Cancel</a></div>
+                </div>
+            </form>
+        }
     }
 </div>
 
@@ -206,11 +276,11 @@
                 <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report.")' />
             </tr></thead>
             <tbody>
-            @if (holders.Count == 0) { <tr><td colspan="4" class="muted">Nobody in this view.</td></tr> }
+            @if (holders.Count == 0) { <tr><td colspan="4" class="muted">Nobody in this list.</td></tr> }
             @foreach (var h in holders)
             {
                 <tr>
-                    <td data-label="Person">@(h.DisplayName ?? "Unknown person")@if (!h.AccountEnabled) { <span class="pill pill-bad">Account disabled</span> } <div class="small muted">@h.UserPrincipalName</div></td>
+                    <td data-label="Person">@Model.NameOf(h)@if (!h.AccountEnabled) { <span class="pill pill-bad">Account disabled</span> } <div class="small muted">@Model.UpnOf(h)</div></td>
                     <td data-label="Seat">@(h.HasSeat ? (h.Direct ? "Yes, assigned directly" : "Yes") : "No")</td>
                     <td data-label="License state">@(h.State ?? "")@if (h.Error is not null) { <span class="pill pill-bad">@Ui.Words(h.Error)</span> }</td>
                     <td data-label="Last Copilot use">@(h.LastActivityDate is null ? (h.HasSeat ? "None reported" : "") : Ui.Date(h.LastActivityDate))</td>
@@ -219,35 +289,11 @@
             </tbody>
         </table>
     </div>
-</div>
-
-<div class="card mt" id="admins">
-    <h2>LOB seat admins <help>Seat admins follow this LOB's reservation against actual seats. Any seat admin can name or end other seat admins for this LOB only. The business owner or the Platform Owner names the first one. The last seat admin cannot remove themselves.</help></h2>
-    @if (d.Admins.Count == 0) { <p class="muted">No seat admin yet.</p> }
-    else
-    {
-        <ul class="plain">
-            @foreach (var a in d.Admins)
-            {
-                <li class="btn-row">
-                    <span><strong>@a.DisplayName</strong> <span class="small muted">@a.UserPrincipalName · since @Ui.Date(a.EffectiveFrom)@(a.GrantedByName is null ? "" : ", named by " + a.GrantedByName)</span></span>
-                    @if (Model.CanManageAdmins)
-                    {
-                        <form method="post" asp-page-handler="EndAdmin" asp-route-id="@d.PublicId" asp-route-assignment="@a.PublicId" class="inline" data-confirm="End @a.DisplayName's seat admin role for @d.LobName?"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form>
-                    }
-                </li>
-            }
-        </ul>
-    }
-    @if (Model.CanManageAdmins)
-    {
-        <form method="post" asp-page-handler="AddAdmin" asp-route-id="@d.PublicId" class="form-grid mt">
-            <idem />
-            <div class="field"><label for="ap" class="req">Person <help>Start typing a name or sign-in name and choose from the list. You cannot name yourself.</help></label>
-                <input id="ap" name="person" list="people-list" autocomplete="off" required placeholder="Name or sign-in name" />
-                <datalist id="people-list">@foreach (var o in Model.People) { <option value="@o.Value">@o.Text</option> }</datalist><partial name="_FindPerson" model='("ap", true)' />
-            </div>
-            <div><button class="btn" type="submit">Add seat admin</button></div>
-        </form>
-    }
+    @{ var req = ViewContext.HttpContext.Request; }
+    <div class="pager" aria-label="Pages">
+        <span>@Model.HolderTotal.ToString("N0") @(Model.HolderTotal == 1 ? "person" : "people") · page @Model.HolderPageNo of @Model.HolderPages</span>
+        @if (Model.HolderPageNo > 1) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.HolderPageNo - 1)#people">Previous</a> }
+        @if (Model.HolderPageNo < Model.HolderPages) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.HolderPageNo + 1)#people">Next</a> }
+        <a class="btn btn-small btn-ghost" href="@Ui.CsvHref(req)">Export CSV <help>Every person in this list, all pages, with their seat, license state and last Copilot use.</help></a>
+    </div>
 </div>

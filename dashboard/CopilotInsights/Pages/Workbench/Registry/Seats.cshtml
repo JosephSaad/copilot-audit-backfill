@@ -11,7 +11,7 @@
         <h1>Copilot seats</h1>
         <p class="lead">The paid Microsoft 365 Copilot license, counted in seats. Each LOB reserves seats for the year; the license comes from one shared group and each LOB's tracking group says whose seat it is. An LOB pays its full reservation until the EA anniversary, plus any seats assigned above it. <help>Policy references: Sections 4.1 and 4.4; FIN-05 and FIN-06. Seats are never converted to credits or money here, except on the chargeback report.</help></p>
     </div>
-    <div class="page-actions"><a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export CSV</a></div>
+    <div class="page-actions"><a class="btn btn-ghost" href="?handler=Csv">Export CSV</a></div>
 </div>
 <p class="small muted">
     License read-back @(s.LastReadUtc is null ? "has not run yet" : "as of " + Ui.Local(s.LastReadUtc)) @(s.LastReadStatus is null ? "" : "(" + Ui.Words(s.LastReadStatus).ToLowerInvariant() + ")")
@@ -123,7 +123,7 @@
                 @foreach (var h in Model.Unattributed)
                 {
                     <tr>
-                        <td data-label="Person">@(h.DisplayName ?? "Unknown person") <div class="small muted">@h.UserPrincipalName</div></td>
+                        <td data-label="Person">@Model.NameOf(h) <div class="small muted">@Model.UpnOf(h)</div></td>
                         <td data-label="How assigned">@(h.Direct ? "Directly" : "License group")</td>
                         <td data-label="State">@h.State @if (h.Error is not null) { <span class="pill pill-bad">@Ui.Words(h.Error)</span> }</td>
                         <td data-label="Last Copilot use">@(h.LastActivityDate is null ? "None reported" : Ui.Date(h.LastActivityDate))</td>
@@ -131,6 +131,13 @@
                 }
                 </tbody>
             </table>
+        </div>
+        @{ var req = ViewContext.HttpContext.Request; }
+        <div class="pager" aria-label="Pages">
+            <span>@Model.UnattributedTotal.ToString("N0") @(Model.UnattributedTotal == 1 ? "person" : "people") · page @Model.PageNo of @Model.UnattributedPages</span>
+            @if (Model.PageNo > 1) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageNo - 1)#nolob">Previous</a> }
+            @if (Model.PageNo < Model.UnattributedPages) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageNo + 1)#nolob">Next</a> }
+            <a class="btn btn-small btn-ghost" href="@Ui.CsvHref(req)">Export CSV <help>Every seat no LOB claims, all pages, with how it was assigned, its state and last Copilot use.</help></a>
         </div>
     </div>
 }

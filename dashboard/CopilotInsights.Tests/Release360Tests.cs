@@ -101,11 +101,12 @@ public class Release360Tests
         var all = WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, IsCentral = true, Permissions = Set("seats.view"),
             AppRoles = Set(AppRoles.Central, AppRoles.Operator, AppRoles.Auditor, AppRoles.Admin) }, true, true);
         Assert.Equal(["Copilot seats by line of business"], all.Select(g => g.Persona));
-        Assert.Equal(["Copilot seats", "Lines of business", "Seat chargeback", "Seat groups", "Workbench roles", "Settings", "Sync and freshness"], all.SelectMany(g => g.Pages).Select(p => p.Title));
+        Assert.Equal(["Copilot seats", "Lines of business", "Reservation summary", "Seat chargeback", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Multiple groups", "Hierarchy mapping",
+            "Seat groups", "Workbench roles", "Settings", "Sync and freshness"], all.SelectMany(g => g.Pages).Select(p => p.Title));
         foreach (var p in all.SelectMany(g => g.Pages)) Assert.True(WorkbenchScope.PageOpen(p.Path, true), p.Path);
         Assert.Empty(Pages());
         Assert.Empty(Pages(AppRoles.User));                         // requests and approvals are closed
-        Assert.Equal(["Seat chargeback"], Pages(AppRoles.Auditor));
+        Assert.Equal(["Reservation summary", "Seat chargeback", "Hierarchy audit", "Exception report", "New hire report", "Detailed audit", "Multiple groups", "Hierarchy mapping"], Pages(AppRoles.Auditor));
         Assert.DoesNotContain("Settings", Pages(AppRoles.Registry));
         // With the whole Workbench, the menu is as it was.
         Assert.Contains("Ownership and approvals", WorkbenchNav.For(new WebPrincipal { IsAuthenticated = true, AppRoles = Set(AppRoles.User) }, true).Select(g => g.Persona));

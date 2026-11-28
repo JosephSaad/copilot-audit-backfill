@@ -60,7 +60,8 @@ it.
 - **Copilot seats:** Ownership registry › Copilot seats › your LOB shows the reservation against actual seats.
   Answer the **Seats proposed for reclaim** list: Keep, or Reclaim with a reason (a delegated approver can
   answer too). Reclaim opens an ITSM task to remove the person's OIM role; the seat shows as removed after the
-  next license read. Name the LOB's first seat admin in the **LOB seat admins** panel.
+  next license read. Name the LOB's first seat admin in the **People for this line of business** panel, where the
+  business owner can also be changed later.
 - **Never here:** configure Microsoft settings; record a risk acceptance or purchase on a request where you
   recorded the budget decision.
 

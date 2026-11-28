@@ -1,0 +1,72 @@
+@page "/workbench/Reports/SeatAudit/Detail"
+@model Governance.Web.Pages.Reports.SeatAuditDetailModel
+@using Governance.Web.Infrastructure
+@{
+    ViewData["Title"] = Model.Title;
+    var req = ViewContext.HttpContext.Request;
+    var review = Model.Status == "review";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/workbench/Reports/SeatAudit">Hierarchy audit</a></div>
+        <h1>@Model.Title</h1>
+        <p class="lead">@Model.Lead <help>Expected leader and level come from Hierarchy mapping; the actual name at the expected level from each holder's manager chain in Copilot Insights' AD directory. A person in two tracking groups has a row for each.</help></p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-small @(Model.Status is null or "" ? "" : "btn-ghost")" href="?">Detailed audit</a>
+        <a class="btn btn-small @(review ? "" : "btn-ghost")" href="?status=review">Exception report</a>
+        <a class="btn btn-small @(Model.Status == "newhire" ? "" : "btn-ghost")" href="?status=newhire">New hire report</a>
+    </div>
+</div>
+
+<form method="get" class="btn-row mt" role="search">
+    @if (!string.IsNullOrEmpty(Model.Status)) { <input type="hidden" name="status" value="@Model.Status" /> }
+    <label for="grp">Tracking group <help>Show one tracking group's holders only.</help></label>
+    <select id="grp" name="group">
+        <option value="">Every tracking group</option>
+        @foreach (var g in Model.GroupChoices) { <option value="@g.Id" selected="@(Model.Group == g.Id)">@g.Name</option> }
+    </select>
+    <label for="q" class="sr-only">Search</label>
+    <input id="q" type="search" name="q" value="@Model.Search" placeholder="Name or sign-in" />
+    <button class="btn btn-small" type="submit">Show</button>
+</form>
+
+<div class="card mt">
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr>
+                <partial name="_Th" model='("", "Employee name", "The seat holder, with their sign-in.")' />
+                <partial name="_Th" model='("", "Current tracking group", "The tracking group that counts their seat, and its line of business.")' />
+                <partial name="_Th" model='("", "Expected leader", "The leader the members of the group should report up to.")' />
+                <partial name="_Th" model='("", "Expected level", "Where that leader sits: level 1 is the top of the organization, level 2 reports to the top.")' />
+                <partial name="_Th" model='("", "Actual name at expected level", "Who is at that level in the manager chain of the holder.")' />
+                <partial name="_Th" model='("", "Primary audit status", "PASS, NEW HIRE or the REVIEW reason.")' />
+                <partial name="_Th" model='("", "Potential correct tracking group", "Another group whose mapped leader is in the chain of the holder at its level: a recommendation to investigate.")' />
+                <partial name="_Th" model='("", "Potential correct leader", "The expected leader of that group.")' />
+            </tr></thead>
+            <tbody>
+            @if (Model.Rows.Count == 0) { <tr><td colspan="8" class="muted">Nobody in this list.</td></tr> }
+            @foreach (var r in Model.Rows)
+            {
+                var isReview = SeatAuditRules.IsReview(r.Status);
+                <tr>
+                    <td data-label="Employee name">@r.Name<div class="small muted">@(r.Upn ?? r.MemberObjectId.ToString("D"))</div>@if (r.HireDate is DateTime h) { <div class="small muted">hired @Ui.Date(h)</div> }</td>
+                    <td data-label="Current tracking group">@r.GroupName@if (r.LobName is not null) { <div class="small muted">@r.LobName</div> }</td>
+                    <td data-label="Expected leader">@(r.ExpectedLeaderName ?? "")</td>
+                    <td data-label="Expected level">@(r.ExpectedLevel is int l ? $"Level {l}" : "")</td>
+                    <td data-label="Actual name at expected level" title="@r.Chain">@(r.ActualAtLevelName ?? "")</td>
+                    <td data-label="Primary audit status" class="@(isReview ? "status-review" : r.Status == SeatAuditRules.Pass ? "status-pass" : "status-new")">@SeatAuditRules.Label(r.Status)</td>
+                    <td data-label="Potential correct tracking group">@(r.PotentialGroup ?? "")</td>
+                    <td data-label="Potential correct leader">@(r.PotentialLeaderName ?? "")</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <div class="pager" aria-label="Pages">
+        <span>@Model.Total.ToString("N0") @(Model.Total == 1 ? "record" : "records") · page @Model.PageShown of @Model.Pages</span>
+        @if (Model.PageShown > 1) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageShown - 1)">Previous</a> }
+        @if (Model.PageShown < Model.Pages) { <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.PageShown + 1)">Next</a> }
+        <a class="btn btn-small btn-ghost" href="@Ui.CsvHref(req)">Export CSV <help>Every record in this list, all pages, with the hire date and the whole manager chain.</help></a>
+    </div>
+</div>

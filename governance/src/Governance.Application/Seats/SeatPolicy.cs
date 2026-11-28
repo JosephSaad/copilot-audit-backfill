@@ -175,6 +175,7 @@ public sealed record SeatSettings(
             "Seats.TrueDownWindowDays" => Whole(v, 0, 365, "The true-down window"),
             "Seats.OperationalBufferSeats" => Whole(v, 0, 1_000_000, "The buffer"),
             "Seats.InactiveDays" => Whole(v, 1, 730, "Inactive days"),
+            "Seats.NewHireDays" => Whole(v, 0, 730, "New-hire days"),
             "Seats.PurchaseGatePercent" => Whole(v, 1, 100, "The purchase gate"),
             "Seats.GateBaselineUnassigned" => Whole(v, 0, 10_000_000, "The gate's baseline"),
             "Seats.RatePerSeatMonth" => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) && r >= 0 && r < 100_000
