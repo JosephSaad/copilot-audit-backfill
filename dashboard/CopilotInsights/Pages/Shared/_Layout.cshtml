@@ -22,7 +22,7 @@
     @if (wb) { <link rel="stylesheet" href="~/workbench.css" asp-append-version="true" /> }
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
-<body data-section="@(page is null ? null : InsightsPage.SectionSlug(page.Persona))">
+<body data-section="@(page is not null ? InsightsPage.SectionSlug(page.Persona) : Context.Request.Path.StartsWithSegments("/workbench") ? "copilot-seat-management" : null)">
 @* The first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
    past the whole list of reports, on every page. *@
 <a class="skip" href="#main">Skip to the page</a>
@@ -67,7 +67,12 @@
             @* Data sources: what the reports are built from; names no one, so open to everyone let in. *@
             <a class="home @(path == "/sources" ? "on" : "")" href="/sources">Data sources</a>
         }
-        @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).Concat(await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On)).ToList(); }
+        @{
+            /* The Workbench's sections (Copilot Seat Management) come before Admin, which stays last. */
+            var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports).ToList();
+            var adminAt = groups.FindIndex(g => g.Persona == "Admin");
+            groups.InsertRange(adminAt < 0 ? groups.Count : adminAt, await global::Governance.Web.Infrastructure.WorkbenchNav.ForAsync(Context, WorkbenchMe, Workbench.On));
+        }
         @if (groups.Count > 0)
         {
             <input type="search" class="find" id="nav-find" placeholder="Find a report (press /)" aria-label="Find a report" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" />

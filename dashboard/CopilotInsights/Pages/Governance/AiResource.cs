@@ -14,7 +14,7 @@ namespace CopilotInsights.Pages.Governance;
 public sealed class AiResourceModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => Resource ?? "AI resource detail";
-    public override string Persona => "Governance";
+    public override string Persona => "AI apps and controls";
     public override bool UsesTeam => false;
     public override string Intro => "One Azure AI Foundry or Azure OpenAI resource: which apps call it, how often they fail, whether a person's identity comes with the call, and, where Azure's usage is loaded, its models, tokens and cost. The whole organization's, whatever team is chosen.";
 

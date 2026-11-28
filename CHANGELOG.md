@@ -4,6 +4,72 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-11-28
+
+Copilot seats month by month, from 1 December 2026: the site reads the seats every day at 08:00, each month shows
+every line of business's peak, low, average and month-end seats, charges the larger of the peak and the reservation,
+adds up the overage over the period, reconciles with the bill, and is certified (frozen) by the Platform Owner or
+FinOps. Reports are read by period, then month. The Workbench's section is now **Copilot Seat Management**, before
+Admin, with its own color and a figure in the daily brief; the Governance section is now **AI apps and controls**.
+Also: the inactive count corrected, column lines and sorting on every Workbench table, central-cost lines of business,
+findings counted where they belong, the business owner one click away.
+
+**Install over 3.6.3** (the change bundle runs from v3.6.3): in SSMS on the Workbench database, run
+`070-seats.sql`, then `900-grants.sql` (new tables, two settings, one column, the first period and the web site's
+deletes; nothing dropped or renamed); then build and deploy the dashboard (docs\BUILD-FROM-SOURCE.md). Nothing changes
+in the Copilot Insights database or on the job server. The first daily read runs at 08:00 Eastern after the install.
+
+### Added
+- **Daily seat read on the web site** (Seats.DailyReadTime, 08:00 in Calendar.TimeZone): one web server reads under a
+  database lock; a failed read is tried again an hour later. Every read records the day (intg.SeatDay) from
+  Seats.TrackingStart (2026-12-01).
+- **Monthly figures and charge**: peak, low, average, month-end seats, days measured and missing; the charge is the
+  larger of the peak and the reservation at Seats.RatePerSeatMonth; overage; cumulative overage over the period;
+  reconciliation with the licenses bought (charged, central cost, No LOB, the rest).
+- **Periods** (core.SeatPeriod): named runs of whole months that never overlap, the first December 2026 (Period 1),
+  edited on Reservation summary by the Platform Owner or FinOps. Reservation summary picks a period, then the whole
+  period or a month; the cumulative overage restarts with each period.
+- **Certify a month** (Platform Owner or FinOps, after it ends; a reason when days are missing): its figures, the
+  hierarchy audit and Duplicate review are frozen (core.SeatMonth, core.SeatMonthCertification). A later reservation
+  change inside it becomes an adjustment in the next open month (core.SeatAdjustment). The Platform Owner can reopen
+  it with a reason. The Hierarchy audit and Duplicate review offer certified months in a drop-down.
+- **Central cost** on a line of business (for example Executive Leadership, people licensed by exception): its own
+  row, charged to nobody, counted in the reconciliation; audited only when its tracking group has an expected leader.
+- **Daily brief**: *Copilot seats charged* this month, lines over their reservation and the overage, days measured,
+  for those who open the seat reports.
+- **Business owner** column with *Change* on Copilot seats and Lines of business; *Edit its tracking group* and *Set
+  the reservation* straight from a line of business.
+- **Sorting** by clicking a heading on every seat table (short tables in the page, paged lists across all pages on the
+  server) and **column lines** on every Workbench table, headings aligned with their figures.
+
+### Changed
+- **Names**: the Workbench's menu section *Copilot seats by line of business* is now **Copilot Seat Management**,
+  placed before Admin, with its own color (copper). The section *Governance* is now **AI apps and controls** (same
+  pages and addresses, same grant). The Workbench roles show as **Seat management**, **Seat management operator** and
+  **Seat management auditor**; their stored codes (Governance, GovernanceOperator, GovernanceAuditor) are kept, so
+  every grant keeps working.
+- **Multiple groups is now Duplicate review** (same address).
+- **New hires** in the hierarchy audit: hired within Seats.NewHireDays, or manager and hierarchy both blank with no
+  hire date saying otherwise (the workbook's rule); blank with an old hire date is Missing data. A group with the same
+  leader as the current one is never suggested as the alternative.
+- **No LOB counts only its own findings**; other seat findings tied to no line of business are counted apart as
+  tenant-wide and open Seat findings (Drift and findings), now open with seats only.
+- With seats only, the money page is Reservation summary; Seat chargeback stays for the whole Workbench.
+
+### Fixed
+- **Inactive counted nearly every seat holder**: activity was matched only through the Workbench's own record of the
+  person, which most holders do not have. It now uses the sign-in the license read records, as the holder lists do.
+- **3.6.3's reservation Delete needed a permission** the web site's database role did not have (900-grants.sql).
+- **Headings over the wrong figures** on the seat tables; 3.6.3's seat reports passed a style where the sort key goes.
+- **Month drop-downs did not submit** (the content security policy blocks inline scripts); Seat chargeback's too.
+
+### Known limits
+- Tested on this PC with a 300-holder population and simulated November days; not with the client's 18,000 holders,
+  three web servers, or a real daily read against Microsoft Graph (its timing and lock were tested).
+- Days before the install cannot be rebuilt: December starts on the day of the first read.
+- No notice is sent when a daily read fails or a month is ready to certify (notices need the worker's outbox).
+- Not measured: duplicate employee IDs, manager or organization changes (no history kept).
+
 ## [3.6.3] - 2026-11-28
 
 Copilot seat reports for each line of business: a reservation summary with its costs, a tracking group and manager

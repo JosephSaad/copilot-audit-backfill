@@ -34,7 +34,7 @@ public static class Sections
         new(Regions, "Regions", "Country, office and site leads", null),
         new(People, "People", "HR and people analytics", null),
         new(AppOwners, "App owners", "Microsoft 365 workload owners", null),
-        new(Governance, "Governance", "AI governance and architecture", null),
+        new(Governance, "AI apps and controls", "Models, AI apps beyond Copilot and agent policies", null),
         new(Platforms, "AI platforms", "Teams running Foundry and GitHub Copilot", Roles.Platforms),
         new(WorkbenchOwnership, "Ownership and approvals", "Requests, approvals and the workloads people own", null, true),
         new(WorkbenchRegistry, "Ownership registry", "Funding owners, workloads, seats and the service catalog", null, true),

@@ -95,10 +95,10 @@ public static class Nav
             new("Workforce", "/workforce"), new("Managers and their teams", "/workforce/managers"), new("Job families", "/workforce/families")], Key: Sections.People),
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")], Key: Sections.AppOwners),
-        new("Governance", "AI governance and architecture", [
+        new("AI apps and controls", "Models, AI apps beyond Copilot and agent policies", [
             new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps"), new("AI resource detail", "/governance/ai-apps/resource"), new("Agent policies", "/governance/agent-policies")], Key: Sections.Governance),
         /* AI platforms: the Foundry and GitHub Copilot platform teams' section. Its own grant gives them exactly these pages;
-           AI apps beyond Copilot and a resource's detail are listed here too, as in Governance. */
+           AI apps beyond Copilot and a resource's detail are listed here too, as in AI apps and controls. */
         new("AI platforms", "Teams running Foundry and GitHub Copilot", [
             new("Foundry overview", "/platforms/foundry"), new("Foundry deployments", "/platforms/foundry/deployments"), new("Foundry posture", "/platforms/foundry/posture"),
             new("GitHub Copilot overview", "/platforms/github"), new("GitHub Copilot seats", "/platforms/github/seats", Roles.Platforms), new("GitHub Copilot posture", "/platforms/github/posture"),

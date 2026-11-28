@@ -14,10 +14,10 @@
 
 <div class="card">
     <div class="table-wrap">
-        <table class="stack">
+        <table class="stack sortable">
             <thead><tr>
                 <partial name="_Th" model='("", "Tracking group", "The AD group, with its line of business.")' />
-                <partial name="_Th" model='("num", "Seat holders", "Members holding a Copilot seat at the latest seat read.")' />
+                <partial name="_Th" model='("", "Seat holders", "Members holding a Copilot seat at the latest seat read.")' />
                 <partial name="_Th" model='("", "Expected leader", "Their name and level in the directory.")' />
                 <partial name="_Th" model='("", "Expected level", "Where the leader should sit in the chain of each member.")' />
                 @if (Model.CanEdit) { <partial name="_Th" model='("", "Change", "Choose the leader by sign-in and the level, then save.")' /> }

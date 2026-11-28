@@ -21,8 +21,14 @@ public static class SeatAuditAccess
 }
 
 /// <summary>Executive summary: population and outcome metrics, with exception hotspots and the results by tracking group.</summary>
-public class SeatAuditModel(SeatAudit audit) : GovPage
+public class SeatAuditModel(SeatAudit audit, SeatQueries seats) : GovPage
 {
+    [BindProperty(SupportsGet = true, Name = "month")] public string? MonthText { get; set; }
+    /// <summary>Certified months whose audit was frozen at certification.</summary>
+    public IReadOnlyList<DateTime> FrozenMonths { get; private set; } = Array.Empty<DateTime>();
+    /// <summary>The certified month shown, or null for the live audit.</summary>
+    public DateTime? Frozen { get; private set; }
+    sealed record FrozenAudit(List<AuditMetric> Metrics, List<AuditGroupLine> Groups, DateTime TakenUtc);
     public SeatAudit.Outcome Outcome { get; private set; } = new(Array.Empty<SeatAuditRow>(), DateTime.UtcNow, 90, true, Array.Empty<SeatAuditRules.Mapping>());
     public IReadOnlyList<AuditMetric> Metrics { get; private set; } = Array.Empty<AuditMetric>();
     public IReadOnlyList<AuditGroupLine> Groups { get; private set; } = Array.Empty<AuditGroupLine>();
@@ -43,14 +49,14 @@ public class SeatAuditModel(SeatAudit audit) : GovPage
         {
             new("Total seat holders audited", total.ToString("N0"), "Copilot license holders in an active tracking group, once for each tracking group they are in.", Detail, true),
             new("PASS", pass.ToString("N0"), SeatAuditRules.Definition(SeatAuditRules.Pass), $"{Detail}?status=pass"),
-            new(SeatAuditRules.Label(SeatAuditRules.NewHire), hires.ToString("N0"), $"Hired in the last {newHireDays} days: hierarchy validation deferred; no investigation now.", $"{Detail}?status=newhire"),
+            new(SeatAuditRules.Label(SeatAuditRules.NewHire), hires.ToString("N0"), $"Hired in the last {newHireDays} days, or manager and hierarchy both blank with no hire date saying otherwise: hierarchy validation deferred; no investigation now.", $"{Detail}?status=newhire"),
             new("Total REVIEW requiring investigation", review.ToString("N0"), "All investigation statuses.", $"{Detail}?status=review", true),
         };
         list.AddRange(SeatAuditRules.Reviews.Select(s => new AuditMetric(SeatAuditRules.Label(s), rows.Count(r => r.Status == s).ToString("N0"), SeatAuditRules.Definition(s), $"{Detail}?status={s}")));
-        list.Add(new("Possible duplicate holders", rows.GroupBy(r => r.MemberObjectId).Where(g => g.Count() > 1).Sum(g => g.Count()).ToString("N0"), "Rows of people in more than one tracking group: each group counts them. See Multiple groups.", "/workbench/Reports/SeatMultipleGroups"));
+        list.Add(new("Possible duplicate holders", rows.GroupBy(r => r.MemberObjectId).Where(g => g.Count() > 1).Sum(g => g.Count()).ToString("N0"), "Rows of people in more than one tracking group: each group counts them. See Duplicate review.", "/workbench/Reports/SeatMultipleGroups"));
         list.Add(new("Validated population", validated.ToString("N0"), "Total seat holders audited less new hires.", null, true));
-        list.Add(new("Validated pass rate", validated == 0 ? "–" : Pct((double)pass / validated), "PASS / validated population.", null, true));
-        list.Add(new("New hire %", total == 0 ? "–" : Pct((double)hires / total), "New hires / total seat holders audited.", null, true));
+        list.Add(new("Validated pass rate", validated == 0 ? "\u2013" : Pct((double)pass / validated), "PASS / validated population.", null, true));
+        list.Add(new("New hire %", total == 0 ? "\u2013" : Pct((double)hires / total), "New hires / total seat holders audited.", null, true));
         list.Add(new("Reconciliation difference", (total - pass - hires - review).ToString("N0"), "Must equal zero: total = PASS + NEW HIRE + REVIEW.", null, true));
         return list;
     }
@@ -64,9 +70,22 @@ public class SeatAuditModel(SeatAudit audit) : GovPage
     public async Task<IActionResult> OnGetAsync()
     {
         if (!SeatAuditAccess.CanOpen(Principal)) return Forbid();
-        Outcome = await audit.GetAsync();
-        Metrics = Summarize(Outcome.Rows, Outcome.NewHireDays);
-        Groups = ByGroup(Outcome.Rows);
+        var frozen = await seats.FrozenReportsAsync();
+        FrozenMonths = frozen.Where(f => f.AuditJson is not null).Select(f => f.Month).ToList();
+        if (ReservationSummaryModel.ParseMonth(MonthText) is DateTime m && frozen.FirstOrDefault(f => f.Month == m && f.AuditJson is not null) is { AuditJson: { } json }
+            && System.Text.Json.JsonSerializer.Deserialize<FrozenAudit>(json) is { } fa)
+        {
+            Frozen = m;
+            Outcome = Outcome with { TakenUtc = fa.TakenUtc };
+            Metrics = fa.Metrics.Select(x => x with { Href = null }).ToList();
+            Groups = fa.Groups;
+        }
+        else
+        {
+            Outcome = await audit.GetAsync();
+            Metrics = Summarize(Outcome.Rows, Outcome.NewHireDays);
+            Groups = ByGroup(Outcome.Rows);
+        }
         MostReviews = Groups.Where(g => g.Review > 0).OrderByDescending(g => g.Review).FirstOrDefault();
         HighestShare = Groups.Where(g => g.Review > 0).OrderByDescending(g => g.ReviewShare).ThenByDescending(g => g.Review).FirstOrDefault();
         return Page();
@@ -136,8 +155,16 @@ public class SeatAuditDetailModel(SeatAudit audit) : GovPage
     {
         Outcome = await audit.GetAsync();
         GroupChoices = Outcome.Rows.Select(r => (r.GroupPublicId, r.GroupName)).Distinct().OrderBy(g => g.GroupName, StringComparer.OrdinalIgnoreCase).ToList();
-        return Filter(Outcome.Rows, Status, Group, Search).ToList();
+        return ListSort.By(Filter(Outcome.Rows, Status, Group, Search), Sort, Desc, Keys).ToList();
     }
+
+    /// <summary>The headings the list sorts by (?sort=).</summary>
+    public static readonly IReadOnlyDictionary<string, Func<SeatAuditRow, IComparable?>> Keys = new Dictionary<string, Func<SeatAuditRow, IComparable?>>
+    {
+        ["name"] = r => r.Name, ["group"] = r => r.GroupName, ["leader"] = r => r.ExpectedLeaderName, ["level"] = r => r.ExpectedLevel,
+        ["actual"] = r => r.ActualAtLevelName, ["status"] = r => SeatAuditRules.Label(r.Status), ["potential"] = r => r.PotentialGroup,
+        ["potentialleader"] = r => r.PotentialLeaderName,
+    };
 
     public async Task<IActionResult> OnGetAsync()
     {
@@ -166,6 +193,10 @@ public class SeatAuditDetailModel(SeatAudit audit) : GovPage
 /// <summary>People who may be licensed or counted through more than one AD group.</summary>
 public class SeatMultipleGroupsModel(SeatQueries seats, CopilotInsights.Infrastructure.Db insights) : GovPage
 {
+    [BindProperty(SupportsGet = true, Name = "month")] public string? MonthText { get; set; }
+    public IReadOnlyList<DateTime> FrozenMonths { get; private set; } = Array.Empty<DateTime>();
+    /// <summary>The certified month shown, or null for the live list.</summary>
+    public DateTime? Frozen { get; private set; }
     public const int Size = 50;
     [BindProperty(SupportsGet = true, Name = "show")] public string? Show { get; set; }
     public IReadOnlyList<SeatMultiGroupRow> Rows { get; private set; } = Array.Empty<SeatMultiGroupRow>();
@@ -177,22 +208,38 @@ public class SeatMultipleGroupsModel(SeatQueries seats, CopilotInsights.Infrastr
     public int PageShown { get; private set; } = 1;
     public IReadOnlyDictionary<string, (string Name, string Upn)> Names { get; private set; } = new Dictionary<string, (string, string)>();
 
+    /// <summary>The headings the list sorts by (?sort=).</summary>
+    public static readonly IReadOnlyDictionary<string, Func<SeatMultiGroupRow, IComparable?>> Keys = new Dictionary<string, Func<SeatMultiGroupRow, IComparable?>>
+    {
+        ["person"] = r => r.UserPrincipalName, ["tracking"] = r => r.TrackingGroupCount, ["groups"] = r => r.TrackingGroups,
+        ["licensed"] = r => r.LicenseSourceCount, ["sources"] = r => r.LicenseSources,
+    };
+
     private SeatHolderRow AsHolder(SeatMultiGroupRow r) => new() { MemberObjectId = r.MemberObjectId, DisplayName = r.DisplayName, UserPrincipalName = r.UserPrincipalName };
     public string NameOf(SeatMultiGroupRow r) => Registry.SeatNames.NameOf(AsHolder(r), Names);
     public string UpnOf(SeatMultiGroupRow r) => Registry.SeatNames.UpnOf(AsHolder(r), Names);
 
     private async Task<List<SeatMultiGroupRow>> LoadAsync()
     {
-        var all = await seats.MultipleGroupsAsync();
+        var frozen = await seats.FrozenReportsAsync();
+        FrozenMonths = frozen.Where(f => f.DuplicatesJson is not null).Select(f => f.Month).ToList();
+        IReadOnlyList<SeatMultiGroupRow> all;
+        if (ReservationSummaryModel.ParseMonth(MonthText) is DateTime m && frozen.FirstOrDefault(f => f.Month == m && f.DuplicatesJson is not null) is { DuplicatesJson: { } json })
+        {
+            Frozen = m;
+            all = System.Text.Json.JsonSerializer.Deserialize<List<SeatMultiGroupRow>>(json) ?? [];
+        }
+        else all = await seats.MultipleGroupsAsync();
         AllCount = all.Count;
         TrackingCount = all.Count(r => r.TrackingGroupCount > 1);
         LicenseCount = all.Count(r => r.LicenseSourceCount > 1);
-        return (Show switch
+        var list = (Show switch
         {
             "tracking" => all.Where(r => r.TrackingGroupCount > 1),
             "license" => all.Where(r => r.LicenseSourceCount > 1),
             _ => all,
-        }).OrderBy(r => r.UserPrincipalName ?? "￿", StringComparer.OrdinalIgnoreCase).ToList();
+        }).OrderBy(r => r.UserPrincipalName ?? "\uffff", StringComparer.OrdinalIgnoreCase);
+        return ListSort.By(list, Sort, Desc, Keys).ToList();
     }
 
     public async Task<IActionResult> OnGetAsync()

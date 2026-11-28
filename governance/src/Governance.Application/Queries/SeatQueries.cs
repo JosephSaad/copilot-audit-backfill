@@ -39,6 +39,8 @@ public sealed class SeatSummary
     public string? LastReadStatus { get; init; }
     public bool Stale { get; init; }
     public SeatSettings Settings { get; init; } = SeatSettings.Default;
+    /// <summary>Open seat findings tied to no line of business and not about No LOB: license errors, direct assignments, leavers, groups not found and the like.</summary>
+    public int TenantFindings { get; init; }
 }
 
 public sealed class SeatLobRow
@@ -55,6 +57,9 @@ public sealed class SeatLobRow
     public int Inactive { get; init; }
     public int OpenFindings { get; init; }
     public int PendingSeats { get; init; }
+    /// <summary>Central cost: shown, charged to no line of business, left out of the hierarchy audit unless its tracking group has an expected leader.</summary>
+    public bool IsCentralCost { get; init; }
+    public string? BusinessOwnerName { get; init; }
     public int UnusedReserved => Math.Max(0, ReservedSeats - AssignedSeats);
 }
 
@@ -134,6 +139,8 @@ public sealed class SeatLobDetail
     /// <summary>The business owner named for this line of business, if any.</summary>
     public string? BusinessOwnerName { get; init; }
     public string? BusinessOwnerUpn { get; init; }
+    /// <summary>The line of business's active tracking group, to open it on Seat groups.</summary>
+    public Guid? TrackingGroupPublicId { get; init; }
     public IReadOnlyList<SeatReservationRow> Reservations { get; init; } = Array.Empty<SeatReservationRow>();
     public IReadOnlyList<SeatHolderRow> Holders { get; init; } = Array.Empty<SeatHolderRow>();
     public IReadOnlyList<SeatReclaimRow> Reclaims { get; init; } = Array.Empty<SeatReclaimRow>();
@@ -223,6 +230,8 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
         var pending = await PendingIncreaseAsync(c, null);
         var run = await c.QueryFirstOrDefaultAsync<(DateTime? FinishedUtc, string? Status)>(
             "SELECT TOP (1) FinishedUtc, Status FROM intg.SyncRun WHERE Integration = 'X13' ORDER BY StartedUtc DESC");
+        var tenantFindings = await c.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM ops.Finding WHERE FindingType LIKE 'SEAT[_]%' AND FindingType <> 'SEAT_NO_LOB' AND FundingOwnerId IS NULL AND Status IN ('OPEN','ACKNOWLEDGED')");
         var purchased = sku.Enabled;
         /* Who pays for seats no line of business claims: the active funding owner Finance named, or none. */
         var noLobOwner = s.NoLobChargedTo.Length == 0 ? null
@@ -236,7 +245,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             NextAnniversary = SeatPolicy.NextAnniversary(s, Today), WindowOpens = SeatPolicy.TrueDownWindowOpens(s, Today), WindowOpen = SeatPolicy.IsTrueDownWindowOpen(s, Today),
             LastReadUtc = run.FinishedUtc, LastReadStatus = run.Status,
             Stale = run.FinishedUtc is null || run.FinishedUtc < clock.UtcNow.AddHours(-26),
-            Settings = s,
+            Settings = s, TenantFindings = tenantFindings,
         };
     }
 
@@ -270,12 +279,17 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
                     JOIN core.SeatGroup g ON gm.GroupId IN (g.EntraGroupId, g.AdObjectGuid) AND g.SeatGroupId = p.SeatGroupId
                     JOIN rpt.fn_SeatHolders() h ON h.MemberObjectId = gm.MemberObjectId
                     LEFT JOIN sec.Person pe ON pe.EntraObjectId = gm.MemberObjectId
-                    LEFT JOIN intg.CopilotActivity a ON a.UserPrincipalName = pe.UserPrincipalName
+                    -- The sign-in from the license read, as the holder list uses: most holders are not recorded in sec.Person,
+                    -- and matching on it alone counted their activity as missing, so nearly every holder showed as inactive.
+                    OUTER APPLY (SELECT TOP (1) sh.UserPrincipalName FROM intg.SeatHolder sh WHERE sh.MemberObjectId = gm.MemberObjectId AND sh.UserPrincipalName IS NOT NULL) x
+                    LEFT JOIN intg.CopilotActivity a ON a.UserPrincipalName = COALESCE(pe.UserPrincipalName, x.UserPrincipalName)
                     WHERE a.LastActivityDate IS NULL OR a.LastActivityDate < DATEADD(DAY, -@inactive, @today)) AS Inactive,
                    (SELECT COUNT(*) FROM ops.Finding f WHERE f.FindingType LIKE 'SEAT[_]%' AND f.Status IN ('OPEN','ACKNOWLEDGED')
-                    AND ((p.FundingOwnerId IS NULL AND f.FundingOwnerId IS NULL) OR f.FundingOwnerId = p.FundingOwnerId)) AS OpenFindings
+                    AND ((p.FundingOwnerId IS NULL AND f.FundingOwnerId IS NULL AND f.FindingType = 'SEAT_NO_LOB') OR f.FundingOwnerId = p.FundingOwnerId)) AS OpenFindings,
+                   CAST(ISNULL(fo.IsCentralCost, 0) AS bit) AS IsCentralCost, bo.DisplayName AS BusinessOwnerName
             FROM rpt.fn_SeatPosition(@today) p
             LEFT JOIN core.FundingOwner fo ON fo.FundingOwnerId = p.FundingOwnerId
+            LEFT JOIN sec.Person bo ON bo.PersonId = fo.BusinessOwnerPersonId
             ORDER BY CASE WHEN p.FundingOwnerId IS NULL THEN 1 ELSE 0 END, p.Name
             """, new { today = Today, inactive = s.InactiveDays })).ToList();
         return rows
@@ -287,7 +301,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
     private static SeatLobRow Copy(SeatLobRow r, int pending) => new()
     {
         FundingOwnerId = r.FundingOwnerId, PublicId = r.PublicId, Code = r.Code, Name = r.Name, TrackingGroup = r.TrackingGroup, ReservedSeats = r.ReservedSeats,
-        TrackingMembers = r.TrackingMembers, AssignedSeats = r.AssignedSeats, OverSeats = r.OverSeats, Inactive = r.Inactive, OpenFindings = r.OpenFindings, PendingSeats = pending,
+        TrackingMembers = r.TrackingMembers, AssignedSeats = r.AssignedSeats, OverSeats = r.OverSeats, Inactive = r.Inactive, OpenFindings = r.OpenFindings, PendingSeats = pending, IsCentralCost = r.IsCentralCost, BusinessOwnerName = r.BusinessOwnerName,
     };
 
     /// <summary>One LOB's seats; null when the LOB does not exist or the person may not see it.</summary>
@@ -300,8 +314,9 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
         if (fo.FundingOwnerId == 0 || !SeatAccess.CanView(principal, fo.FundingOwnerId)) return null;
         var position = (await LobsAsync()).FirstOrDefault(r => r.FundingOwnerId == fo.FundingOwnerId)
                        ?? new SeatLobRow { FundingOwnerId = fo.FundingOwnerId, PublicId = fundingOwnerPublicId, Code = fo.Code, Name = fo.Name };
-        var oim = await c.ExecuteScalarAsync<string?>(
-            "SELECT TOP (1) OimRoleName FROM core.SeatGroup WHERE FundingOwnerId = @id AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL", new { id = fo.FundingOwnerId });
+        var tg = await c.QueryFirstOrDefaultAsync<(string? Oim, Guid? PublicId)>(
+            "SELECT TOP (1) OimRoleName, PublicId FROM core.SeatGroup WHERE FundingOwnerId = @id AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL", new { id = fo.FundingOwnerId });
+        var oim = tg.Oim;
         var reservations = (await c.QueryAsync<SeatReservationRow>(
             """
             SELECT r.PublicId, r.Seats, r.PreviousSeats, r.ChangeKind, r.EffectiveFrom, r.EffectiveTo, ap.DisplayName AS ApprovedByName, r.FlexPoolReview, r.Notes,
@@ -335,7 +350,7 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             new { id = fo.FundingOwnerId })).ToList();
         return new SeatLobDetail
         {
-            Position = position, LobName = fo.Name, Code = fo.Code, PublicId = fundingOwnerPublicId, FundingOwnerId = fo.FundingOwnerId, OimRoleName = oim, BusinessOwnerName = fo.OwnerName, BusinessOwnerUpn = fo.OwnerUpn,
+            Position = position, LobName = fo.Name, Code = fo.Code, PublicId = fundingOwnerPublicId, FundingOwnerId = fo.FundingOwnerId, OimRoleName = oim, BusinessOwnerName = fo.OwnerName, BusinessOwnerUpn = fo.OwnerUpn, TrackingGroupPublicId = tg.PublicId,
             Reservations = reservations, Holders = holders, Reclaims = reclaims, Admins = admins, Trend = trend, Findings = findings,
         };
     }
@@ -474,6 +489,21 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             """, new { today = Today })).ToList();
     }
 
+    /// <summary>A line of business's active tracking group, to open it on Seat groups; null when it has none.</summary>
+    public async Task<Guid?> TrackingGroupOfAsync(int fundingOwnerId)
+    {
+        await using var c = await db.OpenSystemAsync();
+        return await c.ExecuteScalarAsync<Guid?>("SELECT TOP (1) PublicId FROM core.SeatGroup WHERE FundingOwnerId = @fundingOwnerId AND Purpose = 'LOB_TRACKING' AND EffectiveTo IS NULL", new { fundingOwnerId });
+    }
+
+    /// <summary>Certified months with the hierarchy audit and Duplicate review frozen at certification, newest first.</summary>
+    public async Task<IReadOnlyList<(DateTime Month, string? AuditJson, string? DuplicatesJson)>> FrozenReportsAsync()
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<(DateTime, string?, string?)>(
+            "SELECT PeriodMonth, AuditJson, DuplicatesJson FROM core.SeatMonthCertification ORDER BY PeriodMonth DESC")).ToList();
+    }
+
     /// <summary>
     /// The hierarchy audit's population: every seat holder in an active tracking group, once per group they are in, with
     /// the group's mapping. The sign-in from the license read, else the Workbench's own record of the person.
@@ -492,7 +522,29 @@ public sealed class SeatQueries(Db db, ICurrentPrincipal principal, IClock clock
             OUTER APPLY (SELECT TOP (1) s.UserPrincipalName FROM intg.SeatHolder s WHERE s.MemberObjectId = gm.MemberObjectId AND s.UserPrincipalName IS NOT NULL) x
             LEFT JOIN sec.Person p ON p.EntraObjectId = gm.MemberObjectId
             WHERE g.Purpose = 'LOB_TRACKING' AND g.EffectiveFrom <= @today AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @today)
+              -- A central-cost line is audited when its group has an expected leader (for example Executive Leadership,
+              -- mapped to the top of the organization); without one it is left out rather than shown as unknown.
+              AND (ISNULL(fo.IsCentralCost, 0) = 0 OR g.ExpectedLeaderUpn IS NOT NULL)
             """, new { today = Today }, commandTimeout: 300)).ToList();
+    }
+
+    /// <summary>The months from the tracking start (Seats.TrackingStart) to this month, newest first.</summary>
+    public Task<IReadOnlyList<DateTime>> SeatMonthsAsync() => db.InTransactionAsync(u => SeatMonths.MonthsAsync(u, clock.UtcNow));
+
+    public Task<IReadOnlyList<SeatPeriod>> SeatPeriodsAsync() => db.InTransactionAsync(SeatMonths.PeriodsAsync);
+
+    /// <summary>A whole period, its months so far added up line by line.</summary>
+    public async Task<SeatPeriodView> SeatPeriodAsync(SeatPeriod period)
+    {
+        var s = await SettingsAsync();
+        return await db.InTransactionAsync(u => SeatMonths.PeriodAsync(u, period, clock.UtcNow, s));
+    }
+
+    /// <summary>One month: certified (frozen) or the draft built from its days, with cumulative overage and adjustments.</summary>
+    public async Task<SeatMonthView> SeatMonthAsync(DateTime month)
+    {
+        var s = await SettingsAsync();
+        return await db.InTransactionAsync(u => SeatMonths.MonthAsync(u, month, clock.UtcNow, s));
     }
 
     /// <summary>

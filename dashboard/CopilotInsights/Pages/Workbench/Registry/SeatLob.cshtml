@@ -16,6 +16,12 @@
         <p class="lead">Reserved Copilot seats against the seats people in this LOB actually hold. The LOB pays for its reservation until the EA anniversary, and for any seats above it. <help>Assigned seats are people in the LOB's tracking group who hold an active Copilot add-on license, from the daily read-back.</help></p>
     </div>
     <div class="page-actions">
+        @if (Model.CanSetOwner)
+        {
+            <a class="btn btn-ghost" href="/workbench/Admin/SeatGroups@(d.TrackingGroupPublicId is Guid tgid ? "?edit=" + tgid : "")#group-form">@(d.TrackingGroupPublicId is null ? "Add its tracking group" : "Edit its tracking group")</a>
+        }
+        @if (Model.CanSetReservation) { <a class="btn btn-ghost" href="#set-reservation">Set the reservation</a> }
+        <a class="btn btn-ghost" href="#admins">Business owner and seat admins</a>
         @if (Model.CanAskChange && !Model.SeatsOnly) { <a class="btn" href="/workbench/Requests/New/J9?fundingOwner=@d.PublicId">Change the reservation</a> }
         <a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export holders</a>
     </div>
@@ -222,8 +228,8 @@
         <div class="table-wrap">
             <table class="stack">
                 <thead><tr>
-                    <partial name="_Th" model='("", "Person", "The seat holder.")' />
-                    <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report. None means no activity in the report period.")' />
+                    <partial name="_Th" model='("person", "Person", "The seat holder.")' />
+                    <partial name="_Th" model='("last", "Last Copilot use", "From the Copilot usage report. None means no activity in the report period.")' />
                     <partial name="_Th" model='("", "Status", "Proposed, kept, reclaim sent, removed or cancelled.")' />
                     <partial name="_Th" model='("", "Answer", "Keep or reclaim, with the reason.")' />
                 </tr></thead>
@@ -270,10 +276,10 @@
     <div class="table-wrap" id="people">
         <table class="stack">
             <thead><tr>
-                <partial name="_Th" model='("", "Person", "Name and sign-in name.")' />
-                <partial name="_Th" model='("", "Seat", "Whether the person holds an active Copilot add-on seat.")' />
-                <partial name="_Th" model='("", "License state", "From Microsoft 365. An error such as not enough licenses or a missing usage location means the person has no working seat.")' />
-                <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report.")' />
+                <partial name="_Th" model='("person", "Person", "Name and sign-in name.")' />
+                <partial name="_Th" model='("seat", "Seat", "Whether the person holds an active Copilot add-on seat.")' />
+                <partial name="_Th" model='("state", "License state", "From Microsoft 365. An error such as not enough licenses or a missing usage location means the person has no working seat.")' />
+                <partial name="_Th" model='("last", "Last Copilot use", "From the Copilot usage report.")' />
             </tr></thead>
             <tbody>
             @if (holders.Count == 0) { <tr><td colspan="4" class="muted">Nobody in this list.</td></tr> }

@@ -1,13 +1,25 @@
 @page "/workbench/Reports/SeatMultipleGroups"
 @model Governance.Web.Pages.Reports.SeatMultipleGroupsModel
 @{
-    ViewData["Title"] = "Multiple groups";
+    ViewData["Title"] = "Duplicate review";
     var req = ViewContext.HttpContext.Request;
 }
 <div class="page-head">
     <div>
         <div class="crumbs"><a href="/workbench/Registry/Seats">Copilot seats</a></div>
-        <h1>Licensed or counted through more than one group</h1>
+        <h1>Duplicate review</h1>
+        @if (Model.Frozen is DateTime fm) { <p class="small"><strong>As certified with @fm.ToString("MMMM yyyy").</strong> <a href="?">Show the live list</a>.</p> }
+        @if (Model.FrozenMonths.Count > 0)
+        {
+            <form method="get" class="btn-row">
+                <label for="month" class="sr-only">Month</label>
+                <select id="month" name="month" data-autosubmit>
+                    <option value="">Now (live)</option>
+                    @foreach (var m in Model.FrozenMonths) { <option value="@m.ToString("yyyy-MM")" selected="@(Model.Frozen == m)">@m.ToString("MMMM yyyy") (certified)</option> }
+                </select>
+                <noscript><button class="btn btn-small" type="submit">Show</button></noscript>
+            </form>
+        }
         <p class="lead">People in two or more tracking groups, so more than one line of business counts their seat, and people whose Copilot license comes through more than one group, or through a group and directly. <help>Both come from the latest seat read: the tracking groups' members, and the groups Microsoft 365 says each Copilot license is assigned through. One license is used either way: this lists what to clean up so each person is counted once.</help></p>
     </div>
 </div>
@@ -22,11 +34,11 @@
     <div class="table-wrap">
         <table class="stack">
             <thead><tr>
-                <partial name="_Th" model='("", "Person", "Name and sign-in.")' />
-                <partial name="_Th" model='("num", "Tracking groups", "How many tracking groups list the person.")' />
-                <partial name="_Th" model='("", "Which tracking groups", "Each with its line of business.")' />
-                <partial name="_Th" model='("num", "Licensed through", "How many groups (or a direct assignment) give the Copilot license.")' />
-                <partial name="_Th" model='("", "License sources", "The license groups, or Assigned directly.")' />
+                <partial name="_Th" model='("person", "Person", "Name and sign-in.")' />
+                <partial name="_Th" model='("tracking", "Tracking groups", "How many tracking groups list the person.")' />
+                <partial name="_Th" model='("groups", "Which tracking groups", "Each with its line of business.")' />
+                <partial name="_Th" model='("licensed", "Licensed through", "How many groups (or a direct assignment) give the Copilot license.")' />
+                <partial name="_Th" model='("sources", "License sources", "The license groups, or Assigned directly.")' />
             </tr></thead>
             <tbody>
             @if (Model.Rows.Count == 0) { <tr><td colspan="5" class="muted">Nobody: every seat holder is in one tracking group and licensed one way.</td></tr> }

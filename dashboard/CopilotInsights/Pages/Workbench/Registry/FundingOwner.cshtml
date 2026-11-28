@@ -25,6 +25,16 @@
     <div class="card">
         <h2>Copilot seats <help>The AD tracking group says who belongs to this line of business; its members who hold a Copilot license are its seats, with their use from Copilot Insights.</help></h2>
         <p>See who holds a seat in @o.Name and how they use Copilot on <a href="/workbench/Registry/Seats/@o.PublicId">its seats page</a>. Its AD tracking group is set on <a href="/workbench/Admin/SeatGroups">Seat groups</a>.</p>
+        <p class="btn-row"><a class="btn btn-small btn-ghost" href="/workbench/Registry/Seats/@o.PublicId#set-reservation">Its reservation</a> <a class="btn btn-small btn-ghost" href="/workbench/Admin/SeatGroups@(Model.TrackingGroupId is Guid tg ? "?edit=" + tg : "")#group-form">@(Model.TrackingGroupId is null ? "Add its tracking group" : "Edit its tracking group")</a></p>
+        <p><strong>Business owner:</strong> @(d.BusinessOwnerName ?? "not named") · <a href="/workbench/Registry/Seats/@o.PublicId#admins">@(d.BusinessOwnerName is null ? "Name the business owner" : "Change the business owner")</a> <help>On its seats page, in People for this line of business: the Platform Owner or FinOps changes or clears it; the seat admins are there too.</help></p>
+        @if (Model.CanFinance)
+        {
+            <form method="post" asp-page-handler="Central" class="mt btn-row">
+                <idem /><input type="hidden" name="central" value="@(o.IsCentralCost == true ? "false" : "true")" />
+                <button class="btn btn-small btn-ghost" type="submit">@(o.IsCentralCost == true ? "Charge it to this line of business again" : "Make it a central cost")</button>
+                <span class="small muted">@(o.IsCentralCost == true ? "Central cost: its seats show on their own row, are charged to no line of business, and are left out of the hierarchy audit unless its tracking group has an expected leader." : "For seats licensed by exception: shown on their own row, charged to no line of business, left out of the hierarchy audit unless its tracking group has an expected leader.")</span>
+            </form>
+        }
         @if (o.Status == "DRAFT" && Model.CanFinance)
         {
             <form method="post" asp-page-handler="Activate" class="mt"><idem /><button class="btn" type="submit">Activate</button> <span class="small muted">Added before the Workbench was set to Copilot seats only: its seats are counted once it is active.</span></form>

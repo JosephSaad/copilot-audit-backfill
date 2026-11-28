@@ -35,6 +35,14 @@ GRANT DELETE ON ntf.DigestEntry       TO app_worker;
 GRANT DELETE ON ntf.Delivery          TO app_worker;   -- the Retention job: delivery records past Retention.WorkerRecordDays
 GRANT DELETE ON intg.JobRun           TO app_worker;   -- the Retention job: job runs past Retention.WorkerRecordDays
 GRANT DELETE ON sec.DelegationEnvelope TO app_web;
+GRANT DELETE ON core.SeatReservation  TO app_web;      -- the Platform Owner deletes a figure from the reservation history
+GRANT DELETE ON core.SeatMonth        TO app_web;      -- the Platform Owner reopens a certified month
+GRANT DELETE ON core.SeatMonthCertification TO app_web;
+GRANT DELETE ON core.SeatPeriod       TO app_web;      -- a period with no certified month can be removed
+-- The seat read also runs on the web site (no worker): it replaces group members, holders and activity as the worker does.
+GRANT DELETE ON intg.GroupMember      TO app_web;
+GRANT DELETE ON intg.SeatHolder       TO app_web;
+GRANT DELETE ON intg.CopilotActivity  TO app_web;
 
 -- Sequences.
 GRANT UPDATE ON wf.RequestNumber TO app_web;

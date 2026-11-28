@@ -98,7 +98,7 @@ public static class AccessProfiles
     [
         new("Line-of-business owner", [SectionsOf(false, false, Infrastructure.Sections.Leadership, Infrastructure.Sections.WorkbenchOwnership, Infrastructure.Sections.WorkbenchRegistry)], [], true),
         new("Governance team", [new(Infrastructure.Roles.Governance)], [], true),
-        new("Governance operator", [new(Infrastructure.Roles.GovernanceOperator)], [], true),
+        new("Seat management operator", [new(Infrastructure.Roles.GovernanceOperator)], [], true),
         new("Governance auditor", [new(Infrastructure.Roles.GovernanceAuditor)], [], true),
     ];
 

@@ -33,7 +33,7 @@ public class SeatsModel(SeatQueries seats, CopilotInsights.Infrastructure.Db ins
         Lobs = await seats.LobsAsync();
         if (Show == "nolob" && SeesAll)
         {
-            var all = (await seats.UnattributedAsync()).OrderBy(h => h.UserPrincipalName ?? "\uffff", StringComparer.OrdinalIgnoreCase).ToList();
+            var all = ListSort.By((await seats.UnattributedAsync()).OrderBy(h => h.UserPrincipalName ?? "\uffff", StringComparer.OrdinalIgnoreCase), Sort, Desc, SeatLobModel.HolderKeys).ToList();
             UnattributedTotal = all.Count;
             PageNo = Math.Clamp(PageNo, 1, UnattributedPages);
             Unattributed = all.Skip((PageNo - 1) * SeatLobModel.HolderPageSize).Take(SeatLobModel.HolderPageSize).ToList();
@@ -78,6 +78,13 @@ public class SeatLobModel(SeatQueries seats, SeatCommands commands, CopilotInsig
     public string NameOf(SeatHolderRow h) => SeatNames.NameOf(h, DirectoryNames);
     public string UpnOf(SeatHolderRow h) => SeatNames.UpnOf(h, DirectoryNames);
 
+    /// <summary>The headings a holder list sorts by (?sort=).</summary>
+    public static readonly IReadOnlyDictionary<string, Func<SeatHolderRow, IComparable?>> HolderKeys = new Dictionary<string, Func<SeatHolderRow, IComparable?>>
+    {
+        ["person"] = h => h.UserPrincipalName, ["seat"] = h => h.HasSeat, ["state"] = h => h.State, ["last"] = h => h.LastActivityDate,
+        ["how"] = h => h.Direct,
+    };
+
     /// <summary>The list a filter names, by sign-in; pure, for the tests.</summary>
     public static IEnumerable<SeatHolderRow> Filter(IEnumerable<SeatHolderRow> all, string? filter, int inactiveDays, DateTime today) => (filter switch
     {
@@ -112,7 +119,7 @@ public class SeatLobModel(SeatQueries seats, SeatCommands commands, CopilotInsig
         D = d;
         InactiveDays = (await seats.SettingsAsync()).InactiveDays;
         if (CanManageAdmins || CanSetOwner) People = await seats.PeopleAsync();
-        var list = Filter(d.Holders, HolderFilter, InactiveDays, DateTime.UtcNow.Date).ToList();
+        var list = ListSort.By(Filter(d.Holders, HolderFilter, InactiveDays, DateTime.UtcNow.Date), Sort, Desc, HolderKeys).ToList();
         HolderTotal = list.Count;
         HolderPageNo = Math.Clamp(PageNo, 1, HolderPages);
         HolderPage = list.Skip((HolderPageNo - 1) * HolderPageSize).Take(HolderPageSize).ToList();
@@ -126,7 +133,7 @@ public class SeatLobModel(SeatQueries seats, SeatCommands commands, CopilotInsig
         var d = await seats.LobAsync(Id);
         if (d is null) return NotFound();
         var days = (await seats.SettingsAsync()).InactiveDays;
-        var list = Filter(d.Holders, HolderFilter, days, DateTime.UtcNow.Date).ToList();
+        var list = ListSort.By(Filter(d.Holders, HolderFilter, days, DateTime.UtcNow.Date), Sort, Desc, HolderKeys).ToList();
         DirectoryNames = await NamesAsync(list);
         var which = HolderFilter is "noseat" or "inactive" or "all" ? HolderFilter : "seat";
         return Csv(list.Select(h => new { DisplayName = NameOf(h), UserPrincipalName = UpnOf(h), Seat = h.HasSeat ? "yes" : "no", h.State, h.Error, Direct = h.Direct ? "yes" : "no", LastCopilotActivity = h.LastActivityDate?.ToString("yyyy-MM-dd") }), $"seats-{d.Code}-{which}");

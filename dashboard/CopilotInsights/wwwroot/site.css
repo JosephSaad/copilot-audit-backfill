@@ -749,8 +749,9 @@ body[data-section="forecasting"], [data-grp="Forecasting"] { --sec: #8a6d00; }
 body[data-section="regions"], [data-grp="Regions"] { --sec: #4a7a22; }
 body[data-section="people"], [data-grp="People"] { --sec: #b03a6c; }
 body[data-section="app-owners"], [data-grp="App owners"] { --sec: #335c99; }
-body[data-section="governance"], [data-grp="Governance"] { --sec: #6a55a0; }
+body[data-section="ai-apps-and-controls"], [data-grp="AI apps and controls"] { --sec: #6a55a0; }
 body[data-section="ai-platforms"], [data-grp="AI platforms"] { --sec: #0a6b6b; }
+body[data-section="copilot-seat-management"], [data-grp="Copilot Seat Management"] { --sec: #8a5a24; }
 body[data-section="admin"], [data-grp="Admin"] { --sec: #55626d; }
 :root[data-theme="dark"] body[data-section="leadership"], :root[data-theme="dark"] [data-grp="Leadership"] { --sec: #9d8cf0; }
 :root[data-theme="dark"] body[data-section="adoption"], :root[data-theme="dark"] [data-grp="Adoption"] { --sec: #3cc28e; }
@@ -763,8 +764,9 @@ body[data-section="admin"], [data-grp="Admin"] { --sec: #55626d; }
 :root[data-theme="dark"] body[data-section="regions"], :root[data-theme="dark"] [data-grp="Regions"] { --sec: #93c862; }
 :root[data-theme="dark"] body[data-section="people"], :root[data-theme="dark"] [data-grp="People"] { --sec: #ea82ad; }
 :root[data-theme="dark"] body[data-section="app-owners"], :root[data-theme="dark"] [data-grp="App owners"] { --sec: #86a9e0; }
-:root[data-theme="dark"] body[data-section="governance"], :root[data-theme="dark"] [data-grp="Governance"] { --sec: #ad9de0; }
+:root[data-theme="dark"] body[data-section="ai-apps-and-controls"], :root[data-theme="dark"] [data-grp="AI apps and controls"] { --sec: #ad9de0; }
 :root[data-theme="dark"] body[data-section="ai-platforms"], :root[data-theme="dark"] [data-grp="AI platforms"] { --sec: #5cc2bb; }
+:root[data-theme="dark"] body[data-section="copilot-seat-management"], :root[data-theme="dark"] [data-grp="Copilot Seat Management"] { --sec: #d9a066; }
 :root[data-theme="dark"] body[data-section="admin"], :root[data-theme="dark"] [data-grp="Admin"] { --sec: #9ba8af; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) body[data-section="leadership"], :root:not([data-theme="light"]) [data-grp="Leadership"] { --sec: #9d8cf0; }
@@ -778,8 +780,9 @@ body[data-section="admin"], [data-grp="Admin"] { --sec: #55626d; }
   :root:not([data-theme="light"]) body[data-section="regions"], :root:not([data-theme="light"]) [data-grp="Regions"] { --sec: #93c862; }
   :root:not([data-theme="light"]) body[data-section="people"], :root:not([data-theme="light"]) [data-grp="People"] { --sec: #ea82ad; }
   :root:not([data-theme="light"]) body[data-section="app-owners"], :root:not([data-theme="light"]) [data-grp="App owners"] { --sec: #86a9e0; }
-  :root:not([data-theme="light"]) body[data-section="governance"], :root:not([data-theme="light"]) [data-grp="Governance"] { --sec: #ad9de0; }
+  :root:not([data-theme="light"]) body[data-section="ai-apps-and-controls"], :root:not([data-theme="light"]) [data-grp="AI apps and controls"] { --sec: #ad9de0; }
   :root:not([data-theme="light"]) body[data-section="ai-platforms"], :root:not([data-theme="light"]) [data-grp="AI platforms"] { --sec: #5cc2bb; }
+  :root:not([data-theme="light"]) body[data-section="copilot-seat-management"], :root:not([data-theme="light"]) [data-grp="Copilot Seat Management"] { --sec: #d9a066; }
   :root:not([data-theme="light"]) body[data-section="admin"], :root:not([data-theme="light"]) [data-grp="Admin"] { --sec: #9ba8af; }
 }
 .page-head .eyebrow { color: var(--sec); }

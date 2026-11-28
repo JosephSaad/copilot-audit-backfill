@@ -6,7 +6,7 @@ namespace CopilotInsights.Pages.Governance;
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Models and controls";
-    public override string Persona => "Governance";
+    public override string Persona => "AI apps and controls";
     public override string Intro => "Which AI models answer, how often Copilot searches the public web and in which units, how much use is in the Copilot Chat app rather than inside Word, Outlook and the other apps, how often Copilot updates its memory or defers a data loss prevention check, and how many agents are in use. Shares are of interactions (one prompt and Copilot's answer) in the period.";
 
     protected override async Task BuildAsync()

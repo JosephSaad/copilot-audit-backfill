@@ -16,7 +16,7 @@ namespace CopilotInsights.Pages.Governance;
 public sealed class AiAppsModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "AI apps beyond Copilot";
-    public override string Persona => "Governance";
+    public override string Persona => "AI apps and controls";
     public override bool UsesTeam => false;
     public override string Intro => "Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, as Microsoft Purview records them: which resources, in which line of business and environment, how many carry a person's identity, and how they move over time. The whole organization's, whatever team is chosen.";
 

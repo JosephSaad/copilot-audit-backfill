@@ -7,7 +7,7 @@
 }
 <div class="page-head">
     <div>
-        <div class="crumbs">@(Model.SeatsOnly ? "Copilot seats by line of business" : "Ownership registry")</div>
+        <div class="crumbs">@(Model.SeatsOnly ? "Copilot Seat Management" : "Ownership registry")</div>
         <h1>Copilot seats</h1>
         <p class="lead">The paid Microsoft 365 Copilot license, counted in seats. Each LOB reserves seats for the year; the license comes from one shared group and each LOB's tracking group says whose seat it is. An LOB pays its full reservation until the EA anniversary, plus any seats assigned above it. <help>Policy references: Sections 4.1 and 4.4; FIN-05 and FIN-06. Seats are never converted to credits or money here, except on the chargeback report.</help></p>
     </div>
@@ -45,11 +45,16 @@
     }
     <p class="small muted">@Governance.Application.Seats.SeatPolicy.NoLobSentence(s.Settings, s.NoLobOwnerName, Model.Principal.AppRoles.Contains(AppRoles.Admin)) Increases take effect @(s.Settings.IncreaseEffective == "NEXT_MONTH" ? "on the first day of the next month" : "on the decision date").</p>
 </div>
+@if (Model.SeesAll && s.TenantFindings > 0)
+{
+    <p class="mt"><a href="/workbench/Operations/Findings">@Ui.Num(s.TenantFindings) tenant-wide seat @(s.TenantFindings == 1 ? "finding" : "findings") open</a> <help>Seat findings tied to no line of business and not about No LOB: license errors, seats assigned directly, leavers still holding a seat, people in an exclusion group holding a seat, groups not found or nesting other groups. No LOB counts only its own: seat holders in no tracking group.</help></p>
+}
 <div class="table-wrap mt">
-    <table class="stack">
+    <table class="stack sortable">
         <thead>
         <tr>
             <partial name="_Th" model='("", "LOB", "The line of business that reserves and pays for the seats.")' />
+            <partial name="_Th" model='("", "Business owner", "Who answers for the line of business. Change opens its People box.")' />
             <partial name="_Th" model='("", "Reserved", "Seats the LOB reserved, in effect today.")' />
             <partial name="_Th" model='("", "Assigned", "People in the LOB tracking group who hold an active Copilot seat.")' />
             <partial name="_Th" model='("", "Over", "Seats assigned above the reservation. They are charged on top (FIN-06).")' />
@@ -63,18 +68,24 @@
         <tbody>
         @if (Model.Lobs.Count == 0)
         {
-            <tr><td colspan="9" class="muted">No LOB has seats yet. FinOps records each LOB's first reservation on its page; admins map the seat groups in Admin, Seat groups.</td></tr>
+            <tr><td colspan="10" class="muted">No LOB has seats yet. FinOps records each LOB's first reservation on its page; admins map the seat groups in Admin, Seat groups.</td></tr>
         }
         @foreach (var r in Model.Lobs)
         {
             var pct = r.ReservedSeats > 0 ? Math.Min(100, (int)Math.Round(100.0 * r.AssignedSeats / r.ReservedSeats)) : (r.AssignedSeats > 0 ? 100 : 0);
-            <tr class="@(r.FundingOwnerId is null ? "row-warn" : "")">
+            <tr class="@(r.FundingOwnerId is null ? "row-warn sort-last" : "")">
                 <td data-label="LOB">
                     @if (r.PublicId is Guid g) { <a href="/workbench/Registry/Seats/@g"><strong>@r.Name</strong></a> }
                     else { <a href="/workbench/Registry/Seats?show=nolob#nolob"><strong>No LOB</strong></a> <span class="small muted">seats no tracking group claims</span> }
                     @if (r.TrackingGroup is not null) { <div class="small muted mono">@r.TrackingGroup</div> }
                     else if (r.FundingOwnerId is not null) { <div class="small text-bad">No tracking group mapped</div> }
+                    @if (r.IsCentralCost) { <span class="pill">Central cost</span> }
                 </td>
+                <td data-label="Business owner">@if (r.PublicId is Guid bg)
+                    {
+                        @if (r.BusinessOwnerName is null) { <span class="muted">Not named</span> } else { @r.BusinessOwnerName }
+                        @if (Model.SeesAll) { <div><a class="small" href="/workbench/Registry/Seats/@bg#admins">@(r.BusinessOwnerName is null ? "Name one" : "Change")</a></div> }
+                    }</td>
                 <td data-label="Reserved" class="num">@Ui.Num(r.ReservedSeats)</td>
                 <td data-label="Assigned" class="num">@Ui.Num(r.AssignedSeats)
                     @if (r.FundingOwnerId is not null) { <div class="meter" role="img" aria-label="@pct% of the reservation is assigned"><span style="width:@(pct)%" class="@(r.OverSeats > 0 ? "meter-bad" : "")"></span></div> }
@@ -93,6 +104,7 @@
             <tfoot>
             <tr>
                 <th scope="row">Total</th>
+                <td></td>
                 <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.ReservedSeats))</td>
                 <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.AssignedSeats))</td>
                 <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.OverSeats))</td>
@@ -113,10 +125,10 @@
         <div class="table-wrap">
             <table class="stack">
                 <thead><tr>
-                    <partial name="_Th" model='("", "Person", "Name and sign-in name.")' />
-                    <partial name="_Th" model='("", "How assigned", "Through the license group, or assigned directly to the person.")' />
-                    <partial name="_Th" model='("", "State", "License state from Microsoft 365, with the error if any.")' />
-                    <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report.")' />
+                    <partial name="_Th" model='("person", "Person", "Name and sign-in name.")' />
+                    <partial name="_Th" model='("how", "How assigned", "Through the license group, or assigned directly to the person.")' />
+                    <partial name="_Th" model='("state", "State", "License state from Microsoft 365, with the error if any.")' />
+                    <partial name="_Th" model='("last", "Last Copilot use", "From the Copilot usage report.")' />
                 </tr></thead>
                 <tbody>
                 @if (Model.Unattributed.Count == 0) { <tr><td colspan="4" class="muted">None.</td></tr> }

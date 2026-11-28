@@ -176,6 +176,10 @@ public sealed record SeatSettings(
             "Seats.OperationalBufferSeats" => Whole(v, 0, 1_000_000, "The buffer"),
             "Seats.InactiveDays" => Whole(v, 1, 730, "Inactive days"),
             "Seats.NewHireDays" => Whole(v, 0, 730, "New-hire days"),
+            "Seats.TrackingStart" => DateTime.TryParseExact(v, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var ts) && ts.Day == 1
+                ? ts.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : throw new DomainException("Tracking starts on the first day of a month, as yyyy-MM-dd, for example 2026-12-01."),
+            "Seats.DailyReadTime" => v.Length == 0 ? "" : TimeSpan.TryParseExact(v, @"hh\:mm", CultureInfo.InvariantCulture, out var rt) && rt < TimeSpan.FromDays(1)
+                ? rt.ToString(@"hh\:mm", CultureInfo.InvariantCulture) : throw new DomainException("The daily read time is HH:mm, for example 08:00, or empty to turn it off."),
             "Seats.PurchaseGatePercent" => Whole(v, 1, 100, "The purchase gate"),
             "Seats.GateBaselineUnassigned" => Whole(v, 0, 10_000_000, "The gate's baseline"),
             "Seats.RatePerSeatMonth" => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) && r >= 0 && r < 100_000

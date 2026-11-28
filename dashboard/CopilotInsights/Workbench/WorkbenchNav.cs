@@ -114,14 +114,14 @@ public static class WorkbenchNav
         if (me.SeesRegistry) pages.Add(new("Lines of business", $"{P}/Registry/FundingOwners"));
         var reports = SeatReportHandler.Allows(me);
         if (reports) pages.Add(new("Reservation summary", $"{P}/Reports/ReservationSummary"));
-        if (auditor) pages.Add(new("Seat chargeback", $"{P}/Reports/SeatChargeback"));
+        // The money page with seats only is Reservation summary (monthly, peak-based); Seat chargeback stays for the whole Workbench.
         if (reports)
         {
             pages.Add(new("Hierarchy audit", $"{P}/Reports/SeatAudit"));
             pages.Add(new("Exception report", $"{P}/Reports/SeatAudit/Detail?status=review"));
             pages.Add(new("New hire report", $"{P}/Reports/SeatAudit/Detail?status=newhire"));
             pages.Add(new("Detailed audit", $"{P}/Reports/SeatAudit/Detail"));
-            pages.Add(new("Multiple groups", $"{P}/Reports/SeatMultipleGroups"));
+            pages.Add(new("Duplicate review", $"{P}/Reports/SeatMultipleGroups"));
             pages.Add(new("Hierarchy mapping", $"{P}/Admin/SeatMapping"));
         }
         if (settings)
@@ -130,8 +130,12 @@ public static class WorkbenchNav
             pages.Add(new("Workbench roles", $"{P}/Admin/Roles"));
             pages.Add(new("Settings", $"{P}/Admin/Settings"));
         }
-        if (operations) pages.Add(new("Sync and freshness", $"{P}/Operations/Sync"));
-        return pages.Count == 0 ? [] : [new("Copilot seats by line of business", "Each line of business's Copilot license holders and their use", pages)];
+        if (operations)
+        {
+            pages.Add(new("Seat findings", $"{P}/Operations/Findings"));
+            pages.Add(new("Sync and freshness", $"{P}/Operations/Sync"));
+        }
+        return pages.Count == 0 ? [] : [new("Copilot Seat Management", "Each line of business's Copilot license holders and their use", pages)];
     }
 
     /// <summary>The Workbench page roles the signed-in person's Insights grants give, roles and sections.</summary>
@@ -198,7 +202,7 @@ public static class WorkbenchNav
         {
             ops.Add(new("Reservation summary", $"{P}/Reports/ReservationSummary"));
             ops.Add(new("Hierarchy audit", $"{P}/Reports/SeatAudit"));
-            ops.Add(new("Multiple groups", $"{P}/Reports/SeatMultipleGroups"));
+            ops.Add(new("Duplicate review", $"{P}/Reports/SeatMultipleGroups"));
             ops.Add(new("Hierarchy mapping", $"{P}/Admin/SeatMapping"));
         }
         if (ops.Count > 0) groups.Add(new("Governance operations", "The platform team, FinOps and auditors", ops));

@@ -63,7 +63,7 @@ public class Release363Tests
         Assert.NotEqual(SeatAuditRules.NewHire, SeatAuditRules.Evaluate(Finance, [], Today.AddDays(-91), Today, 90, All).Status);
         Assert.Equal(SeatAuditRules.UnknownGroup, SeatAuditRules.Evaluate(Unmapped, [Ceo], null, Today, 90, All).Status);
         Assert.Equal(SeatAuditRules.MissingData, SeatAuditRules.Evaluate(Finance, [], null, Today, 90, All).Status);
-        Assert.Equal(SeatAuditRules.MissingData, SeatAuditRules.Evaluate(Finance, Chain(("lost@contoso.com", null)), null, Today, 90, All).Status);
+        Assert.Equal(SeatAuditRules.MissingData, SeatAuditRules.Evaluate(Finance, Chain(("lost@contoso.com", null)), Today.AddYears(-2), Today, 90, All).Status);   // blank, hired long ago
         Assert.Equal(SeatAuditRules.Pass, SeatAuditRules.Evaluate(Finance, [Ceo], null, Today, 90, All).Status);   // the top of the organization
     }
 
@@ -128,7 +128,7 @@ public class Release363Tests
         foreach (var p in new[] { "/workbench/Reports/ReservationSummary", "/workbench/Reports/SeatAudit/Detail", "/workbench/Reports/SeatMultipleGroups", "/workbench/Admin/SeatMapping" })
             Assert.True(Governance.Application.WorkbenchScope.PageOpen(p, true), p);
         var nav = Repo("dashboard", "CopilotInsights", "Workbench", "WorkbenchNav.cs");
-        foreach (var t in new[] { "\"Reservation summary\"", "\"Hierarchy audit\"", "\"Exception report\"", "\"New hire report\"", "\"Detailed audit\"", "\"Multiple groups\"", "\"Hierarchy mapping\"" })
+        foreach (var t in new[] { "\"Reservation summary\"", "\"Hierarchy audit\"", "\"Exception report\"", "\"New hire report\"", "\"Detailed audit\"", "\"Duplicate review\"", "\"Hierarchy mapping\"" })
             Assert.Contains(t, nav);
     }
 }

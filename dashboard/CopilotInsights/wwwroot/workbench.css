@@ -254,3 +254,15 @@
 .wb a.stat-link:hover, .wb a.stat-link:focus-visible { border-color: var(--brand); }
 .wb .stat .small-value { font-size: 1.05rem; line-height: 1.35; white-space: normal; }
 .wb .hotspot { background: var(--bad-soft); }
+
+/* Column lines, so each figure sits under its heading (above phone width, where tables stay tables). */
+@media (min-width: 861px) {
+    .wb th + th, .wb td + td, .wb th + td, .wb td + th { border-left: 1px solid var(--border); }
+}
+/* Sorting: a heading button in short tables (sorted in the page), a link in paged lists (sorted on the server). */
+.wb th .th-sort { all: unset; cursor: pointer; display: inline-flex; gap: .25rem; align-items: center; color: inherit; font: inherit; }
+.wb th .th-sort:hover, .wb th .th-sort:focus-visible { text-decoration: underline; }
+.wb th .th-sort::after { content: "\2195"; opacity: .35; font-size: .8em; }
+.wb th[aria-sort="ascending"] .th-sort::after { content: "\25B2"; opacity: .8; }
+.wb th[aria-sort="descending"] .th-sort::after { content: "\25BC"; opacity: .8; }
+.wb th.num .th-inner { justify-content: flex-end; }

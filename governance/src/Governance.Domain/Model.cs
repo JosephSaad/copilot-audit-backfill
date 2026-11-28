@@ -35,6 +35,8 @@ public sealed class FundingOwner
     public string? FinanceNode { get; init; }
     public string Status { get; init; } = "";
     public bool IsCriticalShared { get; init; }
+    /// <summary>Copilot seats as central cost: shown on their own row, charged to no line of business, left out of the hierarchy audit unless its tracking group has an expected leader.</summary>
+    public bool? IsCentralCost { get; init; }
     public bool NotificationRecipientsConfirmed { get; init; }
     public bool AttributionTested { get; init; }
     public DateTime EffectiveFrom { get; init; }
